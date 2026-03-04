@@ -1,0 +1,15 @@
+.DS_Store
+
+# Local env (do not commit secrets)
+.env
+.env.*
+!.env.example
+
+# Binaries / build outputs
+api
+*.exe
+*.out
+
+# Local runtime files
+tmp/
+*.log

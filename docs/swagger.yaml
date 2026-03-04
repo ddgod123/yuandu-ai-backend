@@ -1,0 +1,1890 @@
+basePath: /
+definitions:
+  handlers.AdminStorageItem:
+    properties:
+      fsize:
+        type: integer
+      hash:
+        type: string
+      key:
+        type: string
+      md5:
+        type: string
+      mime_type:
+        type: string
+      put_time:
+        type: integer
+      status:
+        type: integer
+      url:
+        type: string
+    type: object
+  handlers.AdminUpdateCollectionRequest:
+    properties:
+      category_id:
+        type: integer
+      cover_url:
+        type: string
+      description:
+        type: string
+      is_featured:
+        type: boolean
+      is_pinned:
+        type: boolean
+      status:
+        type: string
+      tag_ids:
+        items:
+          type: integer
+        type: array
+      theme_id:
+        type: integer
+      title:
+        type: string
+      visibility:
+        type: string
+    type: object
+  handlers.AppendZipResponse:
+    properties:
+      added:
+        type: integer
+      collection_id:
+        type: integer
+      cover_key:
+        type: string
+      file_count:
+        type: integer
+      prefix:
+        type: string
+      source_zip_key:
+        type: string
+    type: object
+  handlers.AuthResponse:
+    properties:
+      tokens:
+        $ref: '#/definitions/handlers.TokenResponse'
+      user:
+        $ref: '#/definitions/handlers.UserResponse'
+    type: object
+  handlers.BatchDeleteRequest:
+    properties:
+      keys:
+        items:
+          type: string
+        type: array
+      mode:
+        type: string
+    type: object
+  handlers.BatchDeleteResponse:
+    properties:
+      failed:
+        type: integer
+      mode:
+        type: string
+      processed:
+        type: integer
+      success:
+        type: integer
+      trash_path:
+        type: string
+    type: object
+  handlers.BatchRestoreRequest:
+    properties:
+      keys:
+        items:
+          type: string
+        type: array
+    type: object
+  handlers.BatchRestoreResponse:
+    properties:
+      failed:
+        type: integer
+      processed:
+        type: integer
+      success:
+        type: integer
+    type: object
+  handlers.CategoryRequest:
+    properties:
+      cover_url:
+        type: string
+      description:
+        type: string
+      icon:
+        type: string
+      name:
+        type: string
+      parent_id:
+        type: integer
+      prefix:
+        type: string
+      slug:
+        type: string
+      sort:
+        type: integer
+      status:
+        type: string
+    type: object
+  handlers.CategoryResponse:
+    properties:
+      cover_url:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        type: string
+      icon:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      parent_id:
+        type: integer
+      prefix:
+        type: string
+      slug:
+        type: string
+      sort:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  handlers.CollectionListItem:
+    properties:
+      category_id:
+        type: integer
+      cover_url:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      file_count:
+        type: integer
+      id:
+        type: integer
+      is_featured:
+        type: boolean
+      is_pinned:
+        type: boolean
+      latest_zip_at:
+        type: string
+      latest_zip_key:
+        type: string
+      latest_zip_name:
+        type: string
+      latest_zip_size:
+        type: integer
+      owner_id:
+        type: integer
+      pinned_at:
+        type: string
+      qiniu_prefix:
+        type: string
+      slug:
+        type: string
+      source:
+        type: string
+      status:
+        type: string
+      tags:
+        items:
+          $ref: '#/definitions/handlers.TagBrief'
+        type: array
+      theme_id:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+      visibility:
+        type: string
+    type: object
+  handlers.DeleteCategoryResponse:
+    properties:
+      message:
+        type: string
+      mode:
+        type: string
+      moved:
+        type: integer
+      prefix:
+        type: string
+      trash_path:
+        type: string
+    type: object
+  handlers.DownloadListItem:
+    properties:
+      collection_id:
+        type: integer
+      download_url:
+        type: string
+      file_url:
+        type: string
+      format:
+        type: string
+      id:
+        type: integer
+      order:
+        type: integer
+      size_bytes:
+        type: integer
+      title:
+        type: string
+    type: object
+  handlers.DownloadListResponse:
+    properties:
+      collection_id:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/handlers.DownloadListItem'
+        type: array
+      total:
+        type: integer
+    type: object
+  handlers.DownloadURLResponse:
+    properties:
+      collection_id:
+        type: integer
+      emoji_id:
+        type: integer
+      expires_at:
+        type: integer
+      key:
+        type: string
+      name:
+        type: string
+      url:
+        type: string
+    type: object
+  handlers.EmojiListItem:
+    properties:
+      collection_id:
+        type: integer
+      created_at:
+        type: string
+      file_url:
+        type: string
+      format:
+        type: string
+      height:
+        type: integer
+      id:
+        type: integer
+      preview_url:
+        type: string
+      size_bytes:
+        type: integer
+      status:
+        type: string
+      thumb_url:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      width:
+        type: integer
+    type: object
+  handlers.EmojiUploadResponse:
+    properties:
+      added:
+        type: integer
+      collection_id:
+        type: integer
+      cover_url:
+        type: string
+      file_count:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/handlers.EmojiListItem'
+        type: array
+    type: object
+  handlers.ImportZipResponse:
+    properties:
+      collection_id:
+        type: integer
+      cover_key:
+        type: string
+      file_count:
+        type: integer
+      prefix:
+        type: string
+      slug:
+        type: string
+      source_zip_key:
+        type: string
+      title:
+        type: string
+    type: object
+  handlers.ListCategoryObjectsResponse:
+    properties:
+      has_next:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/handlers.AdminStorageItem'
+        type: array
+      next_marker:
+        type: string
+      prefix:
+        type: string
+    type: object
+  handlers.ListObjectsResponse:
+    properties:
+      has_next:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/handlers.QiniuListItem'
+        type: array
+      next_marker:
+        type: string
+      prefixes:
+        items:
+          type: string
+        type: array
+    type: object
+  handlers.LoginPhoneRequest:
+    properties:
+      code:
+        type: string
+      phone:
+        type: string
+    type: object
+  handlers.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      phone:
+        type: string
+    type: object
+  handlers.LogoutRequest:
+    properties:
+      refresh_token:
+        type: string
+    type: object
+  handlers.MessageResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  handlers.ObjectURLResponse:
+    properties:
+      expires_at:
+        type: integer
+      url:
+        type: string
+    type: object
+  handlers.QiniuFileInfo:
+    properties:
+      end_user:
+        type: string
+      expiration:
+        type: integer
+      fsize:
+        type: integer
+      hash:
+        type: string
+      md5:
+        type: string
+      mime_type:
+        type: string
+      put_time:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: integer
+    type: object
+  handlers.QiniuListItem:
+    properties:
+      end_user:
+        type: string
+      fsize:
+        type: integer
+      hash:
+        type: string
+      key:
+        type: string
+      md5:
+        type: string
+      mime_type:
+        type: string
+      put_time:
+        type: integer
+      status:
+        type: integer
+      type:
+        type: integer
+    type: object
+  handlers.RefreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    type: object
+  handlers.RegisterPhoneRequest:
+    properties:
+      code:
+        type: string
+      display_name:
+        type: string
+      password:
+        type: string
+      phone:
+        type: string
+    type: object
+  handlers.RegisterRequest:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+      phone:
+        type: string
+    type: object
+  handlers.RenameObjectRequest:
+    properties:
+      force:
+        type: boolean
+      from:
+        type: string
+      to:
+        type: string
+    type: object
+  handlers.SearchObjectsResponse:
+    properties:
+      has_next:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/handlers.AdminStorageItem'
+        type: array
+      next_marker:
+        type: string
+      prefix:
+        type: string
+    type: object
+  handlers.SendCodeRequest:
+    properties:
+      phone:
+        type: string
+    type: object
+  handlers.SendCodeResponse:
+    properties:
+      code:
+        type: string
+      expires_in:
+        type: integer
+      mock:
+        type: boolean
+      phone:
+        type: string
+    type: object
+  handlers.StorageObjectResponse:
+    properties:
+      info:
+        $ref: '#/definitions/handlers.QiniuFileInfo'
+      key:
+        type: string
+    type: object
+  handlers.TagBrief:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  handlers.TagGroupRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      sort:
+        type: integer
+      status:
+        type: string
+    type: object
+  handlers.TagGroupResponse:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      sort:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  handlers.TagRequest:
+    properties:
+      group_id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  handlers.TagResponse:
+    properties:
+      created_at:
+        type: string
+      group_id:
+        type: integer
+      group_name:
+        type: string
+      group_slug:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  handlers.TelegramDownloadRequest:
+    properties:
+      link:
+        type: string
+      pack_name:
+        type: string
+    type: object
+  handlers.TelegramDownloadResponse:
+    properties:
+      base_dir:
+        type: string
+      failed:
+        type: integer
+      files:
+        items:
+          $ref: '#/definitions/handlers.TelegramDownloadedFile'
+        type: array
+      pack_name:
+        type: string
+      saved:
+        type: integer
+      title:
+        type: string
+      total:
+        type: integer
+    type: object
+  handlers.TelegramDownloadedFile:
+    properties:
+      emoji:
+        type: string
+      file_id:
+        type: string
+      file_path:
+        type: string
+      file_unique_id:
+        type: string
+      local_path:
+        type: string
+      type:
+        type: string
+    type: object
+  handlers.ThemeRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+      sort:
+        type: integer
+      status:
+        type: string
+    type: object
+  handlers.ThemeResponse:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+      sort:
+        type: integer
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  handlers.TokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+    type: object
+  handlers.TrashEmptyResponse:
+    properties:
+      deleted:
+        type: integer
+      failed:
+        type: integer
+      message:
+        type: string
+      prefix:
+        type: string
+    type: object
+  handlers.TrashListResponse:
+    properties:
+      has_next:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/handlers.AdminStorageItem'
+        type: array
+      next_marker:
+        type: string
+      prefix:
+        type: string
+    type: object
+  handlers.TrashRestoreRequest:
+    properties:
+      key:
+        type: string
+    type: object
+  handlers.TrashRestoreResponse:
+    properties:
+      from:
+        type: string
+      message:
+        type: string
+      to:
+        type: string
+    type: object
+  handlers.UpdateRoleRequest:
+    properties:
+      role:
+        type: string
+    type: object
+  handlers.UpdateStatusRequest:
+    properties:
+      status:
+        type: string
+    type: object
+  handlers.UploadTokenRequest:
+    properties:
+      collection_id:
+        type: integer
+      expires:
+        type: integer
+      insert_only:
+        type: boolean
+      key:
+        type: string
+      prefix:
+        type: string
+    type: object
+  handlers.UploadTokenResponse:
+    properties:
+      bucket:
+        type: string
+      expires_at:
+        type: integer
+      key:
+        type: string
+      prefix:
+        type: string
+      token:
+        type: string
+      up_host:
+        type: string
+    type: object
+  handlers.UserResponse:
+    properties:
+      avatar_url:
+        type: string
+      created_at:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      phone:
+        type: string
+      role:
+        type: string
+      status:
+        type: string
+    type: object
+  handlers.UsersListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.UserResponse'
+        type: array
+      total:
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: Backend API for Emoji collection site
+  title: Emoji API
+  version: 0.1.0
+paths:
+  /api/admin/categories:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.CategoryResponse'
+            type: array
+      summary: List categories
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: category request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.CategoryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.CategoryResponse'
+      summary: Create category
+      tags:
+      - admin
+  /api/admin/categories/{id}:
+    delete:
+      parameters:
+      - description: category id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: empty|trash
+        in: query
+        name: mode
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.DeleteCategoryResponse'
+      summary: Delete category (empty or move to trash)
+      tags:
+      - admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: category id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: category request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.CategoryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.CategoryResponse'
+      summary: Update category
+      tags:
+      - admin
+  /api/admin/categories/{id}/objects:
+    get:
+      parameters:
+      - description: category id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: keyword
+        in: query
+        name: keyword
+        type: string
+      - description: type (image|gif|video|other)
+        in: query
+        name: type
+        type: string
+      - description: sort (put_time|size|key)
+        in: query
+        name: sort
+        type: string
+      - description: order (asc|desc)
+        in: query
+        name: order
+        type: string
+      - description: marker
+        in: query
+        name: marker
+        type: string
+      - default: 50
+        description: limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ListCategoryObjectsResponse'
+      summary: List objects under category
+      tags:
+      - admin
+  /api/admin/collections/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: collection id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: collection update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.AdminUpdateCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.CollectionListItem'
+      summary: Update collection (admin)
+      tags:
+      - admin
+  /api/admin/collections/{id}/emojis/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: collection id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: emoji files
+        in: formData
+        name: files
+        required: true
+        type: file
+      - description: set first file as cover
+        in: formData
+        name: set_cover
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.EmojiUploadResponse'
+      summary: Upload emojis to existing collection
+      tags:
+      - admin
+  /api/admin/collections/{id}/import-zip:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: collection id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: zip file
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: set first file as cover
+        in: formData
+        name: set_cover
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AppendZipResponse'
+      summary: Append zip to existing collection
+      tags:
+      - admin
+  /api/admin/collections/import-zip:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: collection title
+        in: formData
+        name: title
+        required: true
+        type: string
+      - description: collection description
+        in: formData
+        name: description
+        type: string
+      - description: category id
+        in: formData
+        name: category_id
+        required: true
+        type: integer
+      - description: comma-separated tag ids
+        in: formData
+        name: tag_ids
+        type: string
+      - description: zip file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ImportZipResponse'
+      summary: Import collection zip
+      tags:
+      - admin
+  /api/admin/storage/batch-delete:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: batch delete request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.BatchDeleteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.BatchDeleteResponse'
+      summary: Batch delete or trash objects
+      tags:
+      - admin
+  /api/admin/storage/object:
+    delete:
+      parameters:
+      - description: object key
+        in: query
+        name: key
+        required: true
+        type: string
+      - default: trash
+        description: delete|trash
+        in: query
+        name: mode
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Delete or trash an object
+      tags:
+      - admin
+  /api/admin/storage/search:
+    get:
+      parameters:
+      - default: emoji/
+        description: prefix
+        in: query
+        name: prefix
+        type: string
+      - description: keyword
+        in: query
+        name: keyword
+        type: string
+      - description: type (image|gif|video|other)
+        in: query
+        name: type
+        type: string
+      - description: sort (put_time|size|key)
+        in: query
+        name: sort
+        type: string
+      - description: order (asc|desc)
+        in: query
+        name: order
+        type: string
+      - description: marker
+        in: query
+        name: marker
+        type: string
+      - default: 50
+        description: limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SearchObjectsResponse'
+      summary: Search objects in storage
+      tags:
+      - admin
+  /api/admin/storage/trash:
+    delete:
+      parameters:
+      - default: emoji/_trash/
+        description: prefix
+        in: query
+        name: prefix
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TrashEmptyResponse'
+      summary: Empty trash prefix
+      tags:
+      - admin
+    get:
+      parameters:
+      - default: emoji/_trash/
+        description: prefix
+        in: query
+        name: prefix
+        type: string
+      - description: marker
+        in: query
+        name: marker
+        type: string
+      - default: 50
+        description: limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TrashListResponse'
+      summary: List trash objects
+      tags:
+      - admin
+  /api/admin/storage/trash/batch-restore:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: batch restore request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.BatchRestoreRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.BatchRestoreResponse'
+      summary: Batch restore trash objects
+      tags:
+      - admin
+  /api/admin/storage/trash/restore:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: restore request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TrashRestoreRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TrashRestoreResponse'
+      summary: Restore trash object
+      tags:
+      - admin
+  /api/admin/tag-groups:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.TagGroupResponse'
+            type: array
+      summary: List tag groups
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: tag group request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TagGroupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TagGroupResponse'
+      summary: Create tag group
+      tags:
+      - admin
+  /api/admin/tag-groups/{id}:
+    delete:
+      parameters:
+      - description: group id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Delete tag group
+      tags:
+      - admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: group id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: tag group request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TagGroupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TagGroupResponse'
+      summary: Update tag group
+      tags:
+      - admin
+  /api/admin/tags:
+    get:
+      parameters:
+      - description: keyword
+        in: query
+        name: keyword
+        type: string
+      - description: page
+        in: query
+        name: page
+        type: integer
+      - description: page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.TagResponse'
+            type: array
+      summary: List tags
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: tag request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TagRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TagResponse'
+      summary: Create tag
+      tags:
+      - admin
+  /api/admin/tags/{id}:
+    delete:
+      parameters:
+      - description: tag id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Delete tag
+      tags:
+      - admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: tag id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: tag request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TagRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TagResponse'
+      summary: Update tag
+      tags:
+      - admin
+  /api/admin/telegram/download:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: telegram download
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TelegramDownloadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TelegramDownloadResponse'
+      summary: Download Telegram sticker pack
+      tags:
+      - admin
+  /api/admin/themes:
+    get:
+      parameters:
+      - description: keyword
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.ThemeResponse'
+            type: array
+      summary: List themes
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: theme request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ThemeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ThemeResponse'
+      summary: Create theme
+      tags:
+      - admin
+  /api/admin/themes/{id}:
+    delete:
+      parameters:
+      - description: theme id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Delete theme
+      tags:
+      - admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: theme id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: theme request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ThemeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ThemeResponse'
+      summary: Update theme
+      tags:
+      - admin
+  /api/admin/users:
+    get:
+      parameters:
+      - description: keyword
+        in: query
+        name: q
+        type: string
+      - default: 1
+        description: page
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: page size
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UsersListResponse'
+      summary: List users
+      tags:
+      - admin
+  /api/admin/users/{id}/role:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UpdateRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+      summary: Update user role
+      tags:
+      - admin
+  /api/admin/users/{id}/status:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UpdateStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+      summary: Update user status
+      tags:
+      - admin
+  /api/auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: login
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AuthResponse'
+      summary: Login
+      tags:
+      - auth
+  /api/auth/login-phone:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: login phone
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LoginPhoneRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AuthResponse'
+      summary: Login by phone (mock code)
+      tags:
+      - auth
+  /api/auth/logout:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: logout
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LogoutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Logout and revoke refresh token
+      tags:
+      - auth
+  /api/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: refresh
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TokenResponse'
+      summary: Refresh token
+      tags:
+      - auth
+  /api/auth/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: register
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.AuthResponse'
+      summary: Register
+      tags:
+      - auth
+  /api/auth/register-phone:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: register phone
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RegisterPhoneRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.AuthResponse'
+      summary: Register by phone (mock code)
+      tags:
+      - auth
+  /api/auth/send-code:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: send code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SendCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SendCodeResponse'
+      summary: Send phone code (mock)
+      tags:
+      - auth
+  /api/collections/{id}/download-list:
+    get:
+      parameters:
+      - description: collection id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ttl (seconds)
+        in: query
+        name: ttl
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.DownloadListResponse'
+      summary: Get collection download list
+      tags:
+      - collections
+  /api/collections/{id}/download-zip:
+    get:
+      parameters:
+      - description: collection id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ttl (seconds)
+        in: query
+        name: ttl
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.DownloadURLResponse'
+      summary: Get collection zip download URL
+      tags:
+      - collections
+  /api/emojis/{id}/download:
+    get:
+      parameters:
+      - description: emoji id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ttl (seconds)
+        in: query
+        name: ttl
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.DownloadURLResponse'
+      summary: Get emoji download URL
+      tags:
+      - emojis
+  /api/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+      summary: Current user
+      tags:
+      - auth
+  /api/storage/object:
+    delete:
+      parameters:
+      - description: object key
+        in: query
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Delete object
+      tags:
+      - storage
+    get:
+      parameters:
+      - description: object key
+        in: query
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.StorageObjectResponse'
+      summary: Get object info
+      tags:
+      - storage
+  /api/storage/objects:
+    get:
+      parameters:
+      - default: emoji/
+        description: prefix
+        in: query
+        name: prefix
+        type: string
+      - description: marker
+        in: query
+        name: marker
+        type: string
+      - default: 50
+        description: limit
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ListObjectsResponse'
+      summary: List objects
+      tags:
+      - storage
+  /api/storage/rename:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: rename request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RenameObjectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.MessageResponse'
+      summary: Rename object
+      tags:
+      - storage
+  /api/storage/upload-token:
+    post:
+      consumes:
+      - application/json
+      description: Generate Qiniu upload token for key or prefix (default emoji/)
+      parameters:
+      - description: upload token request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UploadTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UploadTokenResponse'
+      summary: Get upload token
+      tags:
+      - storage
+  /api/storage/url:
+    get:
+      parameters:
+      - description: object key
+        in: query
+        name: key
+        required: true
+        type: string
+      - default: 3600
+        description: ttl (seconds)
+        in: query
+        name: ttl
+        type: integer
+      - description: force private url
+        in: query
+        name: private
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ObjectURLResponse'
+      summary: Get object URL
+      tags:
+      - storage
+swagger: "2.0"

@@ -85,9 +85,12 @@ type UserResponse struct {
 	AvatarURL             string     `json:"avatar_url,omitempty"`
 	Role                  string     `json:"role"`
 	Status                string     `json:"status"`
+	UserLevel             string     `json:"user_level,omitempty"`
 	SubscriptionStatus    string     `json:"subscription_status,omitempty"`
 	SubscriptionPlan      string     `json:"subscription_plan,omitempty"`
+	SubscriptionStartedAt *time.Time `json:"subscription_started_at,omitempty"`
 	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at,omitempty"`
+	IsSubscriber          bool       `json:"is_subscriber"`
 	CreatedAt             time.Time  `json:"created_at"`
 }
 
@@ -249,14 +252,16 @@ func (h *Handler) RegisterPhone(c *gin.Context) {
 
 	now := time.Now()
 	user := models.User{
-		Phone:       req.Phone,
-		DisplayName: displayName,
-		AvatarURL:   defaultAvatarURL(req.Phone),
-		Role:        "user",
-		Status:      "active",
-		VerifiedAt:  &now,
-		LastLoginAt: &now,
-		LastLoginIP: c.ClientIP(),
+		Phone:              req.Phone,
+		DisplayName:        displayName,
+		AvatarURL:          defaultAvatarURL(req.Phone),
+		Role:               "user",
+		Status:             "active",
+		SubscriptionStatus: "inactive",
+		SubscriptionPlan:   "free",
+		VerifiedAt:         &now,
+		LastLoginAt:        &now,
+		LastLoginIP:        c.ClientIP(),
 	}
 	if err := h.db.Omit("Email", "Username").Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -323,14 +328,16 @@ func (h *Handler) LoginPhone(c *gin.Context) {
 			displayName := generateDisplayName()
 			now := time.Now()
 			newUser := models.User{
-				Phone:       req.Phone,
-				DisplayName: displayName,
-				AvatarURL:   defaultAvatarURL(req.Phone),
-				Role:        "user",
-				Status:      "active",
-				VerifiedAt:  &now,
-				LastLoginAt: &now,
-				LastLoginIP: c.ClientIP(),
+				Phone:              req.Phone,
+				DisplayName:        displayName,
+				AvatarURL:          defaultAvatarURL(req.Phone),
+				Role:               "user",
+				Status:             "active",
+				SubscriptionStatus: "inactive",
+				SubscriptionPlan:   "free",
+				VerifiedAt:         &now,
+				LastLoginAt:        &now,
+				LastLoginIP:        c.ClientIP(),
 			}
 			if err := h.db.Omit("Email", "Username").Create(&newUser).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -422,12 +429,14 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	user := models.User{
-		Email:        req.Email,
-		Phone:        req.Phone,
-		PasswordHash: string(hash),
-		DisplayName:  req.DisplayName,
-		Role:         "user",
-		Status:       "active",
+		Email:              req.Email,
+		Phone:              req.Phone,
+		PasswordHash:       string(hash),
+		DisplayName:        req.DisplayName,
+		Role:               "user",
+		Status:             "active",
+		SubscriptionStatus: "inactive",
+		SubscriptionPlan:   "free",
 	}
 	if err := h.db.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -1010,6 +1019,8 @@ func ttlUntilEndOfDay(now time.Time) time.Duration {
 }
 
 func mapUser(user models.User) UserResponse {
+	now := time.Now()
+	status, level, subscriber := resolveUserSubscriptionState(&user, now)
 	return UserResponse{
 		ID:                    user.ID,
 		Email:                 user.Email,
@@ -1018,9 +1029,12 @@ func mapUser(user models.User) UserResponse {
 		AvatarURL:             user.AvatarURL,
 		Role:                  user.Role,
 		Status:                user.Status,
-		SubscriptionStatus:    user.SubscriptionStatus,
+		UserLevel:             level,
+		SubscriptionStatus:    status,
 		SubscriptionPlan:      user.SubscriptionPlan,
+		SubscriptionStartedAt: user.SubscriptionStartedAt,
 		SubscriptionExpiresAt: user.SubscriptionExpiresAt,
+		IsSubscriber:          subscriber,
 		CreatedAt:             user.CreatedAt,
 	}
 }

@@ -23,7 +23,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&Download{},
 		&Report{},
 		&AuditLog{},
+		&JoinApplication{},
 		&HomeDailyStats{},
+		&SiteFooterSetting{},
+		&RedeemCode{},
+		&RedeemCodeRedemption{},
 		&CardTheme{},
 		&UploadTask{},
 	)

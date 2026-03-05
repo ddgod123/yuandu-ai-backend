@@ -26,6 +26,7 @@ type User struct {
 	LastLoginIP           string         `gorm:"size:64"`
 	SubscriptionStatus    string         `gorm:"size:32;index"`
 	SubscriptionPlan      string         `gorm:"size:32;index"`
+	SubscriptionStartedAt *time.Time     `gorm:"index"`
 	SubscriptionExpiresAt *time.Time     `gorm:"index"`
 	CreatedAt             time.Time      `gorm:"autoCreateTime"`
 	UpdatedAt             time.Time      `gorm:"autoUpdateTime"`
@@ -326,6 +327,22 @@ func (AuditLog) TableName() string {
 	return "audit.audit_logs"
 }
 
+type JoinApplication struct {
+	ID         uint64    `gorm:"primaryKey;autoIncrement"`
+	Name       string    `gorm:"size:64;index"`
+	Phone      string    `gorm:"size:32;index"`
+	Gender     string    `gorm:"size:16;index"`
+	Age        int       `gorm:"index"`
+	Email      string    `gorm:"size:255;index"`
+	Occupation string    `gorm:"size:64;index"`
+	CreatedAt  time.Time `gorm:"autoCreateTime;index"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
+}
+
+func (JoinApplication) TableName() string {
+	return "audit.join_applications"
+}
+
 type UploadTask struct {
 	ID           uint64  `gorm:"primaryKey;autoIncrement"`
 	Kind         string  `gorm:"size:32;index"`
@@ -359,4 +376,64 @@ type HomeDailyStats struct {
 
 func (HomeDailyStats) TableName() string {
 	return "audit.home_daily_stats"
+}
+
+type SiteFooterSetting struct {
+	ID                   int16     `gorm:"primaryKey;default:1"`
+	SiteName             string    `gorm:"column:site_name;size:128"`
+	SiteDescription      string    `gorm:"column:site_description;type:text"`
+	ContactEmail         string    `gorm:"column:contact_email;size:255"`
+	ComplaintEmail       string    `gorm:"column:complaint_email;size:255"`
+	ICPNumber            string    `gorm:"column:icp_number;size:128"`
+	ICPLink              string    `gorm:"column:icp_link;size:512"`
+	PublicSecurityNumber string    `gorm:"column:public_security_number;size:128"`
+	PublicSecurityLink   string    `gorm:"column:public_security_link;size:512"`
+	CopyrightText        string    `gorm:"column:copyright_text;size:255"`
+	CreatedAt            time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt            time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (SiteFooterSetting) TableName() string {
+	return "ops.site_footer_settings"
+}
+
+type RedeemCode struct {
+	ID            uint64     `gorm:"primaryKey;autoIncrement"`
+	CodeHash      string     `gorm:"column:code_hash;size:128;uniqueIndex"`
+	CodeMask      string     `gorm:"column:code_mask;size:64;index"`
+	BatchNo       string     `gorm:"column:batch_no;size:64;index"`
+	Plan          string     `gorm:"column:plan;size:32;index"`
+	DurationDays  int        `gorm:"column:duration_days"`
+	MaxUses       int        `gorm:"column:max_uses"`
+	UsedCount     int        `gorm:"column:used_count;index"`
+	Status        string     `gorm:"column:status;size:32;index"`
+	StartsAt      *time.Time `gorm:"column:starts_at;index"`
+	EndsAt        *time.Time `gorm:"column:ends_at;index"`
+	CreatedBy     *uint64    `gorm:"column:created_by;index"`
+	Note          string     `gorm:"column:note;type:text"`
+	LastIssuedAt  *time.Time `gorm:"column:last_issued_at;index"`
+	LastIssuedUID *uint64    `gorm:"column:last_issued_uid;index"`
+	CreatedAt     time.Time  `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (RedeemCode) TableName() string {
+	return "ops.redeem_codes"
+}
+
+type RedeemCodeRedemption struct {
+	ID               uint64    `gorm:"primaryKey;autoIncrement"`
+	CodeID           uint64    `gorm:"column:code_id;index"`
+	UserID           uint64    `gorm:"column:user_id;index"`
+	GrantedPlan      string    `gorm:"column:granted_plan;size:32"`
+	GrantedStatus    string    `gorm:"column:granted_status;size:32"`
+	GrantedStartsAt  time.Time `gorm:"column:granted_starts_at"`
+	GrantedExpiresAt time.Time `gorm:"column:granted_expires_at"`
+	IP               string    `gorm:"column:ip;size:64"`
+	UserAgent        string    `gorm:"column:user_agent;size:255"`
+	CreatedAt        time.Time `gorm:"column:created_at;autoCreateTime"`
+}
+
+func (RedeemCodeRedemption) TableName() string {
+	return "ops.redeem_code_redemptions"
 }

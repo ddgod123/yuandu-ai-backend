@@ -68,7 +68,7 @@ func ensureCollectionVisibleForRequester(c *gin.Context, collection models.Colle
 	return true
 }
 
-func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
+func (h *Handler) requireActiveUser(c *gin.Context) (*models.User, bool) {
 	roleVal, _ := c.Get("role")
 	if role, ok := roleVal.(string); ok {
 		if strings.EqualFold(role, "super_admin") || strings.EqualFold(role, "admin") {
@@ -98,6 +98,24 @@ func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
 	}
 
 	return &user, true
+}
+
+func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
+	user, ok := h.requireActiveUser(c)
+	if !ok {
+		return user, false
+	}
+	if user == nil {
+		return nil, true
+	}
+	now := time.Now()
+	syncExpiredSubscription(h.db, user, now)
+	status, _, isSubscriber := resolveUserSubscriptionState(user, now)
+	if !isSubscriber {
+		c.JSON(http.StatusForbidden, gin.H{"error": "subscription_required", "subscription_status": status})
+		return user, false
+	}
+	return user, true
 }
 
 // GetCollectionZipDownload returns a download URL for the latest zip of a collection.
@@ -466,7 +484,7 @@ func (h *Handler) GetCollectionDownloadList(c *gin.Context) {
 // @Success 200 {object} DownloadURLResponse
 // @Router /api/emojis/{id}/download [get]
 func (h *Handler) GetEmojiDownload(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -521,7 +539,7 @@ func (h *Handler) GetEmojiDownload(c *gin.Context) {
 // @Param ttl query int false "ttl (seconds)"
 // @Router /api/emojis/{id}/download-file [get]
 func (h *Handler) DownloadEmojiFile(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

@@ -57,6 +57,8 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 		api.GET("/collections", h.ListCollections)
 		api.GET("/collections/:id", h.GetCollection)
 		api.GET("/card-themes", h.ListCardThemes)
+		api.GET("/site-settings/footer", h.GetSiteFooterSetting)
+		api.POST("/join-applications", h.CreateJoinApplication)
 		api.POST("/collections", h.CreateCollection)
 		api.PUT("/collections/:id", h.UpdateCollection)
 		api.DELETE("/collections/:id", h.DeleteCollection)
@@ -87,6 +89,8 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			auth.GET("/emojis/:id/download-file", h.DownloadEmojiFile)
 			auth.GET("/me", h.Me)
 			auth.PUT("/me", h.UpdateMe)
+			auth.POST("/me/redeem-code", h.RedeemCodeForMe)
+			auth.GET("/me/redeem-records", h.ListMyRedeemRecords)
 
 			// 收藏相关
 			auth.POST("/favorites", h.AddFavorite)
@@ -122,6 +126,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			admin.POST("/tags", h.CreateTag)
 			admin.PUT("/tags/:id", h.UpdateTag)
 			admin.DELETE("/tags/:id", h.DeleteTag)
+			admin.GET("/join-applications", h.ListJoinApplications)
 			admin.GET("/tag-groups", h.ListTagGroups)
 			admin.POST("/tag-groups", h.CreateTagGroup)
 			admin.PUT("/tag-groups/:id", h.UpdateTagGroup)
@@ -130,6 +135,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			admin.GET("/ops/metrics/top-categories", h.ListOpsTopCategories)
 			admin.GET("/ops/metrics/search-terms", h.ListOpsSearchTerms)
 			admin.GET("/upload-tasks", h.ListUploadTasks)
+			admin.GET("/users/:id/detail", h.GetAdminUserDetail)
 			admin.PUT("/collections/:id", h.AdminUpdateCollection)
 			admin.DELETE("/collections/:id", h.AdminDeleteCollection)
 			admin.POST("/collections/:id/import-zip", h.AppendCollectionZip)
@@ -139,6 +145,12 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			admin.PUT("/themes/:id", h.UpdateTheme)
 			admin.DELETE("/themes/:id", h.DeleteTheme)
 			admin.POST("/collections/import-zip", h.ImportCollectionZip)
+			admin.GET("/site-settings/footer", h.GetAdminSiteFooterSetting)
+			admin.PUT("/site-settings/footer", h.UpdateAdminSiteFooterSetting)
+			admin.GET("/redeem-codes", h.ListRedeemCodes)
+			admin.POST("/redeem-codes/generate", h.GenerateRedeemCodes)
+			admin.PUT("/redeem-codes/:id/status", h.UpdateRedeemCodeStatus)
+			admin.GET("/redeem-codes/:id/redemptions", h.ListRedeemCodeRedemptions)
 		}
 	}
 

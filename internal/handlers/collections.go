@@ -66,6 +66,8 @@ type CollectionListResponse struct {
 	Total int64                `json:"total"`
 }
 
+const maxFeaturedCollections = 4
+
 func isAdminRole(c *gin.Context) bool {
 	roleVal, ok := c.Get("role")
 	if !ok {
@@ -116,6 +118,23 @@ func normalizeCollectionMediaType(raw string) (string, bool) {
 	}
 }
 
+func parseOptionalBoolParam(raw string) (*bool, bool) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "" || v == "all" {
+		return nil, true
+	}
+	switch v {
+	case "1", "true", "yes", "y", "on":
+		value := true
+		return &value, true
+	case "0", "false", "no", "n", "off":
+		value := false
+		return &value, true
+	default:
+		return nil, false
+	}
+}
+
 func currentUserIDFromContext(c *gin.Context) (uint64, bool) {
 	userVal, ok := c.Get("user_id")
 	if !ok {
@@ -137,6 +156,15 @@ func (h *Handler) ListCollections(c *gin.Context) {
 	categoryID := strings.TrimSpace(c.Query("category_id"))
 	categoryIDs := strings.TrimSpace(c.Query("category_ids"))
 	ipID := strings.TrimSpace(c.Query("ip_id"))
+	featuredRaw := strings.TrimSpace(c.Query("is_featured"))
+	if featuredRaw == "" {
+		featuredRaw = strings.TrimSpace(c.Query("featured"))
+	}
+	featured, ok := parseOptionalBoolParam(featuredRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_featured"})
+		return
+	}
 	sortField := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	sortOrder := strings.ToLower(strings.TrimSpace(c.Query("order")))
 	status := strings.TrimSpace(c.Query("status"))
@@ -208,6 +236,9 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			}
 			db = db.Where("ip_id = ?", iid)
 		}
+	}
+	if featured != nil {
+		db = db.Where("is_featured = ?", *featured)
 	}
 
 	animatedExists := `
@@ -605,6 +636,23 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		collection.Visibility = visibility
 	}
 	if req.IsFeatured != nil {
+		// 推荐上限保护：仅在从未推荐改为推荐时校验，避免重复保存被误拦截。
+		if *req.IsFeatured && !collection.IsFeatured {
+			var featuredCount int64
+			if err := tx.Model(&models.Collection{}).
+				Where("is_featured = ?", true).
+				Where("id <> ?", collection.ID).
+				Count(&featuredCount).Error; err != nil {
+				_ = tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			if featuredCount >= maxFeaturedCollections {
+				_ = tx.Rollback()
+				c.JSON(http.StatusBadRequest, gin.H{"error": "已有四个推荐，请先取消一个推荐后再保存"})
+				return
+			}
+		}
 		collection.IsFeatured = *req.IsFeatured
 	}
 	if req.IsPinned != nil {

@@ -46,6 +46,7 @@ type GenerateRedeemCodesResponse struct {
 type RedeemCodeAdminItem struct {
 	ID            uint64     `json:"id"`
 	CodeMask      string     `json:"code_mask"`
+	CodePlain     string     `json:"code_plain,omitempty"`
 	BatchNo       string     `json:"batch_no"`
 	Plan          string     `json:"plan"`
 	DurationDays  int        `json:"duration_days"`
@@ -78,11 +79,23 @@ type RedeemCodeSubmitResponse struct {
 	Message      string       `json:"message"`
 	User         UserResponse `json:"user"`
 	Plan         string       `json:"plan"`
+	StartsAt     *time.Time   `json:"starts_at,omitempty"`
 	ExpiresAt    *time.Time   `json:"expires_at,omitempty"`
 	UsedCount    int          `json:"used_count"`
 	MaxUses      int          `json:"max_uses"`
 	CodeMask     string       `json:"code_mask"`
 	DurationDays int          `json:"duration_days"`
+}
+
+type RedeemCodeValidateResponse struct {
+	Valid        bool       `json:"valid"`
+	Message      string     `json:"message"`
+	CodeMask     string     `json:"code_mask,omitempty"`
+	Plan         string     `json:"plan,omitempty"`
+	DurationDays int        `json:"duration_days,omitempty"`
+	StartsAt     *time.Time `json:"starts_at,omitempty"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	Status       string     `json:"status,omitempty"`
 }
 
 type RedemptionRecordResponse struct {
@@ -243,6 +256,84 @@ func (h *Handler) extractUserID(c *gin.Context) uint64 {
 	return 0
 }
 
+func evaluateRedeemCodeForUser(db *gorm.DB, userID uint64, codeHash string, now time.Time) RedeemCodeValidateResponse {
+	resp := RedeemCodeValidateResponse{
+		Valid:   false,
+		Message: "兑换码无效",
+	}
+
+	var code models.RedeemCode
+	if err := db.Where("code_hash = ?", codeHash).First(&code).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp
+		}
+		resp.Message = "暂时无法验证，请稍后重试"
+		return resp
+	}
+
+	resp.CodeMask = code.CodeMask
+	resp.Plan = strings.TrimSpace(code.Plan)
+	resp.DurationDays = code.DurationDays
+	resp.Status = strings.ToLower(strings.TrimSpace(code.Status))
+
+	if resp.Status != "active" {
+		resp.Message = "兑换码不可用"
+		return resp
+	}
+	if code.StartsAt != nil && now.Before(*code.StartsAt) {
+		resp.Message = "兑换码尚未到生效时间"
+		return resp
+	}
+	if code.EndsAt != nil && now.After(*code.EndsAt) {
+		resp.Message = "兑换码已过期"
+		resp.Status = "expired"
+		return resp
+	}
+	if code.MaxUses > 0 && code.UsedCount >= code.MaxUses {
+		resp.Message = "兑换码已被使用完"
+		resp.Status = "expired"
+		return resp
+	}
+
+	var already int64
+	if err := db.Model(&models.RedeemCodeRedemption{}).
+		Where("code_id = ? AND user_id = ?", code.ID, userID).
+		Count(&already).Error; err != nil {
+		resp.Message = "暂时无法验证，请稍后重试"
+		return resp
+	}
+	if already > 0 {
+		resp.Message = "你已使用过该兑换码"
+		return resp
+	}
+
+	var user models.User
+	if err := db.Select("id", "status", "subscription_expires_at").First(&user, userID).Error; err != nil {
+		resp.Message = "用户不存在"
+		return resp
+	}
+	if strings.ToLower(strings.TrimSpace(user.Status)) != "active" {
+		resp.Message = "账号状态异常，无法兑换"
+		return resp
+	}
+
+	durationDays := code.DurationDays
+	if durationDays <= 0 {
+		durationDays = 30
+		resp.DurationDays = durationDays
+	}
+	grantStartsAt := now
+	if user.SubscriptionExpiresAt != nil && user.SubscriptionExpiresAt.After(now) {
+		grantStartsAt = *user.SubscriptionExpiresAt
+	}
+	grantExpiresAt := grantStartsAt.AddDate(0, 0, durationDays)
+	resp.StartsAt = &grantStartsAt
+	resp.ExpiresAt = &grantExpiresAt
+	resp.Valid = true
+	resp.Message = "兑换码可用，可立即兑换"
+	return resp
+}
+
 // GenerateRedeemCodes godoc
 // @Summary Generate redeem codes
 // @Tags admin
@@ -303,6 +394,7 @@ func (h *Handler) GenerateRedeemCodes(c *gin.Context) {
 			codesPlain = append(codesPlain, display)
 			rows = append(rows, models.RedeemCode{
 				CodeHash:     sum,
+				CodePlain:    display,
 				CodeMask:     maskRedeemCode(display),
 				BatchNo:      batchNo,
 				Plan:         plan,
@@ -364,7 +456,7 @@ func (h *Handler) ListRedeemCodes(c *gin.Context) {
 
 	query := h.db.Model(&models.RedeemCode{})
 	if q != "" {
-		query = query.Where("code_mask ILIKE ? OR note ILIKE ? OR batch_no ILIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%")
+		query = query.Where("code_mask ILIKE ? OR code_plain ILIKE ? OR note ILIKE ? OR batch_no ILIKE ?", "%"+q+"%", "%"+q+"%", "%"+q+"%", "%"+q+"%")
 	}
 	if status != "" {
 		query = query.Where("status = ?", status)
@@ -393,6 +485,7 @@ func (h *Handler) ListRedeemCodes(c *gin.Context) {
 		items = append(items, RedeemCodeAdminItem{
 			ID:            row.ID,
 			CodeMask:      row.CodeMask,
+			CodePlain:     strings.TrimSpace(row.CodePlain),
 			BatchNo:       row.BatchNo,
 			Plan:          row.Plan,
 			DurationDays:  row.DurationDays,
@@ -452,6 +545,7 @@ func (h *Handler) UpdateRedeemCodeStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, RedeemCodeAdminItem{
 		ID:            row.ID,
 		CodeMask:      row.CodeMask,
+		CodePlain:     strings.TrimSpace(row.CodePlain),
 		BatchNo:       row.BatchNo,
 		Plan:          row.Plan,
 		DurationDays:  row.DurationDays,
@@ -564,6 +658,50 @@ func (h *Handler) ListRedeemCodeRedemptions(c *gin.Context) {
 	c.JSON(http.StatusOK, RedemptionRecordListResponse{Items: items, Total: total})
 }
 
+// ValidateRedeemCodeForMe godoc
+// @Summary Validate redeem code availability
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body RedeemCodeSubmitRequest true "redeem code"
+// @Success 200 {object} RedeemCodeValidateResponse
+// @Router /api/me/redeem-code/validate [post]
+func (h *Handler) ValidateRedeemCodeForMe(c *gin.Context) {
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	deviceID := sanitizeDeviceID(c.GetHeader("X-Device-ID"), c.ClientIP(), c.GetHeader("User-Agent"))
+	if !h.enforceRiskBlock(c, "redeem", "", deviceID, userID) {
+		return
+	}
+	if !h.guardRedeemValidate(c, userID) {
+		return
+	}
+
+	var req RedeemCodeSubmitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	canonical := normalizeRedeemCode(req.Code)
+	if canonical == "" {
+		h.recordRiskEvent(c, "redeem_validate_invalid_payload", "redeem", "user", strconv.FormatUint(userID, 10), "low", "redeem validate missing code", nil)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code required"})
+		return
+	}
+	codeHash := hashRedeemCode(canonical)
+	resp := evaluateRedeemCodeForUser(h.db, userID, codeHash, time.Now())
+	if !resp.Valid {
+		h.recordRiskEvent(c, "redeem_validate_rejected", "redeem", "user", strconv.FormatUint(userID, 10), "low", resp.Message, map[string]interface{}{
+			"code_mask": resp.CodeMask,
+			"status":    resp.Status,
+		})
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // RedeemCodeForMe godoc
 // @Summary Redeem subscription code
 // @Tags auth
@@ -578,6 +716,13 @@ func (h *Handler) RedeemCodeForMe(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	deviceID := sanitizeDeviceID(c.GetHeader("X-Device-ID"), c.ClientIP(), c.GetHeader("User-Agent"))
+	if !h.enforceRiskBlock(c, "redeem", "", deviceID, userID) {
+		return
+	}
+	if !h.guardRedeemSubmit(c, userID) {
+		return
+	}
 
 	var req RedeemCodeSubmitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -586,6 +731,7 @@ func (h *Handler) RedeemCodeForMe(c *gin.Context) {
 	}
 	canonical := normalizeRedeemCode(req.Code)
 	if canonical == "" {
+		h.recordRiskEvent(c, "redeem_submit_invalid_payload", "redeem", "user", strconv.FormatUint(userID, 10), "medium", "redeem submit missing code", nil)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "code required"})
 		return
 	}
@@ -594,6 +740,7 @@ func (h *Handler) RedeemCodeForMe(c *gin.Context) {
 
 	var finalUser models.User
 	var finalCode models.RedeemCode
+	var finalGrantStartsAt *time.Time
 	err := h.db.Transaction(func(tx *gorm.DB) error {
 		var code models.RedeemCode
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("code_hash = ?", codeHash).First(&code).Error; err != nil {
@@ -649,6 +796,8 @@ func (h *Handler) RedeemCodeForMe(c *gin.Context) {
 		grantExpiresAt := grantStartsAt.AddDate(0, 0, durationDays)
 		previousSubscriber := false
 		_, _, previousSubscriber = resolveUserSubscriptionState(&user, now)
+		grantStarts := grantStartsAt
+		finalGrantStartsAt = &grantStarts
 
 		updateFields := map[string]interface{}{
 			"subscription_status":     "active",
@@ -697,14 +846,23 @@ func (h *Handler) RedeemCodeForMe(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
+		h.recordRiskEvent(c, "redeem_submit_rejected", "redeem", "user", strconv.FormatUint(userID, 10), "medium", err.Error(), nil)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.recordRiskEvent(c, "redeem_submit_success", "redeem", "user", strconv.FormatUint(userID, 10), "info", "redeem code accepted", map[string]interface{}{
+		"plan":       strings.TrimSpace(finalCode.Plan),
+		"used_count": finalCode.UsedCount,
+		"max_uses":   finalCode.MaxUses,
+		"code_mask":  finalCode.CodeMask,
+	})
 
 	c.JSON(http.StatusOK, RedeemCodeSubmitResponse{
 		Message:      "兑换成功，合集下载权限已开通",
 		User:         mapUser(finalUser),
 		Plan:         finalCode.Plan,
+		StartsAt:     finalGrantStartsAt,
 		ExpiresAt:    finalUser.SubscriptionExpiresAt,
 		UsedCount:    finalCode.UsedCount,
 		MaxUses:      finalCode.MaxUses,

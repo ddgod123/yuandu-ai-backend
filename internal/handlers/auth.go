@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"emoji/internal/models"
 
@@ -29,16 +30,22 @@ type RegisterRequest struct {
 type RegisterPhoneRequest struct {
 	Phone       string `json:"phone"`
 	Code        string `json:"code"`
+	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	DeviceID    string `json:"device_id"`
 }
 
 type LoginPhoneRequest struct {
-	Phone string `json:"phone"`
-	Code  string `json:"code"`
+	Phone    string `json:"phone"`
+	Code     string `json:"code"`
+	DeviceID string `json:"device_id"`
 }
 
 type SendCodeRequest struct {
-	Phone string `json:"phone"`
+	Phone        string `json:"phone"`
+	DeviceID     string `json:"device_id"`
+	CaptchaToken string `json:"captcha_token"`
+	CaptchaCode  string `json:"captcha_code"`
 }
 
 type SendCodeResponse struct {
@@ -52,14 +59,13 @@ type LoginRequest struct {
 	Email    string `json:"email"`
 	Phone    string `json:"phone"`
 	Password string `json:"password"`
+	DeviceID string `json:"device_id"`
 }
 
 type UpdateProfileRequest struct {
 	DisplayName *string `json:"display_name"`
 	AvatarURL   *string `json:"avatar_url"`
 	Bio         *string `json:"bio"`
-	WebsiteURL  *string `json:"website_url"`
-	Location    *string `json:"location"`
 }
 
 type RefreshRequest struct {
@@ -79,12 +85,14 @@ type TokenResponse struct {
 
 type UserResponse struct {
 	ID                    uint64     `json:"id"`
-	Email                 string     `json:"email,omitempty"`
 	Phone                 string     `json:"phone,omitempty"`
+	Email                 string     `json:"email,omitempty"`
 	DisplayName           string     `json:"display_name,omitempty"`
 	AvatarURL             string     `json:"avatar_url,omitempty"`
+	Bio                   string     `json:"bio,omitempty"`
 	Role                  string     `json:"role"`
 	Status                string     `json:"status"`
+	IsAdmin               bool       `json:"is_admin"`
 	UserLevel             string     `json:"user_level,omitempty"`
 	SubscriptionStatus    string     `json:"subscription_status,omitempty"`
 	SubscriptionPlan      string     `json:"subscription_plan,omitempty"`
@@ -112,6 +120,26 @@ type AccessClaims struct {
 	Role string `json:"role"`
 }
 
+func isStrongPassword(password string) bool {
+	if len(password) < 8 {
+		return false
+	}
+	var hasUpper bool
+	var hasLower bool
+	var hasDigit bool
+	for _, ch := range password {
+		switch {
+		case unicode.IsUpper(ch):
+			hasUpper = true
+		case unicode.IsLower(ch):
+			hasLower = true
+		case unicode.IsDigit(ch):
+			hasDigit = true
+		}
+	}
+	return hasUpper && hasLower && hasDigit
+}
+
 // SendCode godoc
 // @Summary Send phone verification code
 // @Tags auth
@@ -131,6 +159,11 @@ func (h *Handler) SendCode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "phone required"})
 		return
 	}
+	ip := c.ClientIP()
+	deviceID := sanitizeDeviceID(req.DeviceID, ip, c.GetHeader("User-Agent"))
+	if !h.enforceRiskBlock(c, "sms", phone, deviceID, 0) {
+		return
+	}
 
 	if h.isDevAuthPhone(phone) {
 		c.JSON(http.StatusOK, SendCodeResponse{
@@ -147,15 +180,27 @@ func (h *Handler) SendCode(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
+	if ok, err := h.verifyCaptchaChallenge(ctx, deviceID, req.CaptchaToken, req.CaptchaCode); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "captcha unavailable"})
+		return
+	} else if !ok {
+		h.recordRiskEvent(c, "captcha_invalid", "sms", "device", deviceID, "medium", "captcha invalid", map[string]interface{}{
+			"phone": phone,
+		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "captcha invalid"})
+		return
+	}
 	now := time.Now()
 	ttl := ttlUntilEndOfDay(now)
 	interval := time.Duration(h.cfg.AliyunSmsInterval) * time.Second
-	ip := c.ClientIP()
 
 	if ok, err := h.smsLimiter.AllowInterval(ctx, "sms:interval:phone:"+phone, interval); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
 		return
 	} else if !ok {
+		h.recordRiskEvent(c, "sms_rate_limited", "sms", "phone", phone, "medium", "sms interval limit reached", map[string]interface{}{
+			"rule": "interval_phone",
+		})
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 		return
 	}
@@ -164,6 +209,21 @@ func (h *Handler) SendCode(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
 			return
 		} else if !ok {
+			h.recordRiskEvent(c, "sms_rate_limited", "sms", "ip", ip, "medium", "sms interval limit reached", map[string]interface{}{
+				"rule": "interval_ip",
+			})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
+			return
+		}
+	}
+	if deviceID != "" {
+		if ok, err := h.smsLimiter.AllowInterval(ctx, "sms:interval:device:"+deviceID, interval); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
+			return
+		} else if !ok {
+			h.recordRiskEvent(c, "sms_rate_limited", "sms", "device", deviceID, "medium", "sms interval limit reached", map[string]interface{}{
+				"rule": "interval_device",
+			})
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
@@ -174,6 +234,9 @@ func (h *Handler) SendCode(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
 			return
 		} else if !ok {
+			h.recordRiskEvent(c, "sms_daily_limited", "sms", "phone", phone, "medium", "sms daily limit reached", map[string]interface{}{
+				"rule": "daily_phone",
+			})
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily limit reached"})
 			return
 		}
@@ -184,6 +247,52 @@ func (h *Handler) SendCode(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
 			return
 		} else if !ok {
+			h.recordRiskEvent(c, "sms_daily_limited", "sms", "ip", ip, "medium", "sms daily limit reached", map[string]interface{}{
+				"rule": "daily_ip",
+			})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily limit reached"})
+			return
+		}
+	}
+	if deviceID != "" && h.cfg.AliyunSmsDailyMaxDevice > 0 {
+		key := dayKey("sms:daily:device", deviceID, now)
+		if ok, err := h.smsLimiter.AllowDaily(ctx, key, h.cfg.AliyunSmsDailyMaxDevice, ttl); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
+			return
+		} else if !ok {
+			h.recordRiskEvent(c, "sms_daily_limited", "sms", "device", deviceID, "medium", "sms daily limit reached", map[string]interface{}{
+				"rule": "daily_device",
+			})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily limit reached"})
+			return
+		}
+	}
+	if ip != "" && phone != "" && h.cfg.AliyunSmsDailyMaxUniquePhonePerIP > 0 {
+		seenKey := dayKey("sms:seen:ip_phone:"+ip, phone, now)
+		countKey := dayKey("sms:daily:ip_unique_phone", ip, now)
+		if ok, err := h.allowUniqueDailyCount(ctx, seenKey, countKey, h.cfg.AliyunSmsDailyMaxUniquePhonePerIP, ttl); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
+			return
+		} else if !ok {
+			h.recordRiskEvent(c, "sms_daily_limited", "sms", "ip", ip, "medium", "sms unique phone daily limit reached", map[string]interface{}{
+				"rule":  "daily_unique_phone_per_ip",
+				"phone": phone,
+			})
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily limit reached"})
+			return
+		}
+	}
+	if deviceID != "" && phone != "" && h.cfg.AliyunSmsDailyMaxUniquePhonePerDevice > 0 {
+		seenKey := dayKey("sms:seen:device_phone:"+deviceID, phone, now)
+		countKey := dayKey("sms:daily:device_unique_phone", deviceID, now)
+		if ok, err := h.allowUniqueDailyCount(ctx, seenKey, countKey, h.cfg.AliyunSmsDailyMaxUniquePhonePerDevice, ttl); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
+			return
+		} else if !ok {
+			h.recordRiskEvent(c, "sms_daily_limited", "sms", "device", deviceID, "medium", "sms unique phone daily limit reached", map[string]interface{}{
+				"rule":  "daily_unique_phone_per_device",
+				"phone": phone,
+			})
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "daily limit reached"})
 			return
 		}
@@ -227,21 +336,44 @@ func (h *Handler) RegisterPhone(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "code required"})
 		return
 	}
+	if !isStrongPassword(req.Password) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password too weak"})
+		return
+	}
+	deviceID := sanitizeDeviceID(req.DeviceID, c.ClientIP(), c.GetHeader("User-Agent"))
+	if !h.enforceRiskBlock(c, "auth", req.Phone, deviceID, 0) {
+		return
+	}
 
-	ok, err := h.verifySMSCodeWithLimits(c, req.Phone, req.Code)
+	ok, reason, err := h.verifySMSCodeWithLimits(c, req.Phone, req.Code, deviceID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid code"})
+		if reason == "rate_limited" || reason == "locked" {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "操作过于频繁，请稍后再试"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误或已失效"})
 		return
 	}
 
 	var exists int64
 	h.db.Model(&models.User{}).Where("phone = ?", req.Phone).Count(&exists)
 	if exists > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user already exists"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该手机号已注册，请直接登录"})
+		return
+	}
+	if ok, err := h.guardRegisterCreate(c, deviceID); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
+		return
+	} else if !ok {
+		h.recordRiskEvent(c, "register_rate_limited", "auth", "ip", strings.TrimSpace(c.ClientIP()), "medium", "register daily limit reached", map[string]interface{}{
+			"device_id": deviceID,
+			"phone":     req.Phone,
+		})
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "注册过于频繁，请稍后再试"})
 		return
 	}
 
@@ -249,19 +381,22 @@ func (h *Handler) RegisterPhone(c *gin.Context) {
 	if displayName == "" {
 		displayName = generateDisplayName()
 	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
 
 	now := time.Now()
 	user := models.User{
-		Phone:              req.Phone,
-		DisplayName:        displayName,
-		AvatarURL:          defaultAvatarURL(req.Phone),
-		Role:               "user",
-		Status:             "active",
-		SubscriptionStatus: "inactive",
-		SubscriptionPlan:   "free",
-		VerifiedAt:         &now,
-		LastLoginAt:        &now,
-		LastLoginIP:        c.ClientIP(),
+		Phone:        req.Phone,
+		PasswordHash: string(hash),
+		DisplayName:  displayName,
+		AvatarURL:    defaultAvatarURL(req.Phone),
+		Role:         "user",
+		Status:       "active",
+		LastLoginAt:  &now,
+		LastLoginIP:  c.ClientIP(),
 	}
 	if err := h.db.Omit("Email", "Username").Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -311,33 +446,39 @@ func (h *Handler) LoginPhone(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "code required"})
 		return
 	}
+	deviceID := sanitizeDeviceID(req.DeviceID, c.ClientIP(), c.GetHeader("User-Agent"))
+	if !h.enforceRiskBlock(c, "auth", req.Phone, deviceID, 0) {
+		return
+	}
 
-	ok, err := h.verifySMSCodeWithLimits(c, req.Phone, req.Code)
+	ok, reason, err := h.verifySMSCodeWithLimits(c, req.Phone, req.Code, deviceID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid code"})
+		if reason == "rate_limited" || reason == "locked" {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "操作过于频繁，请稍后再试"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误或已失效"})
 		return
 	}
 
 	var user models.User
 	if err := h.db.Where("phone = ?", req.Phone).First(&user).Error; err != nil {
-		if h.isDevAuthPhone(req.Phone) && err == gorm.ErrRecordNotFound {
+		if err == gorm.ErrRecordNotFound {
+			// Auto-register: phone not found, create new user
 			displayName := generateDisplayName()
 			now := time.Now()
 			newUser := models.User{
-				Phone:              req.Phone,
-				DisplayName:        displayName,
-				AvatarURL:          defaultAvatarURL(req.Phone),
-				Role:               "user",
-				Status:             "active",
-				SubscriptionStatus: "inactive",
-				SubscriptionPlan:   "free",
-				VerifiedAt:         &now,
-				LastLoginAt:        &now,
-				LastLoginIP:        c.ClientIP(),
+				Phone:       req.Phone,
+				DisplayName: displayName,
+				AvatarURL:   defaultAvatarURL(req.Phone),
+				Role:        "user",
+				Status:      "active",
+				LastLoginAt: &now,
+				LastLoginIP: c.ClientIP(),
 			}
 			if err := h.db.Omit("Email", "Username").Create(&newUser).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -345,7 +486,7 @@ func (h *Handler) LoginPhone(c *gin.Context) {
 			}
 			user = newUser
 		} else {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 			return
 		}
 	}
@@ -355,14 +496,10 @@ func (h *Handler) LoginPhone(c *gin.Context) {
 	}
 
 	now := time.Now()
-	updates := map[string]interface{}{
+	_ = h.db.Model(&user).Updates(map[string]interface{}{
 		"last_login_at": now,
 		"last_login_ip": c.ClientIP(),
-	}
-	if user.VerifiedAt == nil {
-		updates["verified_at"] = now
-	}
-	_ = h.db.Model(&user).Updates(updates).Error
+	}).Error
 
 	tokens, err := h.issueTokens(user)
 	if err != nil {
@@ -403,8 +540,8 @@ func (h *Handler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email or phone required"})
 		return
 	}
-	if len(req.Password) < 6 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "password too short"})
+	if !isStrongPassword(req.Password) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password too weak"})
 		return
 	}
 
@@ -429,14 +566,12 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	user := models.User{
-		Email:              req.Email,
-		Phone:              req.Phone,
-		PasswordHash:       string(hash),
-		DisplayName:        req.DisplayName,
-		Role:               "user",
-		Status:             "active",
-		SubscriptionStatus: "inactive",
-		SubscriptionPlan:   "free",
+		Email:        req.Email,
+		Phone:        req.Phone,
+		PasswordHash: string(hash),
+		DisplayName:  req.DisplayName,
+		Role:         "user",
+		Status:       "active",
 	}
 	if err := h.db.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
@@ -482,6 +617,29 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email or phone required"})
 		return
 	}
+	if strings.TrimSpace(req.Password) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password required"})
+		return
+	}
+	deviceID := sanitizeDeviceID(req.DeviceID, c.ClientIP(), c.GetHeader("User-Agent"))
+	primaryID := req.Phone
+	if primaryID == "" {
+		primaryID = req.Email
+	}
+	if !h.enforceRiskBlock(c, "auth", primaryID, deviceID, 0) {
+		return
+	}
+	ip := strings.TrimSpace(c.ClientIP())
+	ctx := c.Request.Context()
+	if h.smsLimiter != nil {
+		if locked, err := h.isAuthVerifyLocked(ctx, req.Phone, ip, deviceID); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
+			return
+		} else if locked {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "操作过于频繁，请稍后再试"})
+			return
+		}
+	}
 
 	var user models.User
 	q := h.db.Model(&models.User{})
@@ -492,6 +650,9 @@ func (h *Handler) Login(c *gin.Context) {
 		q = q.Or("phone = ?", req.Phone)
 	}
 	if err := q.First(&user).Error; err != nil {
+		if h.smsLimiter != nil {
+			_ = h.markAuthVerifyFailure(ctx, req.Phone, ip, deviceID)
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
@@ -501,9 +662,20 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		if h.smsLimiter != nil {
+			_ = h.markAuthVerifyFailure(ctx, req.Phone, ip, deviceID)
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
+	if h.smsLimiter != nil {
+		_ = h.clearAuthVerifyFailures(ctx, req.Phone, ip, deviceID)
+	}
+	now := time.Now()
+	_ = h.db.Model(&user).Updates(map[string]interface{}{
+		"last_login_at": now,
+		"last_login_ip": c.ClientIP(),
+	}).Error
 
 	tokens, err := h.issueTokens(user)
 	if err != nil {
@@ -639,6 +811,7 @@ func (h *Handler) Me(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
 		return
 	}
+	syncExpiredSubscription(h.db, &user, time.Now())
 
 	c.JSON(http.StatusOK, mapUser(user))
 }
@@ -689,17 +862,6 @@ func (h *Handler) UpdateMe(c *gin.Context) {
 	if req.Bio != nil {
 		updates["bio"] = strings.TrimSpace(*req.Bio)
 	}
-	if req.WebsiteURL != nil {
-		updates["website_url"] = strings.TrimSpace(*req.WebsiteURL)
-	}
-	if req.Location != nil {
-		location := strings.TrimSpace(*req.Location)
-		if len(location) > 64 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "location too long"})
-			return
-		}
-		updates["location"] = location
-	}
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
 		return
@@ -718,6 +880,7 @@ func (h *Handler) UpdateMe(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load profile"})
 		return
 	}
+	syncExpiredSubscription(h.db, &user, time.Now())
 
 	c.JSON(http.StatusOK, mapUser(user))
 }
@@ -978,34 +1141,89 @@ func (h *Handler) firstDevAuthCode() string {
 	return codes[0]
 }
 
-func (h *Handler) verifySMSCodeWithLimits(c *gin.Context, phone, code string) (bool, error) {
+func (h *Handler) verifySMSCodeWithLimits(c *gin.Context, phone, code, deviceID string) (bool, string, error) {
+	deviceID = sanitizeDeviceID(deviceID, c.ClientIP(), c.GetHeader("User-Agent"))
 	if h.isDevAuthPhone(phone) && h.isDevAuthCode(code) {
-		return true, nil
+		return true, "", nil
 	}
 	if h.smsLimiter == nil {
-		return false, fmt.Errorf("rate limiter unavailable")
+		return false, "rate_limited", fmt.Errorf("rate limiter unavailable")
 	}
 	ctx := c.Request.Context()
 	now := time.Now()
 	ttl := ttlUntilEndOfDay(now)
 	ip := c.ClientIP()
+	if locked, err := h.isAuthVerifyLocked(ctx, phone, ip, deviceID); err != nil {
+		return false, "rate_limited", fmt.Errorf("rate limiter unavailable")
+	} else if locked {
+		targetScope := "phone"
+		target := strings.TrimSpace(phone)
+		if target == "" {
+			targetScope = "ip"
+			target = strings.TrimSpace(ip)
+		}
+		if target == "" {
+			targetScope = "device"
+			target = strings.TrimSpace(deviceID)
+		}
+		h.recordRiskEvent(c, "auth_verify_locked", "auth", targetScope, target, "high", "auth verification locked", map[string]interface{}{
+			"phone":     strings.TrimSpace(phone),
+			"ip":        strings.TrimSpace(ip),
+			"device_id": strings.TrimSpace(deviceID),
+		})
+		return false, "locked", nil
+	}
 	if h.cfg.LoginDailyMaxPhone > 0 {
 		key := dayKey("login:daily:phone", phone, now)
 		if ok, err := h.smsLimiter.AllowDaily(ctx, key, h.cfg.LoginDailyMaxPhone, ttl); err != nil {
-			return false, fmt.Errorf("rate limiter unavailable")
+			return false, "rate_limited", fmt.Errorf("rate limiter unavailable")
 		} else if !ok {
-			return false, nil
+			h.recordRiskEvent(c, "auth_daily_limited", "auth", "phone", strings.TrimSpace(phone), "medium", "auth daily phone limit reached", nil)
+			return false, "rate_limited", nil
 		}
 	}
 	if ip != "" && h.cfg.LoginDailyMaxIP > 0 {
 		key := dayKey("login:daily:ip", ip, now)
 		if ok, err := h.smsLimiter.AllowDaily(ctx, key, h.cfg.LoginDailyMaxIP, ttl); err != nil {
-			return false, fmt.Errorf("rate limiter unavailable")
+			return false, "rate_limited", fmt.Errorf("rate limiter unavailable")
 		} else if !ok {
-			return false, nil
+			h.recordRiskEvent(c, "auth_daily_limited", "auth", "ip", strings.TrimSpace(ip), "medium", "auth daily ip limit reached", nil)
+			return false, "rate_limited", nil
 		}
 	}
-	return h.verifyAliyunSMSCode(phone, code)
+	if deviceID != "" && h.cfg.LoginDailyMaxDevice > 0 {
+		key := dayKey("login:daily:device", deviceID, now)
+		if ok, err := h.smsLimiter.AllowDaily(ctx, key, h.cfg.LoginDailyMaxDevice, ttl); err != nil {
+			return false, "rate_limited", fmt.Errorf("rate limiter unavailable")
+		} else if !ok {
+			h.recordRiskEvent(c, "auth_daily_limited", "auth", "device", strings.TrimSpace(deviceID), "medium", "auth daily device limit reached", nil)
+			return false, "rate_limited", nil
+		}
+	}
+	ok, err := h.verifyAliyunSMSCode(phone, code)
+	if err != nil {
+		return false, "rate_limited", err
+	}
+	if ok {
+		_ = h.clearAuthVerifyFailures(ctx, phone, ip, deviceID)
+		return true, "", nil
+	}
+	_ = h.markAuthVerifyFailure(ctx, phone, ip, deviceID)
+	targetScope := "phone"
+	target := strings.TrimSpace(phone)
+	if strings.TrimSpace(deviceID) != "" {
+		targetScope = "device"
+		target = strings.TrimSpace(deviceID)
+	} else if strings.TrimSpace(ip) != "" {
+		targetScope = "ip"
+		target = strings.TrimSpace(ip)
+	}
+	h.recordRiskEvent(c, "auth_verify_invalid_code", "auth", targetScope, target, "medium", "invalid sms verify code", map[string]interface{}{
+		"phone":     strings.TrimSpace(phone),
+		"ip":        strings.TrimSpace(ip),
+		"device_id": strings.TrimSpace(deviceID),
+	})
+	return false, "invalid_code", nil
 }
 
 func dayKey(prefix, value string, now time.Time) string {
@@ -1019,22 +1237,23 @@ func ttlUntilEndOfDay(now time.Time) time.Duration {
 }
 
 func mapUser(user models.User) UserResponse {
-	now := time.Now()
-	status, level, subscriber := resolveUserSubscriptionState(&user, now)
+	subscriptionStatus, userLevel, isSubscriber := resolveUserSubscriptionState(&user, time.Now())
 	return UserResponse{
 		ID:                    user.ID,
-		Email:                 user.Email,
 		Phone:                 user.Phone,
+		Email:                 user.Email,
 		DisplayName:           user.DisplayName,
 		AvatarURL:             user.AvatarURL,
+		Bio:                   user.Bio,
 		Role:                  user.Role,
 		Status:                user.Status,
-		UserLevel:             level,
-		SubscriptionStatus:    status,
-		SubscriptionPlan:      user.SubscriptionPlan,
+		IsAdmin:               user.IsAdmin,
+		UserLevel:             userLevel,
+		SubscriptionStatus:    subscriptionStatus,
+		SubscriptionPlan:      strings.TrimSpace(user.SubscriptionPlan),
 		SubscriptionStartedAt: user.SubscriptionStartedAt,
 		SubscriptionExpiresAt: user.SubscriptionExpiresAt,
-		IsSubscriber:          subscriber,
+		IsSubscriber:          isSubscriber,
 		CreatedAt:             user.CreatedAt,
 	}
 }

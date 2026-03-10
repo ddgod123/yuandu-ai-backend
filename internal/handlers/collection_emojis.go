@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -93,6 +95,11 @@ func (h *Handler) UploadCollectionEmojis(c *gin.Context) {
 		if err != nil {
 			continue
 		}
+		buf, err := io.ReadAll(src)
+		_ = src.Close()
+		if err != nil || len(buf) == 0 {
+			continue
+		}
 
 		ext := strings.ToLower(path.Ext(file.Filename))
 		if ext == "" {
@@ -102,11 +109,13 @@ func (h *Handler) UploadCollectionEmojis(c *gin.Context) {
 		destName := fmt.Sprintf("%0*d%s", seqWidth, seq, ext)
 		destKey := rawPrefix + destName
 
-		if err := uploadReaderToQiniu(uploader, h.qiniu, destKey, src, file.Size); err != nil {
-			_ = src.Close()
+		if err := uploadReaderToQiniu(uploader, h.qiniu, destKey, bytes.NewReader(buf), int64(len(buf))); err != nil {
 			continue
 		}
-		_ = src.Close()
+		thumbKey := ""
+		if ext == ".gif" {
+			thumbKey = tryUploadListPreviewGIF(uploader, h.qiniu, destKey, buf)
+		}
 
 		if coverKey == "" {
 			coverKey = destKey
@@ -120,8 +129,9 @@ func (h *Handler) UploadCollectionEmojis(c *gin.Context) {
 			CollectionID: collection.ID,
 			Title:        title,
 			FileURL:      destKey,
+			ThumbURL:     thumbKey,
 			Format:       strings.TrimPrefix(ext, "."),
-			SizeBytes:    file.Size,
+			SizeBytes:    int64(len(buf)),
 			DisplayOrder: seq,
 			Status:       "active",
 		}

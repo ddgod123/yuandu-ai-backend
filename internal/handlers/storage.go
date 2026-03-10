@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"path"
 	"strconv"
@@ -298,6 +302,131 @@ type ObjectURLResponse struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
+type BatchObjectURLRequest struct {
+	Keys    []string `json:"keys"`
+	TTL     int      `json:"ttl"`
+	Private bool     `json:"private"`
+}
+
+type BatchObjectURLItem struct {
+	Key       string `json:"key"`
+	URL       string `json:"url"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+type BatchObjectURLResponse struct {
+	Items []BatchObjectURLItem `json:"items"`
+}
+
+type storageURLCacheValue struct {
+	URL       string `json:"url"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+const (
+	signedURLCacheSeconds = int64(300) // 5 minutes
+	signedURLCacheSkewSec = int64(20)  // avoid serving near-expiry cache
+)
+
+func storageURLCacheKey(key string, ttl int64, forcePrivate bool) string {
+	raw := strings.TrimSpace(key) + "|" + strconv.FormatInt(ttl, 10) + "|" + strconv.FormatBool(forcePrivate)
+	sum := sha256.Sum256([]byte(raw))
+	return "cache:storage:url:v1:" + hex.EncodeToString(sum[:])
+}
+
+func (h *Handler) readStorageURLCache(ctx context.Context, cacheKey string) (ObjectURLResponse, bool) {
+	if h.smsLimiter == nil || strings.TrimSpace(cacheKey) == "" {
+		return ObjectURLResponse{}, false
+	}
+	raw, err := h.smsLimiter.GetValue(ctx, cacheKey)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return ObjectURLResponse{}, false
+	}
+	var cached storageURLCacheValue
+	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+		return ObjectURLResponse{}, false
+	}
+	now := time.Now().Unix()
+	if strings.TrimSpace(cached.URL) == "" || cached.ExpiresAt <= now+signedURLCacheSkewSec {
+		_ = h.smsLimiter.Delete(ctx, cacheKey)
+		return ObjectURLResponse{}, false
+	}
+	return ObjectURLResponse{URL: cached.URL, ExpiresAt: cached.ExpiresAt}, true
+}
+
+func (h *Handler) writeStorageURLCache(ctx context.Context, cacheKey string, value ObjectURLResponse) {
+	if h.smsLimiter == nil || strings.TrimSpace(cacheKey) == "" {
+		return
+	}
+	if strings.TrimSpace(value.URL) == "" || value.ExpiresAt <= 0 {
+		return
+	}
+	now := time.Now().Unix()
+	maxCacheTTL := value.ExpiresAt - now - signedURLCacheSkewSec
+	if maxCacheTTL <= 1 {
+		return
+	}
+	cacheTTL := signedURLCacheSeconds
+	if maxCacheTTL < cacheTTL {
+		cacheTTL = maxCacheTTL
+	}
+	payload, err := json.Marshal(storageURLCacheValue{
+		URL:       value.URL,
+		ExpiresAt: value.ExpiresAt,
+	})
+	if err != nil {
+		return
+	}
+	_ = h.smsLimiter.SetValue(ctx, cacheKey, string(payload), time.Duration(cacheTTL)*time.Second)
+}
+
+func normalizeStorageURLTTL(raw int, fallback int) int {
+	ttl := raw
+	if ttl <= 0 {
+		ttl = fallback
+	}
+	if ttl <= 0 {
+		ttl = 3600
+	}
+	if ttl < 60 {
+		ttl = 60
+	}
+	if ttl > 86400 {
+		ttl = 86400
+	}
+	return ttl
+}
+
+func (h *Handler) resolveObjectURLWithCache(ctx context.Context, key string, ttl int, forcePrivate bool) (ObjectURLResponse, error) {
+	key = strings.TrimLeft(strings.TrimSpace(key), "/")
+	if key == "" {
+		return ObjectURLResponse{}, nil
+	}
+	if h.qiniu == nil {
+		return ObjectURLResponse{}, nil
+	}
+
+	if h.qiniu.Private || forcePrivate {
+		signedTTL := normalizeStorageURLTTL(ttl, h.qiniu.SignTTL)
+		cacheKey := storageURLCacheKey(key, int64(signedTTL), forcePrivate)
+		if cached, ok := h.readStorageURLCache(ctx, cacheKey); ok {
+			return cached, nil
+		}
+		url, err := h.qiniu.SignedURL(key, int64(signedTTL))
+		if err != nil {
+			return ObjectURLResponse{}, err
+		}
+		resp := ObjectURLResponse{
+			URL:       url,
+			ExpiresAt: time.Now().Unix() + int64(signedTTL),
+		}
+		h.writeStorageURLCache(ctx, cacheKey, resp)
+		return resp, nil
+	}
+
+	return ObjectURLResponse{URL: h.qiniu.PublicURL(key), ExpiresAt: 0}, nil
+}
+
 // GetObjectURL godoc
 // @Summary Get object URL
 // @Tags storage
@@ -319,22 +448,74 @@ func (h *Handler) GetObjectURL(c *gin.Context) {
 	}
 	privateParam := strings.ToLower(c.DefaultQuery("private", ""))
 	forcePrivate := privateParam == "1" || privateParam == "true" || privateParam == "yes"
-	if h.qiniu.Private || forcePrivate {
-		ttl, _ := strconv.Atoi(c.DefaultQuery("ttl", "0"))
-		url, err := h.qiniu.SignedURL(key, int64(ttl))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		expires := time.Now().Unix() + int64(ttl)
-		if ttl <= 0 {
-			expires = time.Now().Unix() + int64(h.qiniu.SignTTL)
-		}
-		c.JSON(http.StatusOK, ObjectURLResponse{URL: url, ExpiresAt: expires})
+	ttl, _ := strconv.Atoi(c.DefaultQuery("ttl", "0"))
+	resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, ttl, forcePrivate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetObjectURLs godoc
+// @Summary Batch get object URLs
+// @Tags storage
+// @Accept json
+// @Produce json
+// @Param body body BatchObjectURLRequest true "batch object urls request"
+// @Success 200 {object} BatchObjectURLResponse
+// @Router /api/storage/urls [post]
+func (h *Handler) GetObjectURLs(c *gin.Context) {
+	if h.qiniu == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
 		return
 	}
 
-	c.JSON(http.StatusOK, ObjectURLResponse{URL: h.qiniu.PublicURL(key), ExpiresAt: 0})
+	var req BatchObjectURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Keys) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "keys required"})
+		return
+	}
+
+	seen := make(map[string]struct{}, len(req.Keys))
+	keys := make([]string, 0, len(req.Keys))
+	for _, raw := range req.Keys {
+		key := strings.TrimLeft(strings.TrimSpace(raw), "/")
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+		if len(keys) >= 300 {
+			break
+		}
+	}
+	if len(keys) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "keys required"})
+		return
+	}
+
+	items := make([]BatchObjectURLItem, 0, len(keys))
+	for _, key := range keys {
+		resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, req.TTL, req.Private)
+		if err != nil || strings.TrimSpace(resp.URL) == "" {
+			continue
+		}
+		items = append(items, BatchObjectURLItem{
+			Key:       key,
+			URL:       resp.URL,
+			ExpiresAt: resp.ExpiresAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, BatchObjectURLResponse{Items: items})
 }
 
 func mapFileInfo(info qiniustorage.FileInfo) QiniuFileInfo {

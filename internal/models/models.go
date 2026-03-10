@@ -9,25 +9,22 @@ import (
 
 type User struct {
 	ID                    uint64         `gorm:"primaryKey;autoIncrement"`
-	Email                 string         `gorm:"size:255;uniqueIndex"`
 	Phone                 string         `gorm:"size:32;uniqueIndex"`
+	Email                 string         `gorm:"size:255;uniqueIndex"`
+	Username              string         `gorm:"size:64;uniqueIndex"`
 	PasswordHash          string         `gorm:"size:255"`
 	DisplayName           string         `gorm:"size:64"`
-	Username              string         `gorm:"size:64;uniqueIndex"`
 	AvatarURL             string         `gorm:"size:512"`
 	Bio                   string         `gorm:"type:text"`
-	WebsiteURL            string         `gorm:"size:512"`
-	Location              string         `gorm:"size:64"`
 	Role                  string         `gorm:"size:32;index"`
 	Status                string         `gorm:"size:32;index"`
-	IsDesigner            bool           `gorm:"index"`
-	VerifiedAt            *time.Time     `gorm:"index"`
-	LastLoginAt           *time.Time     `gorm:"index"`
-	LastLoginIP           string         `gorm:"size:64"`
 	SubscriptionStatus    string         `gorm:"size:32;index"`
-	SubscriptionPlan      string         `gorm:"size:32;index"`
+	SubscriptionPlan      string         `gorm:"size:32"`
 	SubscriptionStartedAt *time.Time     `gorm:"index"`
 	SubscriptionExpiresAt *time.Time     `gorm:"index"`
+	IsAdmin               bool           `gorm:"default:false"`
+	LastLoginAt           *time.Time     `gorm:"index"`
+	LastLoginIP           string         `gorm:"size:64"`
 	CreatedAt             time.Time      `gorm:"autoCreateTime"`
 	UpdatedAt             time.Time      `gorm:"autoUpdateTime"`
 	DeletedAt             gorm.DeletedAt `gorm:"index"`
@@ -384,6 +381,8 @@ type SiteFooterSetting struct {
 	SiteDescription      string    `gorm:"column:site_description;type:text"`
 	ContactEmail         string    `gorm:"column:contact_email;size:255"`
 	ComplaintEmail       string    `gorm:"column:complaint_email;size:255"`
+	SelfMediaLogo        string    `gorm:"column:self_media_logo;size:512"`
+	SelfMediaQRCode      string    `gorm:"column:self_media_qr_code;size:512"`
 	ICPNumber            string    `gorm:"column:icp_number;size:128"`
 	ICPLink              string    `gorm:"column:icp_link;size:512"`
 	PublicSecurityNumber string    `gorm:"column:public_security_number;size:128"`
@@ -400,6 +399,7 @@ func (SiteFooterSetting) TableName() string {
 type RedeemCode struct {
 	ID            uint64     `gorm:"primaryKey;autoIncrement"`
 	CodeHash      string     `gorm:"column:code_hash;size:128;uniqueIndex"`
+	CodePlain     string     `gorm:"column:code_plain;size:64"`
 	CodeMask      string     `gorm:"column:code_mask;size:64;index"`
 	BatchNo       string     `gorm:"column:batch_no;size:64;index"`
 	Plan          string     `gorm:"column:plan;size:32;index"`
@@ -436,4 +436,38 @@ type RedeemCodeRedemption struct {
 
 func (RedeemCodeRedemption) TableName() string {
 	return "ops.redeem_code_redemptions"
+}
+
+type RiskBlacklist struct {
+	ID        uint64         `gorm:"primaryKey;autoIncrement"`
+	Scope     string         `gorm:"column:scope;size:16;index"`
+	Target    string         `gorm:"column:target;size:191;index"`
+	Action    string         `gorm:"column:action;size:32;index"`
+	Status    string         `gorm:"column:status;size:16;index"`
+	Reason    string         `gorm:"column:reason;type:text"`
+	ExpiresAt *time.Time     `gorm:"column:expires_at;index"`
+	CreatedBy *uint64        `gorm:"column:created_by;index"`
+	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+func (RiskBlacklist) TableName() string {
+	return "ops.risk_blacklists"
+}
+
+type RiskEvent struct {
+	ID        uint64         `gorm:"primaryKey;autoIncrement"`
+	EventType string         `gorm:"column:event_type;size:64;index"`
+	Action    string         `gorm:"column:action;size:32;index"`
+	Scope     string         `gorm:"column:scope;size:16;index"`
+	Target    string         `gorm:"column:target;size:191;index"`
+	Severity  string         `gorm:"column:severity;size:16;index"`
+	Message   string         `gorm:"column:message;type:text"`
+	Metadata  datatypes.JSON `gorm:"column:metadata;type:jsonb"`
+	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime;index"`
+}
+
+func (RiskEvent) TableName() string {
+	return "ops.risk_events"
 }

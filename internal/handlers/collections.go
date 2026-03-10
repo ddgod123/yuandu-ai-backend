@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ type CollectionListItem struct {
 	Title            string     `json:"title"`
 	Slug             string     `json:"slug"`
 	Description      string     `json:"description,omitempty"`
+	CoverKey         string     `json:"cover_key,omitempty"`
 	CoverURL         string     `json:"cover_url,omitempty"`
 	OwnerID          uint64     `json:"owner_id"`
 	CreatorProfileID *uint64    `json:"creator_profile_id,omitempty"`
@@ -44,6 +46,7 @@ type CollectionListItem struct {
 	ThemeID          *uint64    `json:"theme_id,omitempty"`
 	Source           string     `json:"source,omitempty"`
 	QiniuPrefix      string     `json:"qiniu_prefix,omitempty"`
+	PathMismatch     bool       `json:"path_mismatch"`
 	FileCount        int        `json:"file_count"`
 	IsFeatured       bool       `json:"is_featured"`
 	IsPinned         bool       `json:"is_pinned"`
@@ -145,6 +148,88 @@ func currentUserIDFromContext(c *gin.Context) (uint64, bool) {
 		return 0, false
 	}
 	return userID, true
+}
+
+func resolveCollectionCoverKey(raw string, qiniuClient *storage.QiniuClient) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if qiniuClient != nil {
+		if key, ok := extractQiniuObjectKey(trimmed, qiniuClient); ok {
+			return key
+		}
+	}
+	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
+		return ""
+	}
+	key := strings.TrimLeft(strings.SplitN(trimmed, "?", 2)[0], "/")
+	if key == "" {
+		return ""
+	}
+	if decoded, err := url.PathUnescape(key); err == nil && strings.TrimSpace(decoded) != "" {
+		key = strings.TrimSpace(decoded)
+	}
+	return key
+}
+
+func loadCollectionCategoryPrefixMap(db *gorm.DB, items []models.Collection) map[uint64]string {
+	result := map[uint64]string{}
+	if len(items) == 0 {
+		return result
+	}
+
+	ids := make([]uint64, 0, len(items))
+	seen := map[uint64]struct{}{}
+	for _, item := range items {
+		if item.CategoryID == nil || *item.CategoryID == 0 {
+			continue
+		}
+		if _, ok := seen[*item.CategoryID]; ok {
+			continue
+		}
+		seen[*item.CategoryID] = struct{}{}
+		ids = append(ids, *item.CategoryID)
+	}
+	if len(ids) == 0 {
+		return result
+	}
+
+	type categoryPrefixRow struct {
+		ID     uint64
+		Prefix string
+	}
+
+	var rows []categoryPrefixRow
+	if err := db.Table("taxonomy.categories").
+		Select("id, prefix").
+		Where("id IN ?", ids).
+		Scan(&rows).Error; err != nil {
+		return result
+	}
+	for _, row := range rows {
+		result[row.ID] = row.Prefix
+	}
+	return result
+}
+
+func isCollectionPathMismatch(collection models.Collection, categoryPrefix string) bool {
+	if collection.CategoryID == nil || *collection.CategoryID == 0 {
+		return false
+	}
+	expectedPrefix := normalizeCollectionPrefix(categoryPrefix)
+	actualPrefix := normalizeCollectionPrefix(collection.QiniuPrefix)
+	if expectedPrefix == "" || actualPrefix == "" {
+		return false
+	}
+	return !strings.HasPrefix(actualPrefix, expectedPrefix)
+}
+
+func resolveCollectionPathMismatch(collection models.Collection, categoryPrefixMap map[uint64]string) bool {
+	if collection.CategoryID == nil || *collection.CategoryID == 0 {
+		return false
+	}
+	return isCollectionPathMismatch(collection, categoryPrefixMap[*collection.CategoryID])
 }
 
 func (h *Handler) ListCollections(c *gin.Context) {
@@ -338,6 +423,7 @@ func (h *Handler) ListCollections(c *gin.Context) {
 	db.Offset((page - 1) * limit).Limit(limit).Order(orderBy).Find(&items)
 
 	tagMap := loadCollectionTags(h.db, items)
+	categoryPrefixMap := loadCollectionCategoryPrefixMap(h.db, items)
 	creatorMap := loadCreatorProfiles(h.db, items)
 	statMap := loadCollectionStats(h.db, items)
 	previewMap := loadCollectionPreviewImages(h.db, h.qiniu, items, previewCount, adminView)
@@ -366,12 +452,14 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			}
 		}
 		stats := statMap[item.ID]
+		coverKey := resolveCollectionCoverKey(item.CoverURL, h.qiniu)
 		respItems = append(respItems, CollectionListItem{
 			ID:               item.ID,
 			Title:            item.Title,
 			Slug:             item.Slug,
 			Description:      item.Description,
-			CoverURL:         item.CoverURL,
+			CoverKey:         coverKey,
+			CoverURL:         resolveListPreviewURL(item.CoverURL, h.qiniu),
 			OwnerID:          item.OwnerID,
 			CreatorProfileID: item.CreatorProfileID,
 			CreatorName:      creatorName,
@@ -388,6 +476,7 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			ThemeID:          item.ThemeID,
 			Source:           item.Source,
 			QiniuPrefix:      item.QiniuPrefix,
+			PathMismatch:     resolveCollectionPathMismatch(item, categoryPrefixMap),
 			FileCount:        item.FileCount,
 			IsFeatured:       item.IsFeatured,
 			IsPinned:         item.IsPinned,
@@ -441,6 +530,7 @@ func (h *Handler) GetCollection(c *gin.Context) {
 	}
 
 	tagMap := loadCollectionTags(h.db, []models.Collection{collection})
+	categoryPrefixMap := loadCollectionCategoryPrefixMap(h.db, []models.Collection{collection})
 	creatorMap := loadCreatorProfiles(h.db, []models.Collection{collection})
 	statMap := loadCollectionStats(h.db, []models.Collection{collection})
 	var creatorName string
@@ -468,7 +558,8 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		Title:            collection.Title,
 		Slug:             collection.Slug,
 		Description:      collection.Description,
-		CoverURL:         collection.CoverURL,
+		CoverKey:         resolveCollectionCoverKey(collection.CoverURL, h.qiniu),
+		CoverURL:         resolvePreviewURL(collection.CoverURL, h.qiniu),
 		OwnerID:          collection.OwnerID,
 		CreatorProfileID: collection.CreatorProfileID,
 		CreatorName:      creatorName,
@@ -485,6 +576,7 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		ThemeID:          collection.ThemeID,
 		Source:           collection.Source,
 		QiniuPrefix:      collection.QiniuPrefix,
+		PathMismatch:     resolveCollectionPathMismatch(collection, categoryPrefixMap),
 		FileCount:        collection.FileCount,
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
@@ -706,6 +798,7 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 	}
 
 	tagMap := loadCollectionTags(h.db, []models.Collection{collection})
+	categoryPrefixMap := loadCollectionCategoryPrefixMap(h.db, []models.Collection{collection})
 	creatorMap := loadCreatorProfiles(h.db, []models.Collection{collection})
 	var creatorName string
 	var creatorNameZh string
@@ -724,7 +817,8 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		Title:            collection.Title,
 		Slug:             collection.Slug,
 		Description:      collection.Description,
-		CoverURL:         collection.CoverURL,
+		CoverKey:         resolveCollectionCoverKey(collection.CoverURL, h.qiniu),
+		CoverURL:         resolvePreviewURL(collection.CoverURL, h.qiniu),
 		OwnerID:          collection.OwnerID,
 		CreatorProfileID: collection.CreatorProfileID,
 		CreatorName:      creatorName,
@@ -736,6 +830,7 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		ThemeID:          collection.ThemeID,
 		Source:           collection.Source,
 		QiniuPrefix:      collection.QiniuPrefix,
+		PathMismatch:     resolveCollectionPathMismatch(collection, categoryPrefixMap),
 		FileCount:        collection.FileCount,
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
@@ -901,9 +996,9 @@ func loadCollectionStats(db *gorm.DB, items []models.Collection) map[uint64]coll
 }
 
 type collectionPreviewRow struct {
-	CollectionID uint64
-	FileURL      string
-	RankNum      int
+	CollectionID  uint64
+	PreviewSource string
+	RankNum       int
 }
 
 func loadCollectionPreviewImages(
@@ -928,11 +1023,11 @@ func loadCollectionPreviewImages(
 	}
 	rows := make([]collectionPreviewRow, 0)
 	query := `
-SELECT t.collection_id, t.file_url, t.rank_num
+SELECT t.collection_id, t.preview_source, t.rank_num
 FROM (
 	SELECT
 		e.collection_id,
-		e.file_url,
+		COALESCE(NULLIF(TRIM(e.thumb_url), ''), e.file_url) AS preview_source,
 		ROW_NUMBER() OVER (
 			PARTITION BY e.collection_id
 			ORDER BY COALESCE(e.display_order, 2147483647), e.id
@@ -964,7 +1059,7 @@ ORDER BY t.collection_id, t.rank_num
 		if len(result[row.CollectionID]) >= previewCount {
 			continue
 		}
-		previewURL := resolvePreviewURL(row.FileURL, qiniu)
+		previewURL := resolveListPreviewURL(row.PreviewSource, qiniu)
 		if strings.TrimSpace(previewURL) == "" {
 			continue
 		}

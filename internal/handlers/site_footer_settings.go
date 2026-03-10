@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"emoji/internal/models"
+	"emoji/internal/storage"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -17,6 +18,8 @@ type SiteFooterSettingRequest struct {
 	SiteDescription      string `json:"site_description"`
 	ContactEmail         string `json:"contact_email"`
 	ComplaintEmail       string `json:"complaint_email"`
+	SelfMediaLogo        string `json:"self_media_logo"`
+	SelfMediaQRCode      string `json:"self_media_qr_code"`
 	ICPNumber            string `json:"icp_number"`
 	ICPLink              string `json:"icp_link"`
 	PublicSecurityNumber string `json:"public_security_number"`
@@ -29,6 +32,10 @@ type SiteFooterSettingResponse struct {
 	SiteDescription      string `json:"site_description"`
 	ContactEmail         string `json:"contact_email"`
 	ComplaintEmail       string `json:"complaint_email"`
+	SelfMediaLogo        string `json:"self_media_logo"`
+	SelfMediaLogoURL     string `json:"self_media_logo_url"`
+	SelfMediaQRCode      string `json:"self_media_qr_code"`
+	SelfMediaQRCodeURL   string `json:"self_media_qr_code_url"`
 	ICPNumber            string `json:"icp_number"`
 	ICPLink              string `json:"icp_link"`
 	PublicSecurityNumber string `json:"public_security_number"`
@@ -71,12 +78,18 @@ func normalizeSiteFooterSetting(setting models.SiteFooterSetting) models.SiteFoo
 	return setting
 }
 
-func toSiteFooterSettingResponse(setting models.SiteFooterSetting, withMeta bool) SiteFooterSettingResponse {
+func toSiteFooterSettingResponse(setting models.SiteFooterSetting, qiniuClient *storage.QiniuClient, withMeta bool) SiteFooterSettingResponse {
+	selfMediaLogo := strings.TrimSpace(setting.SelfMediaLogo)
+	selfMediaQRCode := strings.TrimSpace(setting.SelfMediaQRCode)
 	resp := SiteFooterSettingResponse{
 		SiteName:             setting.SiteName,
 		SiteDescription:      setting.SiteDescription,
 		ContactEmail:         setting.ContactEmail,
 		ComplaintEmail:       setting.ComplaintEmail,
+		SelfMediaLogo:        selfMediaLogo,
+		SelfMediaLogoURL:     resolvePreviewURL(selfMediaLogo, qiniuClient),
+		SelfMediaQRCode:      selfMediaQRCode,
+		SelfMediaQRCodeURL:   resolvePreviewURL(selfMediaQRCode, qiniuClient),
 		ICPNumber:            setting.ICPNumber,
 		ICPLink:              setting.ICPLink,
 		PublicSecurityNumber: setting.PublicSecurityNumber,
@@ -124,6 +137,27 @@ func normalizeOptionalLink(value string) (string, bool) {
 	return "", false
 }
 
+func normalizeOptionalAsset(value string, qiniuClient *storage.QiniuClient) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", true
+	}
+
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		if key, ok := extractQiniuObjectKey(value, qiniuClient); ok {
+			return key, true
+		}
+		return value, true
+	}
+	if strings.Contains(lower, "://") {
+		return "", false
+	}
+
+	key := strings.TrimLeft(value, "/")
+	return key, key != ""
+}
+
 // GetSiteFooterSetting godoc
 // @Summary Get public site footer setting
 // @Tags public
@@ -136,7 +170,7 @@ func (h *Handler) GetSiteFooterSetting(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, toSiteFooterSettingResponse(setting, false))
+	c.JSON(http.StatusOK, toSiteFooterSettingResponse(setting, h.qiniu, false))
 }
 
 // GetAdminSiteFooterSetting godoc
@@ -151,7 +185,7 @@ func (h *Handler) GetAdminSiteFooterSetting(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, toSiteFooterSettingResponse(setting, true))
+	c.JSON(http.StatusOK, toSiteFooterSettingResponse(setting, h.qiniu, true))
 }
 
 // UpdateAdminSiteFooterSetting godoc
@@ -187,6 +221,17 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		return
 	}
 
+	selfMediaLogo, ok := normalizeOptionalAsset(req.SelfMediaLogo, h.qiniu)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "self_media_logo must be http(s) url or object key"})
+		return
+	}
+	selfMediaQRCode, ok := normalizeOptionalAsset(req.SelfMediaQRCode, h.qiniu)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "self_media_qr_code must be http(s) url or object key"})
+		return
+	}
+
 	icpLink, ok := normalizeOptionalLink(strings.TrimSpace(req.ICPLink))
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "icp_link must start with http:// or https://"})
@@ -204,6 +249,8 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		SiteDescription:      strings.TrimSpace(req.SiteDescription),
 		ContactEmail:         contactEmail,
 		ComplaintEmail:       complaintEmail,
+		SelfMediaLogo:        selfMediaLogo,
+		SelfMediaQRCode:      selfMediaQRCode,
 		ICPNumber:            strings.TrimSpace(req.ICPNumber),
 		ICPLink:              icpLink,
 		PublicSecurityNumber: strings.TrimSpace(req.PublicSecurityNumber),
@@ -231,6 +278,8 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		current.SiteDescription = payload.SiteDescription
 		current.ContactEmail = payload.ContactEmail
 		current.ComplaintEmail = payload.ComplaintEmail
+		current.SelfMediaLogo = payload.SelfMediaLogo
+		current.SelfMediaQRCode = payload.SelfMediaQRCode
 		current.ICPNumber = payload.ICPNumber
 		current.ICPLink = payload.ICPLink
 		current.PublicSecurityNumber = payload.PublicSecurityNumber
@@ -247,5 +296,5 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toSiteFooterSettingResponse(normalizeSiteFooterSetting(saved), true))
+	c.JSON(http.StatusOK, toSiteFooterSettingResponse(normalizeSiteFooterSetting(saved), h.qiniu, true))
 }

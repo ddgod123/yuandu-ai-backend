@@ -50,24 +50,60 @@ type Config struct {
 	QiniuPrivate   bool
 	QiniuSignTTL   int
 
-	AliyunAccessKeyId      string
-	AliyunAccessKeySecret  string
-	AliyunSmsSignName      string
-	AliyunSmsTemplateCode  string
-	AliyunSmsTemplateParam string
-	AliyunSmsValidTime     int
-	AliyunSmsInterval      int
-	AliyunSmsReturnCode    bool
-	AliyunSmsRegionId      string
-	AliyunSmsEndpoint      string
-	AliyunSmsCountryCode   string
-	AliyunSmsDailyMaxPhone int
-	AliyunSmsDailyMaxIP    int
-	LoginDailyMaxPhone     int
-	LoginDailyMaxIP        int
-	DevAuthEnabled         bool
-	DevAuthPhone           string
-	DevAuthCode            string
+	AliyunAccessKeyId                     string
+	AliyunAccessKeySecret                 string
+	AliyunSmsSignName                     string
+	AliyunSmsTemplateCode                 string
+	AliyunSmsTemplateParam                string
+	AliyunSmsValidTime                    int
+	AliyunSmsInterval                     int
+	AliyunSmsReturnCode                   bool
+	AliyunSmsRegionId                     string
+	AliyunSmsEndpoint                     string
+	AliyunSmsCountryCode                  string
+	AliyunSmsDailyMaxPhone                int
+	AliyunSmsDailyMaxIP                   int
+	AliyunSmsDailyMaxDevice               int
+	AliyunSmsDailyMaxUniquePhonePerIP     int
+	AliyunSmsDailyMaxUniquePhonePerDevice int
+	LoginDailyMaxPhone                    int
+	LoginDailyMaxIP                       int
+	LoginDailyMaxDevice                   int
+	DevAuthEnabled                        bool
+	DevAuthPhone                          string
+	DevAuthCode                           string
+	CaptchaTTLSeconds                     int
+	CaptchaLength                         int
+	RegisterDailyMaxDevice                int
+	RegisterDailyMaxIP                    int
+	AuthFailWindowSeconds                 int
+	AuthFailLockLevel1                    int
+	AuthFailLockLevel2                    int
+	AuthFailLockTTL1                      int
+	AuthFailLockTTL2                      int
+
+	DownloadEmojiPerMinuteUser int
+	DownloadEmojiPerMinuteIP   int
+	DownloadEmojiPerHourUser   int
+	DownloadEmojiPerHourIP     int
+
+	DownloadCollectionPerHourUser int
+	DownloadCollectionPerHourIP   int
+	DownloadCollectionPerDayUser  int
+	DownloadCollectionPerDayIP    int
+
+	RedeemValidatePer10MinUser int
+	RedeemValidatePer10MinIP   int
+	RedeemSubmitPer10MinUser   int
+	RedeemSubmitPer10MinIP     int
+	DownloadTicketTTL          int
+	DownloadTicketSignTTL      int
+	DownloadTicketBindIP       bool
+	DownloadTicketBindUA       bool
+	RiskAutoBlockEnabled       bool
+	RiskAutoBlockThreshold     int
+	RiskAutoBlockWindowSeconds int
+	RiskAutoBlockDurationSec   int
 
 	TelegramBotToken    string
 	TelegramDownloadDir string
@@ -80,6 +116,28 @@ type Config struct {
 	AuthCookieSameSite    string
 
 	CORSAllowOrigins []string
+
+	// Aliyun OSS
+	OSSEndpoint        string
+	OSSAccessKeyID     string
+	OSSAccessKeySecret string
+	OSSBucket          string
+	OSSRegion          string
+	OSSBaseURL         string
+
+	// LLM API (supports: claude, deepseek, qwen, moonshot, or any OpenAI-compatible)
+	LLMProvider string // "claude" | "deepseek" | "qwen" | "moonshot" | ...
+	LLMAPIKey   string
+	LLMModel    string // leave empty for provider default
+	LLMEndpoint string // leave empty for provider default
+
+	// Legacy aliases (still read, used as fallback)
+	ClaudeAPIKey   string
+	ClaudeModel    string
+	ClaudeEndpoint string
+
+	// Font path for meme composition
+	FontPath string
 }
 
 func Load() Config {
@@ -100,7 +158,7 @@ func Load() Config {
 	cfg.JWTSecret = getEnv("JWT_SECRET", "change-me")
 	cfg.JWTIssuer = getEnv("JWT_ISSUER", "emoji")
 	cfg.AccessTokenTTL = getEnvAsDuration("JWT_ACCESS_TTL", 2*time.Hour)
-	cfg.RefreshTokenTTL = getEnvAsDuration("JWT_REFRESH_TTL", 168*time.Hour)
+	cfg.RefreshTokenTTL = getEnvAsDuration("JWT_REFRESH_TTL", 720*time.Hour)
 
 	cfg.RedisAddr = getEnv("REDIS_ADDR", "127.0.0.1:6379")
 	cfg.RedisPassword = getEnv("REDIS_PASSWORD", "")
@@ -139,11 +197,47 @@ func Load() Config {
 	cfg.AliyunSmsCountryCode = getEnv("ALIYUN_SMS_COUNTRY_CODE", "86")
 	cfg.AliyunSmsDailyMaxPhone = getEnvAsInt("ALIYUN_SMS_DAILY_MAX_PHONE", 20)
 	cfg.AliyunSmsDailyMaxIP = getEnvAsInt("ALIYUN_SMS_DAILY_MAX_IP", 200)
+	cfg.AliyunSmsDailyMaxDevice = getEnvAsInt("ALIYUN_SMS_DAILY_MAX_DEVICE", 60)
+	cfg.AliyunSmsDailyMaxUniquePhonePerIP = getEnvAsInt("ALIYUN_SMS_DAILY_MAX_UNIQUE_PHONE_PER_IP", 30)
+	cfg.AliyunSmsDailyMaxUniquePhonePerDevice = getEnvAsInt("ALIYUN_SMS_DAILY_MAX_UNIQUE_PHONE_PER_DEVICE", 20)
 	cfg.LoginDailyMaxPhone = getEnvAsInt("LOGIN_DAILY_MAX_PHONE", 50)
 	cfg.LoginDailyMaxIP = getEnvAsInt("LOGIN_DAILY_MAX_IP", 300)
+	cfg.LoginDailyMaxDevice = getEnvAsInt("LOGIN_DAILY_MAX_DEVICE", 120)
 	cfg.DevAuthEnabled = getEnvAsBool("DEV_AUTH_ENABLED", false)
 	cfg.DevAuthPhone = getEnv("DEV_AUTH_PHONE", "")
 	cfg.DevAuthCode = getEnv("DEV_AUTH_CODE", "")
+	cfg.CaptchaTTLSeconds = getEnvAsInt("CAPTCHA_TTL_SECONDS", 300)
+	cfg.CaptchaLength = getEnvAsInt("CAPTCHA_LENGTH", 4)
+	cfg.RegisterDailyMaxDevice = getEnvAsInt("REGISTER_DAILY_MAX_DEVICE", 3)
+	cfg.RegisterDailyMaxIP = getEnvAsInt("REGISTER_DAILY_MAX_IP", 20)
+	cfg.AuthFailWindowSeconds = getEnvAsInt("AUTH_FAIL_WINDOW_SECONDS", 600)
+	cfg.AuthFailLockLevel1 = getEnvAsInt("AUTH_FAIL_LOCK_LEVEL1", 5)
+	cfg.AuthFailLockLevel2 = getEnvAsInt("AUTH_FAIL_LOCK_LEVEL2", 12)
+	cfg.AuthFailLockTTL1 = getEnvAsInt("AUTH_FAIL_LOCK_TTL1", 600)
+	cfg.AuthFailLockTTL2 = getEnvAsInt("AUTH_FAIL_LOCK_TTL2", 3600)
+
+	cfg.DownloadEmojiPerMinuteUser = getEnvAsInt("DOWNLOAD_EMOJI_PER_MINUTE_USER", 120)
+	cfg.DownloadEmojiPerMinuteIP = getEnvAsInt("DOWNLOAD_EMOJI_PER_MINUTE_IP", 300)
+	cfg.DownloadEmojiPerHourUser = getEnvAsInt("DOWNLOAD_EMOJI_PER_HOUR_USER", 1200)
+	cfg.DownloadEmojiPerHourIP = getEnvAsInt("DOWNLOAD_EMOJI_PER_HOUR_IP", 3000)
+
+	cfg.DownloadCollectionPerHourUser = getEnvAsInt("DOWNLOAD_COLLECTION_PER_HOUR_USER", 20)
+	cfg.DownloadCollectionPerHourIP = getEnvAsInt("DOWNLOAD_COLLECTION_PER_HOUR_IP", 60)
+	cfg.DownloadCollectionPerDayUser = getEnvAsInt("DOWNLOAD_COLLECTION_PER_DAY_USER", 120)
+	cfg.DownloadCollectionPerDayIP = getEnvAsInt("DOWNLOAD_COLLECTION_PER_DAY_IP", 400)
+
+	cfg.RedeemValidatePer10MinUser = getEnvAsInt("REDEEM_VALIDATE_PER_10MIN_USER", 30)
+	cfg.RedeemValidatePer10MinIP = getEnvAsInt("REDEEM_VALIDATE_PER_10MIN_IP", 80)
+	cfg.RedeemSubmitPer10MinUser = getEnvAsInt("REDEEM_SUBMIT_PER_10MIN_USER", 10)
+	cfg.RedeemSubmitPer10MinIP = getEnvAsInt("REDEEM_SUBMIT_PER_10MIN_IP", 30)
+	cfg.DownloadTicketTTL = getEnvAsInt("DOWNLOAD_TICKET_TTL", 120)
+	cfg.DownloadTicketSignTTL = getEnvAsInt("DOWNLOAD_TICKET_SIGN_TTL", 180)
+	cfg.DownloadTicketBindIP = getEnvAsBool("DOWNLOAD_TICKET_BIND_IP", true)
+	cfg.DownloadTicketBindUA = getEnvAsBool("DOWNLOAD_TICKET_BIND_UA", true)
+	cfg.RiskAutoBlockEnabled = getEnvAsBool("RISK_AUTO_BLOCK_ENABLED", true)
+	cfg.RiskAutoBlockThreshold = getEnvAsInt("RISK_AUTO_BLOCK_THRESHOLD", 10)
+	cfg.RiskAutoBlockWindowSeconds = getEnvAsInt("RISK_AUTO_BLOCK_WINDOW_SECONDS", 600)
+	cfg.RiskAutoBlockDurationSec = getEnvAsInt("RISK_AUTO_BLOCK_DURATION_SECONDS", 86400)
 
 	cfg.TelegramBotToken = getEnv("TELEGRAM_BOT_TOKEN", "")
 	cfg.TelegramDownloadDir = getEnv("TELEGRAM_DOWNLOAD_DIR", "/Users/mac/go/src/emoji/telegram_to_wechat")
@@ -161,6 +255,28 @@ func Load() Config {
 		"http://localhost:5918",
 		"http://127.0.0.1:5918",
 	})
+
+	// Aliyun OSS
+	cfg.OSSEndpoint = getEnv("OSS_ENDPOINT", "")
+	cfg.OSSAccessKeyID = getEnv("OSS_ACCESS_KEY_ID", cfg.AliyunAccessKeyId)
+	cfg.OSSAccessKeySecret = getEnv("OSS_ACCESS_KEY_SECRET", cfg.AliyunAccessKeySecret)
+	cfg.OSSBucket = getEnv("OSS_BUCKET", "")
+	cfg.OSSRegion = getEnv("OSS_REGION", "cn-hangzhou")
+	cfg.OSSBaseURL = getEnv("OSS_BASE_URL", "")
+
+	// Claude API (legacy, used as fallback for LLM_*)
+	cfg.ClaudeAPIKey = getEnv("CLAUDE_API_KEY", "")
+	cfg.ClaudeModel = getEnv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+	cfg.ClaudeEndpoint = getEnv("CLAUDE_ENDPOINT", "https://api.anthropic.com")
+
+	// LLM provider (preferred — falls back to Claude* if not set)
+	cfg.LLMProvider = getEnv("LLM_PROVIDER", "claude")
+	cfg.LLMAPIKey = getEnv("LLM_API_KEY", cfg.ClaudeAPIKey)
+	cfg.LLMModel = getEnv("LLM_MODEL", cfg.ClaudeModel)
+	cfg.LLMEndpoint = getEnv("LLM_ENDPOINT", cfg.ClaudeEndpoint)
+
+	// Font
+	cfg.FontPath = getEnv("FONT_PATH", "assets/fonts/NotoSansSC-Bold.ttf")
 
 	return cfg
 }

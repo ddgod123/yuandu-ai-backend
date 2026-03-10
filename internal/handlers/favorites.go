@@ -45,7 +45,7 @@ type FavoriteCollectionListResponse struct {
 // @Success 200 {object} models.Favorite
 // @Router /api/favorites [post]
 func (h *Handler) AddFavorite(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	userID := c.GetUint64("user_id")
@@ -93,7 +93,7 @@ func (h *Handler) AddFavorite(c *gin.Context) {
 // @Success 200 {object} object{message=string}
 // @Router /api/favorites/{emoji_id} [delete]
 func (h *Handler) RemoveFavorite(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	userID := c.GetUint64("user_id")
@@ -129,7 +129,7 @@ func (h *Handler) RemoveFavorite(c *gin.Context) {
 // @Success 200 {object} FavoriteEmojiListResponse
 // @Router /api/favorites [get]
 func (h *Handler) ListFavorites(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	userID := c.GetUint64("user_id")
@@ -227,7 +227,7 @@ func (h *Handler) ListFavorites(c *gin.Context) {
 // @Success 200 {object} FavoriteCollectionListResponse
 // @Router /api/favorites/collections [get]
 func (h *Handler) ListCollectionFavorites(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	userID, ok := currentUserIDFromContext(c)

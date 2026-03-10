@@ -76,6 +76,15 @@ func (h *Handler) GetHomeStats(c *gin.Context) {
 			return
 		}
 		source = "live"
+	} else if !isSameStatDate(snapshot.StatDate, time.Now().In(loc), loc) {
+		// Snapshot table exists but latest row is stale (e.g. scheduler not run today).
+		// Fallback to live aggregation to keep homepage counters valid.
+		snapshot, err = h.computePublicHomeStats(time.Now().In(loc), loc)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		source = "live"
 	}
 
 	c.JSON(http.StatusOK, HomeStatsResponse{
@@ -99,6 +108,12 @@ func loadStatsLocation() *time.Location {
 func normalizeStatDate(base time.Time, loc *time.Location) time.Time {
 	v := base.In(loc)
 	return time.Date(v.Year(), v.Month(), v.Day(), 0, 0, 0, 0, loc)
+}
+
+func isSameStatDate(a time.Time, b time.Time, loc *time.Location) bool {
+	da := normalizeStatDate(a, loc)
+	db := normalizeStatDate(b, loc)
+	return da.Equal(db)
 }
 
 func (h *Handler) computePublicHomeStats(base time.Time, loc *time.Location) (homeStatsSnapshot, error) {

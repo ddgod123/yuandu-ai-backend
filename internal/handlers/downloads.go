@@ -127,7 +127,14 @@ func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
 // @Success 200 {object} DownloadURLResponse
 // @Router /api/collections/{id}/download-zip [get]
 func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	user, ok := h.requireActiveSubscriber(c)
+	if !ok {
+		return
+	}
+	if user != nil && !h.guardCollectionDownload(c, user.ID) {
+		return
+	}
+	if user != nil && !h.enforceRiskBlock(c, "download", "", "", user.ID) {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -214,7 +221,17 @@ func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
 		return
 	}
 	downloadName := normalizeDownloadFileName(collection.Title, name, ".zip")
-	if h.qiniu != nil && !h.qiniu.Private {
+	if userID, ok := currentUserIDFromContext(c); ok && userID > 0 {
+		if ticketURL, ticketExp, err := h.issueDownloadTicket(c, key, downloadName, userID); err == nil {
+			url = ticketURL
+			exp = ticketExp
+		} else if h.qiniu != nil && !h.qiniu.Private {
+			url = appendDownloadAttname(url, downloadName)
+		}
+	} else if ticketURL, ticketExp, err := h.issueDownloadTicket(c, key, downloadName, 0); err == nil {
+		url = ticketURL
+		exp = ticketExp
+	} else if h.qiniu != nil && !h.qiniu.Private {
 		url = appendDownloadAttname(url, downloadName)
 	}
 
@@ -309,7 +326,14 @@ func (h *Handler) GetCollectionZipList(c *gin.Context) {
 // @Param id path int true "collection id"
 // @Router /api/collections/{id}/download-zip-all [get]
 func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	user, ok := h.requireActiveSubscriber(c)
+	if !ok {
+		return
+	}
+	if user != nil && !h.guardCollectionDownload(c, user.ID) {
+		return
+	}
+	if user != nil && !h.enforceRiskBlock(c, "download", "", "", user.ID) {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -484,7 +508,14 @@ func (h *Handler) GetCollectionDownloadList(c *gin.Context) {
 // @Success 200 {object} DownloadURLResponse
 // @Router /api/emojis/{id}/download [get]
 func (h *Handler) GetEmojiDownload(c *gin.Context) {
-	if _, ok := h.requireActiveUser(c); !ok {
+	user, ok := h.requireActiveUser(c)
+	if !ok {
+		return
+	}
+	if user != nil && !h.guardEmojiDownload(c, user.ID) {
+		return
+	}
+	if user != nil && !h.enforceRiskBlock(c, "download", "", "", user.ID) {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -517,7 +548,17 @@ func (h *Handler) GetEmojiDownload(c *gin.Context) {
 		return
 	}
 	downloadName := normalizeDownloadFileName(emoji.Title, path.Base(strings.TrimSpace(emoji.FileURL)), inferEmojiDownloadExt(emoji))
-	if h.qiniu != nil && !h.qiniu.Private {
+	if userID, ok := currentUserIDFromContext(c); ok && userID > 0 {
+		if ticketURL, ticketExp, err := h.issueDownloadTicket(c, emoji.FileURL, downloadName, userID); err == nil {
+			url = ticketURL
+			exp = ticketExp
+		} else if h.qiniu != nil && !h.qiniu.Private {
+			url = appendDownloadAttname(url, downloadName)
+		}
+	} else if ticketURL, ticketExp, err := h.issueDownloadTicket(c, emoji.FileURL, downloadName, 0); err == nil {
+		url = ticketURL
+		exp = ticketExp
+	} else if h.qiniu != nil && !h.qiniu.Private {
 		url = appendDownloadAttname(url, downloadName)
 	}
 	h.recordEmojiDownload(c, emoji.ID)
@@ -539,7 +580,14 @@ func (h *Handler) GetEmojiDownload(c *gin.Context) {
 // @Param ttl query int false "ttl (seconds)"
 // @Router /api/emojis/{id}/download-file [get]
 func (h *Handler) DownloadEmojiFile(c *gin.Context) {
-	if _, ok := h.requireActiveUser(c); !ok {
+	user, ok := h.requireActiveUser(c)
+	if !ok {
+		return
+	}
+	if user != nil && !h.guardEmojiDownload(c, user.ID) {
+		return
+	}
+	if user != nil && !h.enforceRiskBlock(c, "download", "", "", user.ID) {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)

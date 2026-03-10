@@ -30,5 +30,12 @@ func AutoMigrate(db *gorm.DB) error {
 		&RedeemCodeRedemption{},
 		&CardTheme{},
 		&UploadTask{},
+		// New meme social models
+		&Meme{},
+		&MemeTemplate{},
+		&MemePhrase{},
+		&UserLike{},
+		&UserCollect{},
+		&SmsCode{},
 	)
 }

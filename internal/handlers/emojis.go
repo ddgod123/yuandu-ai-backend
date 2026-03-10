@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -36,6 +39,13 @@ type EmojiListResponse struct {
 	Items []EmojiListItem `json:"items"`
 	Total int64           `json:"total"`
 }
+
+const (
+	// List pages use a lighter animated preview to reduce GIF payload while keeping motion.
+	qiniuListGIFWidth     = 320
+	qiniuListGIFFPS       = 12
+	qiniuListGIFTransform = "avthumb/gif/s/%dx/r/%d"
+)
 
 func (h *Handler) ListEmojis(c *gin.Context) {
 	var (
@@ -150,37 +160,48 @@ func (h *Handler) BatchUploadEmoji(c *gin.Context) {
 		if err != nil {
 			continue
 		}
+		buf, err := io.ReadAll(src)
+		_ = src.Close()
+		if err != nil || len(buf) == 0 {
+			continue
+		}
 
 		objectName := path.Join("emoji", file.Filename)
 		if collectionID > 0 {
 			objectName = path.Join("emoji", fmt.Sprintf("%d", collectionID), file.Filename)
 		}
-		putPolicy := qiniustorage.PutPolicy{
-			Scope:   fmt.Sprintf("%s:%s", h.qiniu.Bucket, objectName),
-			Expires: 3600,
-		}
-		upToken := putPolicy.UploadToken(h.qiniu.Mac)
-		var putRet qiniustorage.PutRet
-		err = uploader.Put(c.Request.Context(), &putRet, upToken, objectName, src, file.Size, &qiniustorage.PutExtra{
-			MimeType: file.Header.Get("Content-Type"),
-		})
-		src.Close()
-
-		if err != nil {
+		if err := uploadReaderToQiniu(uploader, h.qiniu, objectName, bytes.NewReader(buf), int64(len(buf))); err != nil {
 			continue
+		}
+		thumbKey := ""
+		ext := strings.ToLower(path.Ext(file.Filename))
+		if ext == "" && strings.Contains(strings.ToLower(strings.TrimSpace(file.Header.Get("Content-Type"))), "gif") {
+			ext = ".gif"
+		}
+		if ext == ".gif" {
+			thumbKey = tryUploadListPreviewGIF(uploader, h.qiniu, objectName, buf)
 		}
 
 		fileURL := h.qiniu.PublicURL(objectName)
 		if h.qiniu.Private {
 			fileURL = objectName
 		}
+		thumbURL := thumbKey
+		if thumbURL != "" && !h.qiniu.Private {
+			thumbURL = h.qiniu.PublicURL(thumbKey)
+		}
+		format := strings.TrimPrefix(ext, ".")
+		if format == "" {
+			format = file.Header.Get("Content-Type")
+		}
 
 		emoji := models.Emoji{
 			Title:        file.Filename,
 			CollectionID: collectionID,
 			FileURL:      fileURL,
-			Format:       file.Header.Get("Content-Type"),
-			SizeBytes:    file.Size,
+			ThumbURL:     thumbURL,
+			Format:       format,
+			SizeBytes:    int64(len(buf)),
 			Status:       "active",
 		}
 
@@ -229,7 +250,11 @@ func (h *Handler) UpdateEmoji(c *gin.Context) {
 func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient) []EmojiListItem {
 	out := make([]EmojiListItem, 0, len(items))
 	for _, item := range items {
-		previewURL := resolvePreviewURL(item.FileURL, qiniuClient)
+		previewSource := strings.TrimSpace(item.FileURL)
+		if thumb := strings.TrimSpace(item.ThumbURL); thumb != "" {
+			previewSource = thumb
+		}
+		previewURL := resolvePreviewURL(previewSource, qiniuClient)
 		out = append(out, EmojiListItem{
 			ID:           item.ID,
 			CollectionID: item.CollectionID,
@@ -254,10 +279,19 @@ func resolvePreviewURL(fileURL string, qiniuClient *storage.QiniuClient) string 
 	if fileURL == "" {
 		return ""
 	}
-	if strings.HasPrefix(fileURL, "http://") || strings.HasPrefix(fileURL, "https://") {
+	if qiniuClient == nil {
 		return fileURL
 	}
-	if qiniuClient == nil {
+	key, ok := extractQiniuObjectKey(fileURL, qiniuClient)
+	if ok {
+		if qiniuClient.Private {
+			if signed, err := qiniuClient.SignedURL(key, 0); err == nil && signed != "" {
+				return signed
+			}
+		}
+		return qiniuClient.PublicURL(key)
+	}
+	if strings.HasPrefix(fileURL, "http://") || strings.HasPrefix(fileURL, "https://") {
 		return fileURL
 	}
 	if qiniuClient.Private {
@@ -266,6 +300,126 @@ func resolvePreviewURL(fileURL string, qiniuClient *storage.QiniuClient) string 
 		}
 	}
 	return qiniuClient.PublicURL(fileURL)
+}
+
+func resolveListPreviewURL(fileURL string, qiniuClient *storage.QiniuClient) string {
+	fileURL = strings.TrimSpace(fileURL)
+	if fileURL == "" {
+		return ""
+	}
+	if qiniuClient == nil {
+		return fileURL
+	}
+
+	key, ok := extractQiniuObjectKey(fileURL, qiniuClient)
+	if !ok {
+		if strings.HasPrefix(fileURL, "http://") || strings.HasPrefix(fileURL, "https://") {
+			return fileURL
+		}
+		return resolvePreviewURL(fileURL, qiniuClient)
+	}
+
+	if !isGIFObjectKey(key) {
+		return resolvePreviewURL(key, qiniuClient)
+	}
+	// Pre-generated list GIF keys should be served directly.
+	if isListPreviewGIFKey(key) {
+		return resolvePreviewURL(key, qiniuClient)
+	}
+	// For private buckets, transformed query-sign URLs can be rejected by CDN.
+	// Keep list previews as normal signed object URLs to ensure reliability.
+	if qiniuClient.Private {
+		return resolvePreviewURL(key, qiniuClient)
+	}
+
+	listKey, listQuery := buildListGIFPreviewSpec(key)
+	if listKey == "" || listQuery == "" {
+		return resolvePreviewURL(key, qiniuClient)
+	}
+	return qiniuClient.PublicURLWithQuery(listKey, listQuery)
+}
+
+func isGIFObjectKey(raw string) bool {
+	clean := strings.SplitN(raw, "?", 2)[0]
+	clean = strings.SplitN(clean, "#", 2)[0]
+	return strings.HasSuffix(strings.ToLower(clean), ".gif")
+}
+
+func buildListGIFPreviewSpec(key string) (string, string) {
+	baseKey := strings.TrimSpace(strings.SplitN(key, "?", 2)[0])
+	baseKey = strings.TrimLeft(baseKey, "/")
+	if baseKey == "" {
+		return "", ""
+	}
+	transform := fmt.Sprintf(qiniuListGIFTransform, qiniuListGIFWidth, qiniuListGIFFPS)
+	return baseKey, transform
+}
+
+func isListPreviewGIFKey(key string) bool {
+	clean := strings.TrimSpace(strings.SplitN(key, "?", 2)[0])
+	clean = strings.TrimLeft(clean, "/")
+	clean = strings.ToLower(clean)
+	return strings.Contains(clean, "/list/") || strings.HasSuffix(clean, "_list.gif")
+}
+
+func extractQiniuObjectKey(raw string, qiniuClient *storage.QiniuClient) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		key := strings.TrimLeft(raw, "/")
+		return key, key != ""
+	}
+
+	parsedURL, err := url.Parse(raw)
+	if err != nil || parsedURL.Host == "" {
+		return "", false
+	}
+	domainHost, domainPath, ok := qiniuDomainInfo(qiniuClient)
+	if !ok || !strings.EqualFold(parsedURL.Hostname(), domainHost) {
+		return "", false
+	}
+
+	pathKey := strings.TrimLeft(parsedURL.EscapedPath(), "/")
+	if domainPath != "" {
+		if pathKey == domainPath {
+			pathKey = ""
+		} else if strings.HasPrefix(pathKey, domainPath+"/") {
+			pathKey = strings.TrimPrefix(pathKey, domainPath+"/")
+		} else {
+			return "", false
+		}
+	}
+	if pathKey == "" {
+		return "", false
+	}
+	if decoded, err := url.PathUnescape(pathKey); err == nil {
+		pathKey = decoded
+	}
+	return pathKey, true
+}
+
+func qiniuDomainInfo(qiniuClient *storage.QiniuClient) (host string, pathPrefix string, ok bool) {
+	if qiniuClient == nil {
+		return "", "", false
+	}
+	domain := strings.TrimSpace(qiniuClient.Domain)
+	if domain == "" {
+		return "", "", false
+	}
+	if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		if qiniuClient.UseHTTPS {
+			domain = "https://" + domain
+		} else {
+			domain = "http://" + domain
+		}
+	}
+	parsedDomain, err := url.Parse(domain)
+	if err != nil || parsedDomain.Host == "" {
+		return "", "", false
+	}
+	return strings.ToLower(parsedDomain.Hostname()), strings.Trim(parsedDomain.EscapedPath(), "/"), true
 }
 
 func (h *Handler) DeleteEmoji(c *gin.Context) {

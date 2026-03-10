@@ -336,6 +336,13 @@ func (h *Handler) ImportCollectionZip(c *gin.Context) {
 			return
 		}
 		uploadedKeys = append(uploadedKeys, destKey)
+		thumbKey := ""
+		if ext == ".gif" {
+			thumbKey = tryUploadListPreviewGIF(uploader, h.qiniu, destKey, buf)
+			if thumbKey != "" {
+				uploadedKeys = append(uploadedKeys, thumbKey)
+			}
+		}
 
 		if coverKey == "" {
 			coverKey = destKey
@@ -344,6 +351,7 @@ func (h *Handler) ImportCollectionZip(c *gin.Context) {
 			CollectionID: collection.ID,
 			Title:        strings.TrimSuffix(filepath.Base(f.Name), ext),
 			FileURL:      destKey,
+			ThumbURL:     thumbKey,
 			Format:       strings.TrimPrefix(ext, "."),
 			SizeBytes:    int64(len(buf)),
 			DisplayOrder: idx + 1,
@@ -360,6 +368,7 @@ func (h *Handler) ImportCollectionZip(c *gin.Context) {
 			"original": f.Name,
 			"name":     destName,
 			"key":      destKey,
+			"thumb":    thumbKey,
 			"size":     len(buf),
 		})
 	}

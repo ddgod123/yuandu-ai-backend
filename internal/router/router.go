@@ -4,7 +4,9 @@ import (
 	"emoji/internal/config"
 	"emoji/internal/handlers"
 	"emoji/internal/middleware"
+	"emoji/internal/service"
 	"emoji/internal/storage"
+	"emoji/pkg/oss"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -15,12 +17,12 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engine {
+func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient *oss.Client, ai *service.AIService, compose *service.ComposeService) *gin.Engine {
 	if cfg.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	h := handlers.New(db, cfg, qiniu)
+	h := handlers.New(db, cfg, qiniu, ossClient, ai, compose)
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -32,7 +34,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type", "X-Requested-With"},
+		AllowHeaders:     []string{"Authorization", "Content-Type", "X-Requested-With", "X-Device-ID"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -45,8 +47,10 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 
 		api.POST("/auth/register-phone", h.RegisterPhone)
 		api.POST("/auth/login-phone", h.LoginPhone)
+		api.POST("/auth/login", h.Login)
 		api.POST("/auth/refresh", h.Refresh)
 		api.POST("/auth/logout", h.Logout)
+		api.GET("/auth/captcha", h.GetCaptcha)
 		api.POST("/auth/send-code", h.SendCode)
 
 		api.GET("/stats/today", h.GetTodayStats)
@@ -74,6 +78,11 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 		api.GET("/storage/objects", h.ListObjects)
 		api.POST("/storage/rename", h.RenameObject)
 		api.GET("/storage/url", h.GetObjectURL)
+		api.POST("/storage/urls", h.GetObjectURLs)
+		api.GET("/download/ticket/:token", h.DownloadByTicket)
+
+		// Meme social — public feed
+		api.GET("/v1/memes/feed", h.FeedMemes)
 
 		auth := api.Group("", middleware.Auth(cfg))
 		{
@@ -89,6 +98,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			auth.GET("/emojis/:id/download-file", h.DownloadEmojiFile)
 			auth.GET("/me", h.Me)
 			auth.PUT("/me", h.UpdateMe)
+			auth.POST("/me/redeem-code/validate", h.ValidateRedeemCodeForMe)
 			auth.POST("/me/redeem-code", h.RedeemCodeForMe)
 			auth.GET("/me/redeem-records", h.ListMyRedeemRecords)
 
@@ -97,6 +107,13 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			auth.DELETE("/favorites/:emoji_id", h.RemoveFavorite)
 			auth.GET("/favorites", h.ListFavorites)
 			auth.GET("/favorites/collections", h.ListCollectionFavorites)
+
+			// Meme social — authenticated
+			auth.POST("/v1/memes/generate", h.GenerateMeme)
+			auth.POST("/v1/memes/:id/like", h.ToggleMemeLike)
+			auth.POST("/v1/memes/:id/collect", h.ToggleMemeCollect)
+			auth.GET("/v1/users/me/memes", h.MyMemes)
+			auth.GET("/v1/users/me/collections", h.MyMemeCollections)
 		}
 
 		admin := api.Group("/admin", middleware.Auth(cfg), middleware.RequireAnyRole("super_admin"))
@@ -134,7 +151,14 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			admin.GET("/ops/metrics/summary", h.GetOpsMetricsSummary)
 			admin.GET("/ops/metrics/top-categories", h.ListOpsTopCategories)
 			admin.GET("/ops/metrics/search-terms", h.ListOpsSearchTerms)
+			admin.GET("/security/overview", h.GetSecurityOverview)
+			admin.GET("/security/blacklists", h.ListRiskBlacklists)
+			admin.POST("/security/blacklists", h.CreateRiskBlacklist)
+			admin.PUT("/security/blacklists/:id/status", h.UpdateRiskBlacklistStatus)
+			admin.DELETE("/security/blacklists/:id", h.DeleteRiskBlacklist)
+			admin.GET("/security/events", h.ListRiskEvents)
 			admin.GET("/upload-tasks", h.ListUploadTasks)
+			admin.GET("/dashboard/trends", h.GetAdminDashboardTrends)
 			admin.GET("/users/:id/detail", h.GetAdminUserDetail)
 			admin.PUT("/collections/:id", h.AdminUpdateCollection)
 			admin.DELETE("/collections/:id", h.AdminDeleteCollection)
@@ -151,6 +175,12 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient) *gin.Engi
 			admin.POST("/redeem-codes/generate", h.GenerateRedeemCodes)
 			admin.PUT("/redeem-codes/:id/status", h.UpdateRedeemCodeStatus)
 			admin.GET("/redeem-codes/:id/redemptions", h.ListRedeemCodeRedemptions)
+
+			// Meme admin
+			admin.POST("/templates", h.UploadTemplate)
+			admin.GET("/templates", h.ListMemeTemplates)
+			admin.POST("/phrases", h.AddPhrase)
+			admin.GET("/phrases", h.ListPhrases)
 		}
 	}
 

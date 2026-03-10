@@ -75,6 +75,19 @@ func (q *QiniuClient) PublicURL(key string) string {
 	return domain + "/" + key
 }
 
+func (q *QiniuClient) PublicURLWithQuery(key string, query string) string {
+	base := q.PublicURL(strings.TrimLeft(strings.TrimSpace(key), "/"))
+	query = strings.TrimPrefix(strings.TrimSpace(query), "?")
+	if query == "" {
+		return base
+	}
+	separator := "?"
+	if strings.Contains(base, "?") {
+		separator = "&"
+	}
+	return base + separator + query
+}
+
 func (q *QiniuClient) SignedURL(key string, ttl int64) (string, error) {
 	domain := strings.TrimSpace(q.Domain)
 	if domain == "" {
@@ -88,6 +101,30 @@ func (q *QiniuClient) SignedURL(key string, ttl int64) (string, error) {
 	}
 	deadline := ttl + nowUnix()
 	return qiniustorage.MakePrivateURLv2(q.Mac, normalizeDomain(domain, q.UseHTTPS), key, deadline), nil
+}
+
+func (q *QiniuClient) SignedURLWithQuery(key string, query string, ttl int64) (string, error) {
+	domain := strings.TrimSpace(q.Domain)
+	if domain == "" {
+		return "", errors.New("qiniu domain is required for signed url")
+	}
+	key = strings.TrimLeft(strings.TrimSpace(key), "/")
+	if key == "" {
+		return "", errors.New("qiniu key is required for signed url")
+	}
+	query = strings.TrimPrefix(strings.TrimSpace(query), "?")
+	if ttl <= 0 {
+		ttl = int64(q.SignTTL)
+	}
+	if ttl <= 0 {
+		ttl = 3600
+	}
+	deadline := ttl + nowUnix()
+	domain = normalizeDomain(domain, q.UseHTTPS)
+	if query == "" {
+		return qiniustorage.MakePrivateURLv2(q.Mac, domain, key, deadline), nil
+	}
+	return qiniustorage.MakePrivateURLv2WithQueryString(q.Mac, domain, key, query, deadline), nil
 }
 
 func nowUnix() int64 {

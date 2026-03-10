@@ -38,7 +38,7 @@ func (h *Handler) RemoveCollectionFavorite(c *gin.Context) {
 }
 
 func (h *Handler) mutateCollectionLike(c *gin.Context, add bool) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	userID, ok := currentUserIDFromContext(c)
@@ -73,7 +73,7 @@ func (h *Handler) mutateCollectionLike(c *gin.Context, add bool) {
 }
 
 func (h *Handler) mutateCollectionFavorite(c *gin.Context, add bool) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	if _, ok := h.requireActiveUser(c); !ok {
 		return
 	}
 	userID, ok := currentUserIDFromContext(c)

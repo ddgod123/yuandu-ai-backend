@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"mime"
 	"net/http"
 	"path"
 	"strconv"
@@ -162,6 +164,72 @@ func (h *Handler) GetObject(c *gin.Context) {
 		Key:  key,
 		Info: mapFileInfo(info),
 	})
+}
+
+// ProxyObject godoc
+// @Summary Proxy object content (temporary fallback)
+// @Tags storage
+// @Produce application/octet-stream
+// @Param key query string false "object key (emoji/...)"
+// @Param url query string false "raw object url"
+// @Success 200 {string} string
+// @Router /api/storage/proxy [get]
+func (h *Handler) ProxyObject(c *gin.Context) {
+	if h.qiniu == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
+		return
+	}
+
+	key := strings.TrimSpace(c.Query("key"))
+	rawURL := strings.TrimSpace(c.Query("url"))
+	if key == "" && rawURL != "" {
+		if extracted, ok := extractQiniuObjectKey(rawURL, h.qiniu); ok {
+			key = extracted
+		} else {
+			key = rawURL
+		}
+	}
+	key = strings.TrimLeft(strings.SplitN(strings.SplitN(strings.TrimSpace(key), "?", 2)[0], "#", 2)[0], "/")
+	if key == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing key"})
+		return
+	}
+	// 临时兜底：仅允许代理 emoji 命名空间对象，避免放大暴露范围。
+	if !strings.HasPrefix(key, "emoji/") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
+		return
+	}
+
+	input := &qiniustorage.GetObjectInput{}
+	if rangeHeader := strings.TrimSpace(c.GetHeader("Range")); rangeHeader != "" {
+		input.Range = rangeHeader
+	}
+	output, err := h.qiniu.BucketManager().Get(h.qiniu.Bucket, key, input)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch object"})
+		return
+	}
+	defer output.Close()
+
+	contentType := strings.TrimSpace(output.ContentType)
+	if contentType == "" {
+		contentType = strings.TrimSpace(mime.TypeByExtension(strings.ToLower(path.Ext(key))))
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	c.Header("Content-Type", contentType)
+	c.Header("Cache-Control", "public, max-age=120")
+	c.Header("X-Emoji-Storage-Proxy", "1")
+	if output.ETag != "" {
+		c.Header("ETag", output.ETag)
+	}
+	if output.ContentLength > 0 {
+		c.Header("Content-Length", strconv.FormatInt(output.ContentLength, 10))
+	}
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, output.Body)
 }
 
 type QiniuListItem struct {

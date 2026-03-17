@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,6 +52,7 @@ type CollectionListItem struct {
 	FileCount        int        `json:"file_count"`
 	IsFeatured       bool       `json:"is_featured"`
 	IsPinned         bool       `json:"is_pinned"`
+	IsSample         bool       `json:"is_sample"`
 	PinnedAt         *time.Time `json:"pinned_at,omitempty"`
 	LatestZipKey     string     `json:"latest_zip_key,omitempty"`
 	LatestZipName    string     `json:"latest_zip_name,omitempty"`
@@ -250,6 +253,15 @@ func (h *Handler) ListCollections(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_featured"})
 		return
 	}
+	sampleRaw := strings.TrimSpace(c.Query("is_sample"))
+	if sampleRaw == "" {
+		sampleRaw = strings.TrimSpace(c.Query("sample"))
+	}
+	sample, ok := parseOptionalBoolParam(sampleRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_sample"})
+		return
+	}
 	sortField := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	sortOrder := strings.ToLower(strings.TrimSpace(c.Query("order")))
 	status := strings.TrimSpace(c.Query("status"))
@@ -324,6 +336,9 @@ func (h *Handler) ListCollections(c *gin.Context) {
 	}
 	if featured != nil {
 		db = db.Where("is_featured = ?", *featured)
+	}
+	if sample != nil {
+		db = db.Where("is_sample = ?", *sample)
 	}
 
 	animatedExists := `
@@ -480,6 +495,7 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			FileCount:        item.FileCount,
 			IsFeatured:       item.IsFeatured,
 			IsPinned:         item.IsPinned,
+			IsSample:         item.IsSample,
 			PinnedAt:         item.PinnedAt,
 			LatestZipKey:     item.LatestZipKey,
 			LatestZipName:    item.LatestZipName,
@@ -580,6 +596,7 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		FileCount:        collection.FileCount,
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
+		IsSample:         collection.IsSample,
 		PinnedAt:         collection.PinnedAt,
 		LatestZipKey:     collection.LatestZipKey,
 		LatestZipName:    collection.LatestZipName,
@@ -607,7 +624,13 @@ type AdminUpdateCollectionRequest struct {
 	Visibility  *string   `json:"visibility"`
 	IsFeatured  *bool     `json:"is_featured"`
 	IsPinned    *bool     `json:"is_pinned"`
+	IsSample    *bool     `json:"is_sample"`
 	TagIDs      *[]uint64 `json:"tag_ids"`
+}
+
+type AdminBatchUpdateCollectionSampleRequest struct {
+	CollectionIDs []uint64 `json:"collection_ids"`
+	IsSample      bool     `json:"is_sample"`
 }
 
 // AdminUpdateCollection godoc
@@ -758,6 +781,9 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 			collection.PinnedAt = nil
 		}
 	}
+	if req.IsSample != nil {
+		collection.IsSample = *req.IsSample
+	}
 
 	if err := tx.Save(&collection).Error; err != nil {
 		_ = tx.Rollback()
@@ -834,6 +860,7 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		FileCount:        collection.FileCount,
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
+		IsSample:         collection.IsSample,
 		PinnedAt:         collection.PinnedAt,
 		Visibility:       collection.Visibility,
 		Status:           collection.Status,
@@ -842,6 +869,128 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		Tags:             tagMap[collection.ID],
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// AdminBatchUpdateCollectionSample godoc
+// @Summary Batch update collection sample flag (admin)
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param body body AdminBatchUpdateCollectionSampleRequest true "batch update sample flag"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/admin/collections/batch-sample [post]
+func (h *Handler) AdminBatchUpdateCollectionSample(c *gin.Context) {
+	var req AdminBatchUpdateCollectionSampleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.CollectionIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "collection_ids is required"})
+		return
+	}
+	if len(req.CollectionIDs) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too many collection_ids, max 500"})
+		return
+	}
+
+	idSet := make(map[uint64]struct{}, len(req.CollectionIDs))
+	ids := make([]uint64, 0, len(req.CollectionIDs))
+	for _, id := range req.CollectionIDs {
+		if id == 0 {
+			continue
+		}
+		if _, exists := idSet[id]; exists {
+			continue
+		}
+		idSet[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid collection_ids"})
+		return
+	}
+
+	result := h.db.Model(&models.Collection{}).
+		Where("id IN ?", ids).
+		Update("is_sample", req.IsSample)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated_count": result.RowsAffected,
+		"is_sample":     req.IsSample,
+	})
+}
+
+// AdminExportSampleCollectionsCSV godoc
+// @Summary Export sample collections as CSV (admin)
+// @Tags admin
+// @Produce text/csv
+// @Param is_sample query string false "all|1|0 (default 1)"
+// @Success 200 {string} string
+// @Router /api/admin/collections/samples/export.csv [get]
+func (h *Handler) AdminExportSampleCollectionsCSV(c *gin.Context) {
+	sampleRaw := strings.TrimSpace(c.DefaultQuery("is_sample", "1"))
+	sample, ok := parseOptionalBoolParam(sampleRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_sample"})
+		return
+	}
+
+	db := h.db.Model(&models.Collection{})
+	if sample != nil {
+		db = db.Where("is_sample = ?", *sample)
+	}
+
+	var items []models.Collection
+	if err := db.Order("id DESC").Find(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+	if err := writer.Write([]string{
+		"id",
+		"title",
+		"slug",
+		"file_count",
+		"is_sample",
+		"status",
+		"visibility",
+		"updated_at",
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	for _, item := range items {
+		if err := writer.Write([]string{
+			strconv.FormatUint(item.ID, 10),
+			item.Title,
+			item.Slug,
+			strconv.Itoa(item.FileCount),
+			strconv.FormatBool(item.IsSample),
+			item.Status,
+			item.Visibility,
+			item.UpdatedAt.Format(time.RFC3339),
+		}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	filename := fmt.Sprintf("sample_collections_%s.csv", time.Now().Format("20060102_150405"))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
 }
 
 func loadCollectionTags(db *gorm.DB, items []models.Collection) map[uint64][]TagBrief {
@@ -1249,37 +1398,16 @@ func (h *Handler) AdminDeleteCollection(c *gin.Context) {
 		return
 	}
 
-	prefix := normalizeCollectionPrefix(collection.QiniuPrefix)
-	deletedObjects := 0
-	if prefix != "" {
-		if h.qiniu == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
-			return
-		}
-		if prefix == "emoji/" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unsafe qiniu prefix"})
-			return
-		}
-		count, err := h.deleteQiniuPrefixObjects(prefix)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("failed to delete qiniu objects: %v", err)})
-			return
-		}
-		deletedObjects = count
-	}
-
-	if err := h.db.Transaction(func(tx *gorm.DB) error {
-		return tx.Unscoped().Delete(&models.Collection{}, collection.ID).Error
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hard delete collection"})
+	adminID, _ := currentUserIDFromContext(c)
+	res, err := h.hardDeleteCollection(collection, nil, adminID, "admin", "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":         "hard deleted",
-		"collection_id":   collection.ID,
-		"deleted_objects": deletedObjects,
-		"qiniu_prefix":    prefix,
+		"message": "hard deleted",
+		"result":  res,
 	})
 }
 

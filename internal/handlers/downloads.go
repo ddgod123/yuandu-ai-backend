@@ -654,15 +654,18 @@ func (h *Handler) DownloadEmojiFile(c *gin.Context) {
 }
 
 func (h *Handler) recordEmojiDownload(c *gin.Context, emojiID uint64) {
+	var userID uint64
 	download := models.Download{
 		EmojiID: emojiID,
 		IP:      c.ClientIP(),
 	}
-	if userID, ok := currentUserIDFromContext(c); ok && userID > 0 {
-		uid := userID
+	if uid, ok := currentUserIDFromContext(c); ok && uid > 0 {
 		download.UserID = &uid
+		userID = uid
 	}
 	_ = h.db.Create(&download).Error
+	h.bumpVideoJobFeedbackByEmojiID(emojiID, "download", userID)
+	h.recordVideoImageFeedbackByEmojiID(emojiID, videoImageFeedbackActionDownload, userID, nil)
 }
 
 func resolveDownloadURL(fileURL string, qiniuClient *storage.QiniuClient, ttlParam string) (string, int64) {

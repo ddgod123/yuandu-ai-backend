@@ -30,3 +30,11 @@ func NewServer(cfg config.Config) *asynq.Server {
 		},
 	)
 }
+
+func NewInspector(cfg config.Config) *asynq.Inspector {
+	return asynq.NewInspector(asynq.RedisClientOpt{
+		Addr:     cfg.AsynqRedisAddr,
+		Password: cfg.AsynqRedisPassword,
+		DB:       cfg.AsynqRedisDB,
+	})
+}

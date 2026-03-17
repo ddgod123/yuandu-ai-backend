@@ -39,6 +39,11 @@ type Config struct {
 	AsynqRedisAddr     string
 	AsynqRedisPassword string
 	AsynqRedisDB       int
+	WorkerStartCommand string
+	WorkerStartTimeout int
+	// Enable legacy feedback_v1 fallback/mirror path.
+	// Default false: strict output_id/candidate_id learning only.
+	EnableLegacyFeedbackFallback bool
 
 	QiniuAccessKey string
 	QiniuSecretKey string
@@ -131,6 +136,34 @@ type Config struct {
 	LLMModel    string // leave empty for provider default
 	LLMEndpoint string // leave empty for provider default
 
+	// GIF AI Planner (Stage1) / Judge (Stage3)
+	AIPlannerEnabled       bool
+	AIPlannerProvider      string
+	AIPlannerAPIKey        string
+	AIPlannerModel         string
+	AIPlannerEndpoint      string
+	AIPlannerPromptVersion string
+	AIPlannerTimeoutSec    int
+	AIPlannerMaxTokens     int
+
+	AIDirectorEnabled       bool
+	AIDirectorProvider      string
+	AIDirectorAPIKey        string
+	AIDirectorModel         string
+	AIDirectorEndpoint      string
+	AIDirectorPromptVersion string
+	AIDirectorTimeoutSec    int
+	AIDirectorMaxTokens     int
+
+	AIJudgeEnabled       bool
+	AIJudgeProvider      string
+	AIJudgeAPIKey        string
+	AIJudgeModel         string
+	AIJudgeEndpoint      string
+	AIJudgePromptVersion string
+	AIJudgeTimeoutSec    int
+	AIJudgeMaxTokens     int
+
 	// Legacy aliases (still read, used as fallback)
 	ClaudeAPIKey   string
 	ClaudeModel    string
@@ -173,6 +206,9 @@ func Load() Config {
 	cfg.AsynqRedisAddr = getEnv("ASYNQ_REDIS_ADDR", cfg.RedisAddr)
 	cfg.AsynqRedisPassword = getEnv("ASYNQ_REDIS_PASSWORD", cfg.RedisPassword)
 	cfg.AsynqRedisDB = getEnvAsInt("ASYNQ_REDIS_DB", cfg.RedisDB)
+	cfg.WorkerStartCommand = getEnv("WORKER_START_COMMAND", "")
+	cfg.WorkerStartTimeout = getEnvAsInt("WORKER_START_TIMEOUT_SECONDS", 20)
+	cfg.EnableLegacyFeedbackFallback = getEnvAsBool("ENABLE_LEGACY_FEEDBACK_FALLBACK", false)
 
 	cfg.QiniuAccessKey = getEnv("QINIU_ACCESS_KEY", "")
 	cfg.QiniuSecretKey = getEnv("QINIU_SECRET_KEY", "")
@@ -274,6 +310,33 @@ func Load() Config {
 	cfg.LLMAPIKey = getEnv("LLM_API_KEY", cfg.ClaudeAPIKey)
 	cfg.LLMModel = getEnv("LLM_MODEL", cfg.ClaudeModel)
 	cfg.LLMEndpoint = getEnv("LLM_ENDPOINT", cfg.ClaudeEndpoint)
+
+	cfg.AIPlannerEnabled = getEnvAsBool("AI_PLANNER_ENABLED", true)
+	cfg.AIPlannerProvider = getEnv("AI_PLANNER_PROVIDER", "qwen")
+	cfg.AIPlannerAPIKey = getEnv("AI_PLANNER_API_KEY", cfg.LLMAPIKey)
+	cfg.AIPlannerModel = getEnv("AI_PLANNER_MODEL", "qwen3-vl-flash")
+	cfg.AIPlannerEndpoint = getEnv("AI_PLANNER_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode")
+	cfg.AIPlannerPromptVersion = getEnv("AI_PLANNER_PROMPT_VERSION", "gif_planner_v1")
+	cfg.AIPlannerTimeoutSec = getEnvAsInt("AI_PLANNER_TIMEOUT_SECONDS", 20)
+	cfg.AIPlannerMaxTokens = getEnvAsInt("AI_PLANNER_MAX_TOKENS", 1200)
+
+	cfg.AIDirectorEnabled = getEnvAsBool("AI_DIRECTOR_ENABLED", true)
+	cfg.AIDirectorProvider = getEnv("AI_DIRECTOR_PROVIDER", "qwen")
+	cfg.AIDirectorAPIKey = getEnv("AI_DIRECTOR_API_KEY", cfg.AIPlannerAPIKey)
+	cfg.AIDirectorModel = getEnv("AI_DIRECTOR_MODEL", "qwen3-vl-flash")
+	cfg.AIDirectorEndpoint = getEnv("AI_DIRECTOR_ENDPOINT", cfg.AIPlannerEndpoint)
+	cfg.AIDirectorPromptVersion = getEnv("AI_DIRECTOR_PROMPT_VERSION", "gif_director_v1")
+	cfg.AIDirectorTimeoutSec = getEnvAsInt("AI_DIRECTOR_TIMEOUT_SECONDS", 16)
+	cfg.AIDirectorMaxTokens = getEnvAsInt("AI_DIRECTOR_MAX_TOKENS", 1000)
+
+	cfg.AIJudgeEnabled = getEnvAsBool("AI_JUDGE_ENABLED", true)
+	cfg.AIJudgeProvider = getEnv("AI_JUDGE_PROVIDER", "deepseek")
+	cfg.AIJudgeAPIKey = getEnv("AI_JUDGE_API_KEY", cfg.LLMAPIKey)
+	cfg.AIJudgeModel = getEnv("AI_JUDGE_MODEL", "deepseek-chat")
+	cfg.AIJudgeEndpoint = getEnv("AI_JUDGE_ENDPOINT", "https://api.deepseek.com")
+	cfg.AIJudgePromptVersion = getEnv("AI_JUDGE_PROMPT_VERSION", "gif_judge_v1")
+	cfg.AIJudgeTimeoutSec = getEnvAsInt("AI_JUDGE_TIMEOUT_SECONDS", 45)
+	cfg.AIJudgeMaxTokens = getEnvAsInt("AI_JUDGE_MAX_TOKENS", 1400)
 
 	// Font
 	cfg.FontPath = getEnv("FONT_PATH", "assets/fonts/NotoSansSC-Bold.ttf")

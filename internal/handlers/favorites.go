@@ -77,9 +77,14 @@ func (h *Handler) AddFavorite(c *gin.Context) {
 		CreatedAt: time.Now(),
 	}
 
-	if err := h.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&favorite).Error; err != nil {
+	result := h.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&favorite)
+	if result.Error != nil {
 		c.JSON(500, gin.H{"error": "failed to add favorite"})
 		return
+	}
+	if result.RowsAffected > 0 {
+		h.bumpVideoJobFeedbackByCollectionID(emoji.CollectionID, "favorite", userID)
+		h.recordVideoImageFeedbackByEmojiID(req.EmojiID, videoImageFeedbackActionFavorite, userID, nil)
 	}
 
 	c.JSON(200, favorite)
@@ -343,6 +348,7 @@ func (h *Handler) ListCollectionFavorites(c *gin.Context) {
 			FileCount:        item.FileCount,
 			IsFeatured:       item.IsFeatured,
 			IsPinned:         item.IsPinned,
+			IsSample:         item.IsSample,
 			PinnedAt:         item.PinnedAt,
 			LatestZipKey:     item.LatestZipKey,
 			LatestZipName:    item.LatestZipName,

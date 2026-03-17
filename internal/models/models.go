@@ -50,6 +50,7 @@ type Collection struct {
 	FileCount        int            `gorm:"index"`
 	IsFeatured       bool           `gorm:"index"`
 	IsPinned         bool           `gorm:"index"`
+	IsSample         bool           `gorm:"index"`
 	PinnedAt         *time.Time     `gorm:"index"`
 	LatestZipKey     string         `gorm:"size:512"`
 	LatestZipName    string         `gorm:"size:255"`

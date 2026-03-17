@@ -633,8 +633,8 @@ func (h *Handler) Login(c *gin.Context) {
 	ctx := c.Request.Context()
 	if h.smsLimiter != nil {
 		if locked, err := h.isAuthVerifyLocked(ctx, req.Phone, ip, deviceID); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiter unavailable"})
-			return
+			// fail-open: 限流组件不可用时，不阻断密码登录主路径
+			// 依旧允许后续用户名/密码校验，避免整站登录不可用
 		} else if locked {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "操作过于频繁，请稍后再试"})
 			return

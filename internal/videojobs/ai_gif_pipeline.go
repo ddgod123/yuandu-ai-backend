@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,92 @@ const (
 	gifAIJudgeHardGateSizeMultiplier  = 4 // hard exceed budget => severe oversize
 )
 
+const (
+	defaultAIGIFDirectorFixedCorePrompt = `你是视频转GIF任务的“需求甲方（Prompt Director）”。
+你的职责是：在正式剪辑方案生成前，给出结构化任务指令，指导后续Planner更稳定地产出高价值GIF。
+你不是剪辑执行者，不要直接输出最终窗口 start/end 秒点。
+仅返回JSON（不要markdown）：
+{
+  "directive": {
+    "business_goal": "entertainment|news|design_asset|social_spread",
+    "audience": "简短描述",
+    "must_capture": ["必须抓取的瞬间/特征"],
+    "avoid": ["应避免片段/质量风险"],
+    "clip_count_min": 3,
+    "clip_count_max": 8,
+    "duration_pref_min_sec": 1.4,
+    "duration_pref_max_sec": 3.2,
+    "loop_preference": 0.0,
+    "style_direction": "画风/节奏方向（简短）",
+    "risk_flags": ["low_light","fast_motion","noise_audio"],
+    "quality_weights": {"semantic":0.35,"clarity":0.20,"loop":0.25,"efficiency":0.20},
+    "directive_text": "给Planner的自然语言摘要，50~120字"
+  }
+}`
+
+	defaultAIGIFDirectorFixedContractTailPrompt = `最终输出契约（必须严格遵守）：
+1) 只允许输出 JSON，不允许 markdown，不允许额外解释文字；
+2) 最外层必须是 {"directive":{...}}；
+3) directive 必须包含字段：
+business_goal, audience, must_capture, avoid, clip_count_min, clip_count_max,
+duration_pref_min_sec, duration_pref_max_sec, loop_preference, style_direction,
+risk_flags, quality_weights, directive_text；
+4) loop_preference 与 quality_weights 所有值都必须在 [0,1]；
+5) quality_weights 必须包含 semantic, clarity, loop, efficiency 四个键，且总和接近 1；
+6) clip_count_min >= 1，clip_count_max >= clip_count_min；
+7) duration_pref_max_sec > duration_pref_min_sec；
+8) 信息不足时也必须返回合法 JSON，不允许返回空文本或非结构化描述；
+9) 运营模板只能影响偏好策略，不能改变输出结构与字段合法性。`
+
+	defaultAIGIFDirectorSystemPrompt = defaultAIGIFDirectorFixedCorePrompt + "\n\n" + defaultAIGIFDirectorFixedContractTailPrompt
+
+	defaultAIGIFPlannerSystemPrompt = `你是视频GIF剪辑提名助手。请基于输入的视频元数据、关键帧与director指令，给出“高光、可脱离上下文、可传播、可循环”的提名方案。
+必须返回JSON（不要markdown）：
+{
+  "proposals":[
+    {
+      "proposal_rank":1,
+      "start_sec":12.3,
+      "end_sec":14.8,
+      "score":0.86,
+      "proposal_reason":"表情爆发点+动作完成点",
+      "semantic_tags":["emotion_peak","reaction"],
+      "expected_value_level":"high",
+      "standalone_confidence":0.88,
+      "loop_friendliness_hint":0.72
+    }
+  ],
+  "selected_rank":1,
+  "notes":"可选，简短"
+}
+约束：
+1) 时间窗口必须在视频时长范围内，end_sec > start_sec，单窗口建议 1.0~5.0 秒；
+2) proposals 按质量从高到低，最多 20 条；
+3) score/standalone_confidence/loop_friendliness_hint 均在 [0,1]；
+4) 若输入包含 director，请优先遵循 director 的目标和偏好；
+5) 不要依赖“预先给定候选窗口”，你需要直接从关键帧推断提名窗口。`
+
+	defaultAIGIFJudgeSystemPrompt = `你是GIF语义复审评委。请根据每个GIF样本的技术评分与上下文，输出可执行的最终建议。
+仅返回JSON（不要markdown）：
+{
+  "reviews":[
+    {
+      "output_id":123,
+      "proposal_rank":1,
+      "final_recommendation":"deliver|keep_internal|reject|need_manual_review",
+      "semantic_verdict":0.82,
+      "diagnostic_reason":"简短原因",
+      "suggested_action":"简短建议"
+    }
+  ],
+  "summary":{"note":"可选"}
+}
+要求：
+1) reviews 里的 output_id 必须来自输入；
+2) final_recommendation 仅允许四个枚举值；
+3) semantic_verdict 在 [0,1]。`
+)
+
 type aiModelCallConfig struct {
 	Enabled       bool
 	Provider      string
@@ -44,9 +131,24 @@ type aiModelCallConfig struct {
 	MaxTokens     int
 }
 
+type openAICompatImageURL struct {
+	URL string `json:"url"`
+}
+
+type openAICompatVideoURL struct {
+	URL string `json:"url"`
+}
+
+type openAICompatContentPart struct {
+	Type     string                `json:"type"`
+	Text     string                `json:"text,omitempty"`
+	ImageURL *openAICompatImageURL `json:"image_url,omitempty"`
+	VideoURL *openAICompatVideoURL `json:"video_url,omitempty"`
+}
+
 type openAICompatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
 }
 
 type openAICompatChatRequest struct {
@@ -88,6 +190,21 @@ type gifAIDirectorResponse struct {
 	Directive gifAIDirectiveProfile `json:"directive"`
 }
 
+type gifAIDirectorBriefV2Response struct {
+	BusinessGoal         string                 `json:"business_goal"`
+	Audience             string                 `json:"audience"`
+	StyleDirection       string                 `json:"style_direction"`
+	MustCapture          []string               `json:"must_capture"`
+	Avoid                []string               `json:"avoid"`
+	RiskFlags            []string               `json:"risk_flags"`
+	QualityWeights       map[string]float64     `json:"quality_weights"`
+	PlannerInstruction   string                 `json:"planner_instruction_text"`
+	DirectiveText        string                 `json:"directive_text"`
+	ClipCountRange       []float64              `json:"clip_count_range"`
+	DurationPrefSecRange []float64              `json:"duration_pref_sec"`
+	FallbackPolicy       map[string]interface{} `json:"fallback_policy"`
+}
+
 type gifAIPlannerResponse struct {
 	Proposals    []gifAIPlannerProposal `json:"proposals"`
 	SelectedRank int                    `json:"selected_rank"`
@@ -109,23 +226,24 @@ type gifAIJudgeResponse struct {
 }
 
 type gifJudgeSample struct {
-	OutputID        uint64
-	Score           float64
-	SizeBytes       int64
-	Width           int
-	Height          int
-	DurationMs      int
-	StartSec        float64
-	EndSec          float64
-	Reason          string
-	EvalOverall     float64
-	EvalEmotion     float64
-	EvalClarity     float64
-	EvalMotion      float64
-	EvalLoop        float64
-	EvalEfficiency  float64
-	ProposalIDByWin *uint64
-	ProposalRank    int
+	OutputID        uint64  `json:"output_id"`
+	IsPrimary       bool    `json:"is_primary"`
+	Score           float64 `json:"score"`
+	SizeBytes       int64   `json:"size_bytes"`
+	Width           int     `json:"width"`
+	Height          int     `json:"height"`
+	DurationMs      int     `json:"duration_ms"`
+	StartSec        float64 `json:"start_sec"`
+	EndSec          float64 `json:"end_sec"`
+	Reason          string  `json:"reason"`
+	EvalOverall     float64 `json:"eval_overall"`
+	EvalEmotion     float64 `json:"eval_emotion"`
+	EvalClarity     float64 `json:"eval_clarity"`
+	EvalMotion      float64 `json:"eval_motion"`
+	EvalLoop        float64 `json:"eval_loop"`
+	EvalEfficiency  float64 `json:"eval_efficiency"`
+	ProposalIDByWin *uint64 `json:"proposal_id_by_win"`
+	ProposalRank    int     `json:"proposal_rank"`
 }
 
 type aiGIFDirectivePersistContext struct {
@@ -138,6 +256,91 @@ type aiGIFDirectivePersistContext struct {
 	OperatorInstruction string
 	OperatorVersion     string
 	FallbackReason      string
+}
+
+type aiPromptTemplateSnapshot struct {
+	Found   bool
+	Format  string
+	Stage   string
+	Layer   string
+	Text    string
+	Version string
+	Enabled bool
+	Source  string
+}
+
+func normalizeAIPromptTemplateFormat(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "gif", "webp", "jpg", "png", "live":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "all"
+	}
+}
+
+func (p *Processor) loadAIPromptTemplateExact(format, stage, layer string) (models.VideoAIPromptTemplate, bool, error) {
+	if p == nil || p.db == nil {
+		return models.VideoAIPromptTemplate{}, false, nil
+	}
+	var row models.VideoAIPromptTemplate
+	err := p.db.Where("format = ? AND stage = ? AND layer = ? AND is_active = ?", format, stage, layer, true).
+		Order("id DESC").
+		Limit(1).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.VideoAIPromptTemplate{}, false, nil
+		}
+		if isMissingTableError(err, "video_ai_prompt_templates") {
+			return models.VideoAIPromptTemplate{}, false, nil
+		}
+		return models.VideoAIPromptTemplate{}, false, err
+	}
+	return row, true, nil
+}
+
+func (p *Processor) loadAIPromptTemplateWithFallback(format, stage, layer string) (aiPromptTemplateSnapshot, error) {
+	normalizedFormat := normalizeAIPromptTemplateFormat(format)
+	row, found, err := p.loadAIPromptTemplateExact(normalizedFormat, stage, layer)
+	if err != nil {
+		return aiPromptTemplateSnapshot{}, err
+	}
+	if found {
+		return aiPromptTemplateSnapshot{
+			Found:   true,
+			Format:  normalizedFormat,
+			Stage:   stage,
+			Layer:   layer,
+			Text:    strings.TrimSpace(row.TemplateText),
+			Version: strings.TrimSpace(row.Version),
+			Enabled: row.Enabled,
+			Source:  "ops.video_ai_prompt_templates:" + normalizedFormat,
+		}, nil
+	}
+	if normalizedFormat != "all" {
+		row, found, err = p.loadAIPromptTemplateExact("all", stage, layer)
+		if err != nil {
+			return aiPromptTemplateSnapshot{}, err
+		}
+		if found {
+			return aiPromptTemplateSnapshot{
+				Found:   true,
+				Format:  "all",
+				Stage:   stage,
+				Layer:   layer,
+				Text:    strings.TrimSpace(row.TemplateText),
+				Version: strings.TrimSpace(row.Version),
+				Enabled: row.Enabled,
+				Source:  "ops.video_ai_prompt_templates:all",
+			}, nil
+		}
+	}
+	return aiPromptTemplateSnapshot{
+		Found:  false,
+		Format: normalizedFormat,
+		Stage:  stage,
+		Layer:  layer,
+	}, nil
 }
 
 func (p *Processor) loadGIFAIPlannerConfig() aiModelCallConfig {
@@ -209,6 +412,42 @@ func (p *Processor) callOpenAICompatJSONChat(
 	systemPrompt string,
 	userPrompt string,
 ) (string, cloudHighlightUsage, map[string]interface{}, int64, error) {
+	userParts := []openAICompatContentPart{
+		{Type: "text", Text: userPrompt},
+	}
+	return p.callOpenAICompatJSONChatWithUserParts(ctx, cfg, systemPrompt, userParts)
+}
+
+func (p *Processor) callOpenAICompatJSONChatWithUserParts(
+	ctx context.Context,
+	cfg aiModelCallConfig,
+	systemPrompt string,
+	userParts []openAICompatContentPart,
+) (string, cloudHighlightUsage, map[string]interface{}, int64, error) {
+	userContent := interface{}("")
+	switch len(userParts) {
+	case 0:
+		userContent = ""
+	case 1:
+		if strings.EqualFold(strings.TrimSpace(userParts[0].Type), "text") {
+			userContent = userParts[0].Text
+		} else {
+			userContent = userParts
+		}
+	default:
+		userContent = userParts
+	}
+	return p.callOpenAICompatJSONChatWithMessages(ctx, cfg, []openAICompatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userContent},
+	})
+}
+
+func (p *Processor) callOpenAICompatJSONChatWithMessages(
+	ctx context.Context,
+	cfg aiModelCallConfig,
+	messages []openAICompatMessage,
+) (string, cloudHighlightUsage, map[string]interface{}, int64, error) {
 	if !cfg.Enabled {
 		return "", cloudHighlightUsage{}, nil, 0, fmt.Errorf("ai call disabled")
 	}
@@ -226,10 +465,7 @@ func (p *Processor) callOpenAICompatJSONChat(
 		Model:       cfg.Model,
 		MaxTokens:   cfg.MaxTokens,
 		Temperature: 0.1,
-		Messages: []openAICompatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
+		Messages:    messages,
 	}
 	body, _ := json.Marshal(reqPayload)
 
@@ -353,9 +589,239 @@ func sanitizeModelJSON(raw string) string {
 	return text
 }
 
+func parseAIGIFDirectiveResponse(modelText string) (gifAIDirectiveProfile, string, error) {
+	rawText := sanitizeModelJSON(modelText)
+	var canonical gifAIDirectorResponse
+	if err := json.Unmarshal([]byte(rawText), &canonical); err == nil {
+		if strings.TrimSpace(canonical.Directive.BusinessGoal) != "" ||
+			strings.TrimSpace(canonical.Directive.Audience) != "" ||
+			len(canonical.Directive.MustCapture) > 0 ||
+			len(canonical.Directive.Avoid) > 0 ||
+			canonical.Directive.ClipCountMin > 0 ||
+			canonical.Directive.ClipCountMax > 0 ||
+			canonical.Directive.DurationPrefMaxSec > 0 ||
+			len(canonical.Directive.QualityWeights) > 0 ||
+			strings.TrimSpace(canonical.Directive.DirectiveText) != "" {
+			return canonical.Directive, "directive", nil
+		}
+	}
+
+	var brief gifAIDirectorBriefV2Response
+	if err := json.Unmarshal([]byte(rawText), &brief); err == nil {
+		directive := gifAIDirectiveProfile{
+			BusinessGoal:   strings.TrimSpace(brief.BusinessGoal),
+			Audience:       strings.TrimSpace(brief.Audience),
+			MustCapture:    normalizeStringSlice(brief.MustCapture, 8),
+			Avoid:          normalizeStringSlice(brief.Avoid, 8),
+			StyleDirection: strings.TrimSpace(brief.StyleDirection),
+			RiskFlags:      normalizeStringSlice(brief.RiskFlags, 8),
+			QualityWeights: brief.QualityWeights,
+			DirectiveText:  strings.TrimSpace(brief.DirectiveText),
+		}
+		if directive.DirectiveText == "" {
+			directive.DirectiveText = strings.TrimSpace(brief.PlannerInstruction)
+		}
+		if len(brief.ClipCountRange) >= 1 {
+			directive.ClipCountMin = int(brief.ClipCountRange[0])
+		}
+		if len(brief.ClipCountRange) >= 2 {
+			directive.ClipCountMax = int(brief.ClipCountRange[1])
+		}
+		if len(brief.DurationPrefSecRange) >= 1 {
+			directive.DurationPrefMinSec = brief.DurationPrefSecRange[0]
+		}
+		if len(brief.DurationPrefSecRange) >= 2 {
+			directive.DurationPrefMaxSec = brief.DurationPrefSecRange[1]
+		}
+		if directive.BusinessGoal != "" ||
+			len(directive.MustCapture) > 0 ||
+			len(directive.Avoid) > 0 ||
+			directive.ClipCountMin > 0 ||
+			directive.ClipCountMax > 0 ||
+			directive.DurationPrefMaxSec > 0 {
+			return directive, "brief_v2_flat", nil
+		}
+	}
+
+	return gifAIDirectiveProfile{}, "", fmt.Errorf("director response does not match supported schema")
+}
+
+func renderAIDirectorOperatorInstruction(raw string) (string, map[string]interface{}, string) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", nil, "empty"
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil || len(payload) == 0 {
+		return text, nil, "text_passthrough"
+	}
+
+	knownKeys := []string{
+		"operator_identity",
+		"business_scene",
+		"asset_goal",
+		"delivery_goal",
+		"success_definition",
+		"must_capture_bias",
+		"avoid_bias",
+		"cost_mode",
+		"candidate_strategy",
+		"candidate_count_bias",
+		"diversity_preference",
+		"clarity_priority",
+		"loop_priority",
+		"standalone_priority",
+		"emotion_priority",
+		"risk_tolerance",
+		"subtitle_dependency_tolerance",
+		"quality_floor_note",
+		"user_request_passthrough",
+		"extra_business_note",
+	}
+	hasKnown := false
+	for _, key := range knownKeys {
+		if _, ok := payload[key]; ok {
+			hasKnown = true
+			break
+		}
+	}
+	if !hasKnown {
+		return text, payload, "json_passthrough"
+	}
+
+	strValue := func(key string) string {
+		return strings.TrimSpace(stringFromAny(payload[key]))
+	}
+	listValue := func(key string) []string {
+		values := stringSliceFromAny(payload[key])
+		out := make([]string, 0, len(values))
+		seen := map[string]struct{}{}
+		for _, item := range values {
+			v := strings.TrimSpace(item)
+			if v == "" {
+				continue
+			}
+			k := strings.ToLower(v)
+			if _, ok := seen[k]; ok {
+				continue
+			}
+			seen[k] = struct{}{}
+			out = append(out, v)
+			if len(out) >= 8 {
+				break
+			}
+		}
+		return out
+	}
+	appendSection := func(buf *bytes.Buffer, title string, lines []string) {
+		buf.WriteString(title)
+		buf.WriteString("\n")
+		if len(lines) == 0 {
+			buf.WriteString("- （未设置）\n\n")
+			return
+		}
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			buf.WriteString("- ")
+			buf.WriteString(line)
+			buf.WriteString("\n")
+		}
+		buf.WriteString("\n")
+	}
+
+	var buf bytes.Buffer
+	appendSection(&buf, "【运营身份】", []string{
+		fmt.Sprintf("你当前站在“%s”的业务视角做判断。", firstNonEmpty(strValue("operator_identity"), "运营")),
+	})
+	appendSection(&buf, "【业务场景与交付目标】", []string{
+		"本次业务场景：" + firstNonEmpty(strValue("business_scene"), "social_spread"),
+		"本次资产目标：" + firstNonEmpty(strValue("asset_goal"), "gif_highlight"),
+		"本次交付目标：" + firstNonEmpty(strValue("delivery_goal"), "standalone_shareable"),
+	})
+	appendSection(&buf, "【成功结果定义】", listValue("success_definition"))
+	appendSection(&buf, "【优先抓取倾向】", listValue("must_capture_bias"))
+	appendSection(&buf, "【尽量规避倾向】", listValue("avoid_bias"))
+	appendSection(&buf, "【成本与候选策略】", []string{
+		"当前成本策略：" + firstNonEmpty(strValue("cost_mode"), "balanced"),
+		"当前候选策略：" + firstNonEmpty(strValue("candidate_strategy"), "balanced"),
+		"候选数量偏好：" + firstNonEmpty(strValue("candidate_count_bias"), "medium"),
+		"多样性偏好：" + firstNonEmpty(strValue("diversity_preference"), "medium"),
+	})
+	appendSection(&buf, "【质量偏好】", []string{
+		"清晰度优先级：" + firstNonEmpty(strValue("clarity_priority"), "high"),
+		"循环优先级：" + firstNonEmpty(strValue("loop_priority"), "medium"),
+		"独立成立优先级：" + firstNonEmpty(strValue("standalone_priority"), "high"),
+		"情绪/高光优先级：" + firstNonEmpty(strValue("emotion_priority"), "high"),
+	})
+	appendSection(&buf, "【风险与限制】", []string{
+		"风险容忍度：" + firstNonEmpty(strValue("risk_tolerance"), "low"),
+		"字幕/对白依赖容忍度：" + firstNonEmpty(strValue("subtitle_dependency_tolerance"), "low"),
+		"质量底线说明：" + firstNonEmpty(strValue("quality_floor_note"), "不要为了凑数量而接受明显模糊或抖动严重的片段"),
+	})
+	appendSection(&buf, "【用户需求（如有）】", []string{
+		firstNonEmpty(strValue("user_request_passthrough"), "无"),
+	})
+	appendSection(&buf, "【补充业务说明】", []string{
+		firstNonEmpty(strValue("extra_business_note"), "无"),
+	})
+	rendered := strings.TrimSpace(buf.String())
+	if rendered == "" {
+		return text, payload, "json_passthrough"
+	}
+	return rendered, payload, "json_schema_rendered"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func validateAIGIFDirectiveContract(directive gifAIDirectiveProfile) error {
+	if strings.TrimSpace(directive.BusinessGoal) == "" {
+		return fmt.Errorf("business_goal required")
+	}
+	if directive.ClipCountMin < 1 {
+		return fmt.Errorf("clip_count_min must be >=1")
+	}
+	if directive.ClipCountMax < directive.ClipCountMin {
+		return fmt.Errorf("clip_count_max must be >= clip_count_min")
+	}
+	if directive.DurationPrefMaxSec <= directive.DurationPrefMinSec {
+		return fmt.Errorf("duration_pref_max_sec must be > duration_pref_min_sec")
+	}
+	if directive.LoopPreference < 0 || directive.LoopPreference > 1 {
+		return fmt.Errorf("loop_preference must be in [0,1]")
+	}
+	weights := normalizeDirectiveQualityWeights(directive.QualityWeights)
+	required := []string{"semantic", "clarity", "loop", "efficiency"}
+	sum := 0.0
+	for _, key := range required {
+		v, ok := weights[key]
+		if !ok {
+			return fmt.Errorf("quality_weights.%s required", key)
+		}
+		if v < 0 || v > 1 {
+			return fmt.Errorf("quality_weights.%s must be in [0,1]", key)
+		}
+		sum += v
+	}
+	if sum < 0.98 || sum > 1.02 {
+		return fmt.Errorf("quality_weights sum out of range")
+	}
+	return nil
+}
+
 func (p *Processor) requestAIGIFPromptDirective(
 	ctx context.Context,
 	job models.VideoJob,
+	sourcePath string,
 	meta videoProbeMeta,
 	local highlightSuggestion,
 	qualitySettings QualitySettings,
@@ -368,15 +834,63 @@ func (p *Processor) requestAIGIFPromptDirective(
 		operatorVersion = "v1"
 	}
 	operatorEnabled := qualitySettings.AIDirectorOperatorEnabled
+	operatorSource := "ops.video_quality_settings"
+
+	fixedPromptCore := defaultAIGIFDirectorFixedCorePrompt
+	fixedPromptContractTail := defaultAIGIFDirectorFixedContractTailPrompt
+	fixedPromptVersion := "built_in_v1"
+	fixedPromptSource := "built_in_default"
+	contractTailVersion := "built_in_contract_tail_v1"
+
+	if fixedTemplate, templateErr := p.loadAIPromptTemplateWithFallback("gif", "ai1", "fixed"); templateErr == nil {
+		if fixedTemplate.Found {
+			if strings.TrimSpace(fixedTemplate.Text) != "" && fixedTemplate.Enabled {
+				fixedPromptCore = strings.TrimSpace(fixedTemplate.Text)
+			}
+			if strings.TrimSpace(fixedTemplate.Version) != "" {
+				fixedPromptVersion = strings.TrimSpace(fixedTemplate.Version)
+			}
+			if strings.TrimSpace(fixedTemplate.Source) != "" {
+				fixedPromptSource = strings.TrimSpace(fixedTemplate.Source)
+			}
+		}
+	}
+	if editableTemplate, templateErr := p.loadAIPromptTemplateWithFallback("gif", "ai1", "editable"); templateErr == nil {
+		if editableTemplate.Found {
+			operatorInstruction = strings.TrimSpace(editableTemplate.Text)
+			operatorEnabled = editableTemplate.Enabled
+			if strings.TrimSpace(editableTemplate.Version) != "" {
+				operatorVersion = strings.TrimSpace(editableTemplate.Version)
+			}
+			if strings.TrimSpace(editableTemplate.Source) != "" {
+				operatorSource = strings.TrimSpace(editableTemplate.Source)
+			}
+		}
+	}
+
+	operatorInstructionRaw := operatorInstruction
+	operatorInstructionRendered, operatorInstructionSchema, operatorInstructionRenderMode := renderAIDirectorOperatorInstruction(operatorInstructionRaw)
+	if strings.TrimSpace(operatorInstructionRendered) == "" {
+		operatorInstructionRendered = operatorInstructionRaw
+	}
 
 	info := map[string]interface{}{
-		"enabled":                      cfg.Enabled,
-		"provider":                     cfg.Provider,
-		"model":                        cfg.Model,
-		"prompt_version":               cfg.PromptVersion,
-		"operator_instruction_enabled": operatorEnabled,
-		"operator_instruction_version": operatorVersion,
-		"operator_instruction_len":     len(operatorInstruction),
+		"enabled":                            cfg.Enabled,
+		"provider":                           cfg.Provider,
+		"model":                              cfg.Model,
+		"prompt_version":                     cfg.PromptVersion,
+		"fixed_prompt_version":               fixedPromptVersion,
+		"fixed_prompt_source":                fixedPromptSource,
+		"fixed_prompt_contract_tail_version": contractTailVersion,
+		"operator_instruction_enabled":       operatorEnabled,
+		"operator_instruction_version":       operatorVersion,
+		"operator_instruction_source":        operatorSource,
+		"operator_instruction_raw_len":       len(operatorInstructionRaw),
+		"operator_instruction_rendered_len":  len(operatorInstructionRendered),
+		"operator_instruction_render_mode":   operatorInstructionRenderMode,
+	}
+	if len(operatorInstructionSchema) > 0 {
+		info["operator_instruction_schema"] = operatorInstructionSchema
 	}
 	if !cfg.Enabled {
 		info["applied"] = false
@@ -386,58 +900,165 @@ func (p *Processor) requestAIGIFPromptDirective(
 		info["applied"] = false
 		return nil, info, fmt.Errorf("non-gif job")
 	}
-	localTop := local.Candidates
-	if len(localTop) > 8 {
-		localTop = localTop[:8]
-	}
-	payload := map[string]interface{}{
-		"job_id":                job.ID,
-		"title":                 strings.TrimSpace(job.Title),
-		"duration_sec":          roundTo(meta.DurationSec, 3),
-		"width":                 meta.Width,
-		"height":                meta.Height,
-		"fps":                   roundTo(meta.FPS, 3),
-		"gif_profile":           strings.ToLower(strings.TrimSpace(qualitySettings.GIFProfile)),
-		"gif_target_size_kb":    qualitySettings.GIFTargetSizeKB,
-		"candidate_top_windows": localTop,
-		"operator_instruction": map[string]interface{}{
-			"enabled": operatorEnabled,
-			"version": operatorVersion,
-			"text":    operatorInstruction,
-		},
-	}
-	userBytes, _ := json.Marshal(payload)
+	directorInputModeRequested := normalizeAIDirectorInputModeSetting(qualitySettings.AIDirectorInputMode, "hybrid")
+	directorInputModeApplied := "frames"
+	directorInputSource := "frame_manifest"
+	sourceVideoURL := ""
+	sourceVideoURLError := ""
+	frameSamplingError := ""
+	frameSamples := make([]aiDirectorFrameSample, 0)
+	frameManifest := make([]map[string]interface{}, 0)
 
-	systemPrompt := `你是视频转GIF任务的“需求甲方（Prompt Director）”。
-你的职责是：在正式剪辑方案生成前，给出结构化任务指令，指导后续Planner更稳定地产出高价值GIF。
-仅返回JSON（不要markdown）：
-{
-  "directive": {
-    "business_goal": "entertainment|news|design_asset|social_spread",
-    "audience": "简短描述",
-    "must_capture": ["必须抓取的瞬间/特征"],
-    "avoid": ["应避免片段/质量风险"],
-    "clip_count_min": 3,
-    "clip_count_max": 8,
-    "duration_pref_min_sec": 1.4,
-    "duration_pref_max_sec": 3.2,
-    "loop_preference": 0.0,
-    "style_direction": "画风/节奏方向（简短）",
-    "risk_flags": ["low_light","fast_motion","noise_audio"],
-    "quality_weights": {"semantic":0.35,"clarity":0.20,"loop":0.25,"efficiency":0.20},
-    "directive_text": "给Planner的自然语言摘要，50~120字"
-  }
-}
-约束：
-1) loop_preference、quality_weights 各值在 [0,1]；
-2) quality_weights 的和应接近 1；
-3) clip_count_min>=1 且 clip_count_max>=clip_count_min；
-4) duration_pref_max_sec > duration_pref_min_sec。`
-	if operatorEnabled && operatorInstruction != "" {
+	loadFrameSamples := func() {
+		if len(frameSamples) > 0 || frameSamplingError != "" {
+			return
+		}
+		samples, err := sampleAIDirectorFrames(ctx, sourcePath, meta, 6)
+		if err != nil {
+			frameSamplingError = err.Error()
+			frameSamples = nil
+			frameManifest = nil
+			return
+		}
+		frameSamples = samples
+		frameManifest = make([]map[string]interface{}, 0, len(frameSamples))
+		for _, item := range frameSamples {
+			frameManifest = append(frameManifest, map[string]interface{}{
+				"index":         item.Index,
+				"timestamp_sec": roundTo(item.TimestampSec, 3),
+				"bytes":         item.Bytes,
+			})
+		}
+	}
+
+	resolveVideoURL := func() bool {
+		sourceKey := strings.TrimSpace(job.SourceVideoKey)
+		if sourceKey == "" {
+			sourceVideoURLError = "source_video_key missing"
+			return false
+		}
+		videoURL, err := p.buildObjectReadURL(sourceKey)
+		if err != nil {
+			sourceVideoURLError = err.Error()
+			return false
+		}
+		videoURL = strings.TrimSpace(videoURL)
+		if videoURL == "" {
+			sourceVideoURLError = "empty source video url"
+			return false
+		}
+		sourceVideoURL = videoURL
+		return true
+	}
+
+	switch directorInputModeRequested {
+	case "frames":
+		loadFrameSamples()
+		directorInputModeApplied = "frames"
+		directorInputSource = "frame_manifest"
+	case "full_video":
+		if resolveVideoURL() {
+			directorInputModeApplied = "full_video"
+			directorInputSource = "full_video_url"
+		} else {
+			loadFrameSamples()
+			directorInputModeApplied = "frames"
+			directorInputSource = "full_video_fallback_frame_manifest"
+		}
+	default: // hybrid
+		if resolveVideoURL() {
+			directorInputModeApplied = "full_video"
+			directorInputSource = "full_video_url"
+		} else {
+			loadFrameSamples()
+			directorInputModeApplied = "frames"
+			directorInputSource = "hybrid_fallback_frame_manifest"
+		}
+	}
+
+	buildDirectorPayload := func() map[string]interface{} {
+		payload := map[string]interface{}{
+			"job_id":                      job.ID,
+			"title":                       strings.TrimSpace(job.Title),
+			"duration_sec":                roundTo(meta.DurationSec, 3),
+			"width":                       meta.Width,
+			"height":                      meta.Height,
+			"fps":                         roundTo(meta.FPS, 3),
+			"gif_profile":                 strings.ToLower(strings.TrimSpace(qualitySettings.GIFProfile)),
+			"gif_target_size_kb":          qualitySettings.GIFTargetSizeKB,
+			"source_input_mode_requested": directorInputModeRequested,
+			"source_input_mode_applied":   directorInputModeApplied,
+			"source_input_type":           directorInputSource,
+			"frame_count":                 len(frameManifest),
+			"frame_manifest":              frameManifest,
+			"source_video_url_available":  sourceVideoURL != "",
+			"source_video_url_error":      sourceVideoURLError,
+			"operator_instruction": map[string]interface{}{
+				"enabled":       operatorEnabled,
+				"version":       operatorVersion,
+				"render_mode":   operatorInstructionRenderMode,
+				"text":          operatorInstructionRendered,
+				"raw_text":      operatorInstructionRaw,
+				"schema_fields": operatorInstructionSchema,
+			},
+		}
+		if sourceVideoURL != "" {
+			payload["source_video_url"] = sourceVideoURL
+		}
+		return payload
+	}
+
+	buildDirectorUserParts := func(payload map[string]interface{}) ([]openAICompatContentPart, []byte) {
+		userBytes, _ := json.Marshal(payload)
+		parts := make([]openAICompatContentPart, 0, len(frameSamples)+2)
+		parts = append(parts, openAICompatContentPart{
+			Type: "text",
+			Text: string(userBytes),
+		})
+		if sourceVideoURL != "" && strings.EqualFold(directorInputModeApplied, "full_video") {
+			parts = append(parts, openAICompatContentPart{
+				Type: "video_url",
+				VideoURL: &openAICompatVideoURL{
+					URL: sourceVideoURL,
+				},
+			})
+			return parts, userBytes
+		}
+		for _, item := range frameSamples {
+			if strings.TrimSpace(item.DataURL) == "" {
+				continue
+			}
+			parts = append(parts, openAICompatContentPart{
+				Type: "image_url",
+				ImageURL: &openAICompatImageURL{
+					URL: item.DataURL,
+				},
+			})
+		}
+		return parts, userBytes
+	}
+
+	payload := buildDirectorPayload()
+	userParts, userBytes := buildDirectorUserParts(payload)
+
+	systemPrompt := strings.TrimSpace(fixedPromptCore)
+	if operatorEnabled && strings.TrimSpace(operatorInstructionRendered) != "" {
 		systemPrompt += "\n\n额外的运营指令模板（必须严格遵守，冲突时优先级高于默认偏好）：" +
 			"\n版本：" + operatorVersion +
-			"\n" + operatorInstruction
+			"\n" + operatorInstructionRendered
 	}
+	if strings.TrimSpace(fixedPromptContractTail) != "" {
+		systemPrompt += "\n\n" + strings.TrimSpace(fixedPromptContractTail)
+	}
+	if frameSamplingError != "" {
+		info["frame_sampling_error"] = frameSamplingError
+	}
+	info["frame_count"] = len(frameSamples)
+	info["director_input_mode_requested"] = directorInputModeRequested
+	info["director_input_mode_applied"] = directorInputModeApplied
+	info["director_input_source"] = directorInputSource
+	info["source_video_url_available"] = sourceVideoURL != ""
+	info["source_video_url_error"] = sourceVideoURLError
 
 	buildPersistContext := func(status string, fallbackUsed bool, raw map[string]interface{}, fallbackReason string) aiGIFDirectivePersistContext {
 		return aiGIFDirectivePersistContext{
@@ -447,43 +1068,83 @@ func (p *Processor) requestAIGIFPromptDirective(
 			ModelVersion:        resolveAIDirectiveModelVersion(cfg.Model, raw),
 			InputContext:        payload,
 			OperatorEnabled:     operatorEnabled,
-			OperatorInstruction: operatorInstruction,
+			OperatorInstruction: operatorInstructionRendered,
 			OperatorVersion:     operatorVersion,
 			FallbackReason:      fallbackReason,
 		}
 	}
 
-	modelText, usage, rawResp, durationMs, err := p.callOpenAICompatJSONChat(ctx, cfg, systemPrompt, string(userBytes))
-	status := "ok"
-	errText := ""
-	if err != nil {
-		status = "error"
-		errText = err.Error()
+	callAndRecordDirector := func(attempt int, payload map[string]interface{}, payloadBytes []byte, parts []openAICompatContentPart) (string, cloudHighlightUsage, map[string]interface{}, int64, error) {
+		modelText, usage, rawResp, durationMs, err := p.callOpenAICompatJSONChatWithUserParts(ctx, cfg, systemPrompt, parts)
+		status := "ok"
+		errText := ""
+		if err != nil {
+			status = "error"
+			errText = err.Error()
+		}
+		p.recordVideoJobAIUsage(videoJobAIUsageInput{
+			JobID:             job.ID,
+			UserID:            job.UserID,
+			Stage:             gifAIDirectorStage,
+			Provider:          cfg.Provider,
+			Model:             cfg.Model,
+			Endpoint:          cfg.Endpoint,
+			InputTokens:       usage.InputTokens,
+			OutputTokens:      usage.OutputTokens,
+			CachedInputTokens: usage.CachedInputTokens,
+			ImageTokens:       usage.ImageTokens,
+			VideoTokens:       usage.VideoTokens,
+			AudioSeconds:      usage.AudioSeconds,
+			RequestDurationMs: durationMs,
+			RequestStatus:     status,
+			RequestError:      errText,
+			Metadata: map[string]interface{}{
+				"attempt":                           attempt,
+				"prompt_version":                    cfg.PromptVersion,
+				"fixed_prompt_version":              fixedPromptVersion,
+				"fixed_prompt_source":               fixedPromptSource,
+				"fixed_prompt_contract_version":     contractTailVersion,
+				"candidate_source":                  directorInputSource,
+				"director_input_mode_requested":     directorInputModeRequested,
+				"director_input_mode_applied":       directorInputModeApplied,
+				"frame_count":                       len(frameSamples),
+				"frame_sampling_error":              frameSamplingError,
+				"source_video_url_available":        sourceVideoURL != "",
+				"source_video_url_error":            sourceVideoURLError,
+				"operator_instruction_enabled":      operatorEnabled,
+				"operator_instruction_version":      operatorVersion,
+				"operator_instruction_raw_len":      len(operatorInstructionRaw),
+				"operator_instruction_len":          len(operatorInstructionRendered),
+				"operator_instruction_rendered_len": len(operatorInstructionRendered),
+				"operator_instruction_render_mode":  operatorInstructionRenderMode,
+				"operator_instruction_source":       operatorSource,
+				"operator_instruction_schema":       operatorInstructionSchema,
+				"director_input_payload_v1":         payload,
+				"director_input_payload_bytes":      len(payloadBytes),
+			},
+		})
+		return modelText, usage, rawResp, durationMs, err
 	}
-	p.recordVideoJobAIUsage(videoJobAIUsageInput{
-		JobID:             job.ID,
-		UserID:            job.UserID,
-		Stage:             gifAIDirectorStage,
-		Provider:          cfg.Provider,
-		Model:             cfg.Model,
-		Endpoint:          cfg.Endpoint,
-		InputTokens:       usage.InputTokens,
-		OutputTokens:      usage.OutputTokens,
-		CachedInputTokens: usage.CachedInputTokens,
-		ImageTokens:       usage.ImageTokens,
-		VideoTokens:       usage.VideoTokens,
-		AudioSeconds:      usage.AudioSeconds,
-		RequestDurationMs: durationMs,
-		RequestStatus:     status,
-		RequestError:      errText,
-		Metadata: map[string]interface{}{
-			"prompt_version":               cfg.PromptVersion,
-			"local_candidate_count":        len(local.Candidates),
-			"operator_instruction_enabled": operatorEnabled,
-			"operator_instruction_version": operatorVersion,
-			"operator_instruction_len":     len(operatorInstruction),
-		},
-	})
+
+	modelText, _, rawResp, _, err := callAndRecordDirector(1, payload, userBytes, userParts)
+	if err != nil && directorInputModeRequested == "hybrid" && sourceVideoURL != "" && strings.EqualFold(directorInputModeApplied, "full_video") {
+		loadFrameSamples()
+		if len(frameSamples) > 0 {
+			directorInputModeApplied = "frames"
+			directorInputSource = "hybrid_retry_frame_manifest"
+			sourceVideoURL = ""
+			payload = buildDirectorPayload()
+			userParts, userBytes = buildDirectorUserParts(payload)
+			info["hybrid_retry"] = "video_input_error_fallback_to_frames"
+			info["hybrid_first_error"] = err.Error()
+			modelText, _, rawResp, _, err = callAndRecordDirector(2, payload, userBytes, userParts)
+		}
+	}
+	info["frame_count"] = len(frameSamples)
+	info["director_input_mode_applied"] = directorInputModeApplied
+	info["director_input_source"] = directorInputSource
+	info["source_video_url_available"] = sourceVideoURL != ""
+	info["source_video_url_error"] = sourceVideoURLError
 	if err != nil {
 		fallbackDirective := buildFallbackAIGIFDirective(local, qualitySettings, "director_call_error")
 		_ = p.persistAIGIFDirective(job.ID, job.UserID, cfg, *fallbackDirective, rawResp, buildPersistContext("fallback", true, rawResp, "director_call_error"))
@@ -494,17 +1155,17 @@ func (p *Processor) requestAIGIFPromptDirective(
 		return nil, info, err
 	}
 
-	var parsed gifAIDirectorResponse
-	if err := json.Unmarshal([]byte(sanitizeModelJSON(modelText)), &parsed); err != nil {
+	parsedDirective, responseShape, parseErr := parseAIGIFDirectiveResponse(modelText)
+	if parseErr != nil {
 		fallbackDirective := buildFallbackAIGIFDirective(local, qualitySettings, "director_parse_error")
 		_ = p.persistAIGIFDirective(job.ID, job.UserID, cfg, *fallbackDirective, rawResp, buildPersistContext("fallback", true, rawResp, "director_parse_error"))
 		info["applied"] = false
 		info["status"] = "fallback"
 		info["fallback_used"] = true
-		info["error"] = "parse director response: " + err.Error()
-		return nil, info, err
+		info["error"] = "parse director response: " + parseErr.Error()
+		return nil, info, parseErr
 	}
-	directive := normalizeAIGIFDirective(parsed.Directive, qualitySettings.GIFCandidateMaxOutputs)
+	directive := normalizeAIGIFDirective(parsedDirective, qualitySettings.GIFCandidateMaxOutputs)
 	if directive == nil {
 		fallbackDirective := buildFallbackAIGIFDirective(local, qualitySettings, "director_output_invalid")
 		_ = p.persistAIGIFDirective(job.ID, job.UserID, cfg, *fallbackDirective, rawResp, buildPersistContext("fallback", true, rawResp, "director_output_invalid"))
@@ -514,11 +1175,21 @@ func (p *Processor) requestAIGIFPromptDirective(
 		info["error"] = "director output invalid"
 		return nil, info, fmt.Errorf("director output invalid")
 	}
+	if contractErr := validateAIGIFDirectiveContract(*directive); contractErr != nil {
+		fallbackDirective := buildFallbackAIGIFDirective(local, qualitySettings, "director_contract_invalid")
+		_ = p.persistAIGIFDirective(job.ID, job.UserID, cfg, *fallbackDirective, rawResp, buildPersistContext("fallback", true, rawResp, "director_contract_invalid"))
+		info["applied"] = false
+		info["status"] = "fallback"
+		info["fallback_used"] = true
+		info["error"] = "director contract invalid: " + contractErr.Error()
+		return nil, info, contractErr
+	}
 	_ = p.persistAIGIFDirective(job.ID, job.UserID, cfg, *directive, rawResp, buildPersistContext("ok", false, rawResp, ""))
 
 	info["applied"] = true
 	info["status"] = "ok"
 	info["fallback_used"] = false
+	info["response_shape"] = responseShape
 	info["business_goal"] = directive.BusinessGoal
 	info["clip_count_min"] = directive.ClipCountMin
 	info["clip_count_max"] = directive.ClipCountMax
@@ -754,6 +1425,7 @@ func (p *Processor) persistAIGIFDirective(
 func (p *Processor) requestAIGIFPlannerSuggestion(
 	ctx context.Context,
 	job models.VideoJob,
+	sourcePath string,
 	meta videoProbeMeta,
 	local highlightSuggestion,
 	directive *gifAIDirectiveProfile,
@@ -774,60 +1446,70 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 		info["applied"] = false
 		return local, info, fmt.Errorf("non-gif job")
 	}
-	if local.Selected == nil || len(local.Candidates) == 0 {
-		info["applied"] = false
-		return local, info, fmt.Errorf("local suggestion unavailable")
-	}
 
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
-	targetTopN := qualitySettings.GIFCandidateMaxOutputs
-	if targetTopN <= 0 {
-		targetTopN = defaultHighlightTopN
+	targetTopN := resolveAIGIFPlannerTargetTopN(meta, directive, qualitySettings)
+	frameSamples, frameErr := sampleAIDirectorFrames(ctx, sourcePath, meta, 8)
+	frameManifest := make([]map[string]interface{}, 0, len(frameSamples))
+	for _, item := range frameSamples {
+		frameManifest = append(frameManifest, map[string]interface{}{
+			"index":         item.Index,
+			"timestamp_sec": roundTo(item.TimestampSec, 3),
+			"bytes":         item.Bytes,
+		})
 	}
 
 	payload := map[string]interface{}{
-		"job_id":               job.ID,
-		"title":                strings.TrimSpace(job.Title),
-		"duration_sec":         roundTo(meta.DurationSec, 3),
-		"width":                meta.Width,
-		"height":               meta.Height,
-		"fps":                  roundTo(meta.FPS, 3),
-		"target_top_n":         targetTopN,
-		"target_window_sec":    roundTo(chooseHighlightDuration(meta.DurationSec), 3),
-		"local_candidates":     local.Candidates,
-		"local_all_candidates": local.All,
+		"job_id":            job.ID,
+		"title":             strings.TrimSpace(job.Title),
+		"duration_sec":      roundTo(meta.DurationSec, 3),
+		"width":             meta.Width,
+		"height":            meta.Height,
+		"fps":               roundTo(meta.FPS, 3),
+		"target_top_n":      targetTopN,
+		"target_window_sec": roundTo(chooseHighlightDuration(meta.DurationSec), 3),
+		"frame_count":       len(frameManifest),
+		"frame_manifest":    frameManifest,
 	}
 	if directive != nil {
 		payload["director"] = directive
 	}
 	userBytes, _ := json.Marshal(payload)
+	userParts := make([]openAICompatContentPart, 0, len(frameSamples)+1)
+	userParts = append(userParts, openAICompatContentPart{
+		Type: "text",
+		Text: string(userBytes),
+	})
+	for _, item := range frameSamples {
+		if strings.TrimSpace(item.DataURL) == "" {
+			continue
+		}
+		userParts = append(userParts, openAICompatContentPart{
+			Type: "image_url",
+			ImageURL: &openAICompatImageURL{
+				URL: item.DataURL,
+			},
+		})
+	}
 
-	systemPrompt := `你是视频GIF剪辑提名助手。请基于输入候选窗口，给出更贴近“高光、可脱离上下文、可传播、可循环”的提名方案。
-必须返回JSON（不要markdown）：
-{
-  "proposals":[
-    {
-      "proposal_rank":1,
-      "start_sec":12.3,
-      "end_sec":14.8,
-      "score":0.86,
-      "proposal_reason":"表情爆发点+动作完成点",
-      "semantic_tags":["emotion_peak","reaction"],
-      "expected_value_level":"high",
-      "standalone_confidence":0.88,
-      "loop_friendliness_hint":0.72
-    }
-  ],
-  "selected_rank":1,
-  "notes":"可选，简短"
-}
-约束：
-1) 时间窗口必须在视频时长范围内，end_sec > start_sec，单窗口建议 1.0~5.0 秒；
-2) proposals 按质量从高到低，最多 20 条；
-3) score/standalone_confidence/loop_friendliness_hint 均在 [0,1]；
-4) 若输入包含 director，请优先遵循 director 的目标和偏好。`
+	systemPrompt := defaultAIGIFPlannerSystemPrompt
+	promptVersion := "built_in_v1"
+	promptSource := "built_in_default"
+	if template, templateErr := p.loadAIPromptTemplateWithFallback("gif", "ai2", "fixed"); templateErr == nil {
+		if template.Found {
+			if strings.TrimSpace(template.Text) != "" && template.Enabled {
+				systemPrompt = strings.TrimSpace(template.Text)
+			}
+			if strings.TrimSpace(template.Version) != "" {
+				promptVersion = strings.TrimSpace(template.Version)
+			}
+			if strings.TrimSpace(template.Source) != "" {
+				promptSource = strings.TrimSpace(template.Source)
+			}
+		}
+	}
 
-	modelText, usage, rawResp, durationMs, err := p.callOpenAICompatJSONChat(ctx, cfg, systemPrompt, string(userBytes))
+	modelText, usage, rawResp, durationMs, err := p.callOpenAICompatJSONChatWithUserParts(ctx, cfg, systemPrompt, userParts)
 	status := "ok"
 	errText := ""
 	if err != nil {
@@ -851,10 +1533,21 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 		RequestStatus:     status,
 		RequestError:      errText,
 		Metadata: map[string]interface{}{
-			"prompt_version":        cfg.PromptVersion,
-			"target_top_n":          targetTopN,
-			"local_candidate_count": len(local.Candidates),
-			"director_applied":      directive != nil,
+			"prompt_version":          cfg.PromptVersion,
+			"prompt_template_version": promptVersion,
+			"prompt_template_source":  promptSource,
+			"target_top_n":            targetTopN,
+			"candidate_source":        "frame_manifest",
+			"frame_count":             len(frameSamples),
+			"frame_sampling_error": func() string {
+				if frameErr != nil {
+					return frameErr.Error()
+				}
+				return ""
+			}(),
+			"director_applied":            directive != nil,
+			"planner_input_payload_v1":    payload,
+			"planner_input_payload_bytes": len(userBytes),
 		},
 	})
 	if err != nil {
@@ -935,8 +1628,65 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 	info["selected_start_sec"] = suggestion.Selected.StartSec
 	info["selected_end_sec"] = suggestion.Selected.EndSec
 	info["selected_score"] = suggestion.Selected.Score
+	info["frame_count"] = len(frameSamples)
+	if frameErr != nil {
+		info["frame_sampling_error"] = frameErr.Error()
+	}
 	info["director_applied"] = directive != nil
 	return suggestion, info, nil
+}
+
+func resolveAIGIFPlannerTargetTopN(
+	meta videoProbeMeta,
+	directive *gifAIDirectiveProfile,
+	qualitySettings QualitySettings,
+) int {
+	qualitySettings = NormalizeQualitySettings(qualitySettings)
+	_, longVideoThresholdSec, ultraVideoThresholdSec := resolveGIFDurationTierThresholds(qualitySettings)
+	target := qualitySettings.GIFCandidateMaxOutputs
+	if target <= 0 {
+		target = defaultHighlightTopN
+	}
+
+	if directive != nil {
+		clipMax := directive.ClipCountMax
+		if clipMax > 0 && clipMax > target {
+			target = clipMax
+		}
+		clipMin := directive.ClipCountMin
+		if clipMin > 0 && target < clipMin {
+			target = clipMin
+		}
+	}
+
+	if target < 1 {
+		target = 1
+	}
+	if target > 6 {
+		target = 6
+	}
+
+	if meta.DurationSec >= ultraVideoThresholdSec {
+		ultraCap := qualitySettings.GIFCandidateUltraVideoMaxOutputs
+		if ultraCap <= 0 {
+			ultraCap = qualitySettings.GIFCandidateLongVideoMaxOutputs
+		}
+		if ultraCap > 0 && target > ultraCap {
+			target = ultraCap
+		}
+	} else if meta.DurationSec >= longVideoThresholdSec {
+		longCap := qualitySettings.GIFCandidateLongVideoMaxOutputs
+		if longCap > 0 && target > longCap {
+			target = longCap
+		}
+	}
+	if target < 1 {
+		target = 1
+	}
+	if target > 6 {
+		target = 6
+	}
+	return target
 }
 
 func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float64) []gifAIPlannerProposal {
@@ -1115,25 +1865,22 @@ func (p *Processor) runAIGIFJudgeReview(ctx context.Context, job models.VideoJob
 		"outputs":     samples,
 	}
 	userPayload, _ := json.Marshal(input)
-	systemPrompt := `你是GIF语义复审评委。请根据每个GIF样本的技术评分与上下文，输出可执行的最终建议。
-仅返回JSON（不要markdown）：
-{
-  "reviews":[
-    {
-      "output_id":123,
-      "proposal_rank":1,
-      "final_recommendation":"deliver|keep_internal|reject|need_manual_review",
-      "semantic_verdict":0.82,
-      "diagnostic_reason":"简短原因",
-      "suggested_action":"简短建议"
-    }
-  ],
-  "summary":{"note":"可选"}
-}
-要求：
-1) reviews 里的 output_id 必须来自输入；
-2) final_recommendation 仅允许四个枚举值；
-3) semantic_verdict 在 [0,1]。`
+	systemPrompt := defaultAIGIFJudgeSystemPrompt
+	promptVersion := "built_in_v1"
+	promptSource := "built_in_default"
+	if template, templateErr := p.loadAIPromptTemplateWithFallback("gif", "ai3", "fixed"); templateErr == nil {
+		if template.Found {
+			if strings.TrimSpace(template.Text) != "" && template.Enabled {
+				systemPrompt = strings.TrimSpace(template.Text)
+			}
+			if strings.TrimSpace(template.Version) != "" {
+				promptVersion = strings.TrimSpace(template.Version)
+			}
+			if strings.TrimSpace(template.Source) != "" {
+				promptSource = strings.TrimSpace(template.Source)
+			}
+		}
+	}
 
 	modelText, usage, rawResp, durationMs, callErr := p.callOpenAICompatJSONChat(ctx, cfg, systemPrompt, string(userPayload))
 	status := "ok"
@@ -1159,8 +1906,13 @@ func (p *Processor) runAIGIFJudgeReview(ctx context.Context, job models.VideoJob
 		RequestStatus:     status,
 		RequestError:      errText,
 		Metadata: map[string]interface{}{
-			"prompt_version": cfg.PromptVersion,
-			"sample_size":    len(samples),
+			"prompt_version":             cfg.PromptVersion,
+			"prompt_template_version":    promptVersion,
+			"prompt_template_source":     promptSource,
+			"sample_size":                len(samples),
+			"judge_input_schema_version": "v2_snake_case",
+			"judge_input_payload_v1":     input,
+			"judge_input_payload_bytes":  len(userPayload),
 		},
 	})
 	if callErr != nil {
@@ -1272,6 +2024,274 @@ func countAIGIFJudgeRecommendations(reviews []gifAIJudgeReviewRow) map[string]in
 		}
 	}
 	return counts
+}
+
+type gifDeliverFallbackCandidate struct {
+	Sample       gifJudgeSample
+	ReviewStatus string
+}
+
+func fallbackReviewStatusWeight(status string) int {
+	switch normalizeGIFAIReviewRecommendation(status) {
+	case "keep_internal":
+		return 4
+	case "need_manual_review":
+		return 3
+	case "":
+		return 2
+	case "reject":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func selectDeliverFallbackCandidate(
+	samples []gifJudgeSample,
+	reviewByOutput map[uint64]models.VideoJobGIFAIReview,
+) (gifDeliverFallbackCandidate, bool) {
+	if len(samples) == 0 {
+		return gifDeliverFallbackCandidate{}, false
+	}
+	best := gifDeliverFallbackCandidate{}
+	bestSet := false
+	scoreOf := func(item gifJudgeSample) float64 {
+		if item.Score > 0 {
+			return item.Score
+		}
+		if item.EvalOverall > 0 {
+			return item.EvalOverall
+		}
+		return 0
+	}
+	for _, sample := range samples {
+		current := gifDeliverFallbackCandidate{
+			Sample: sample,
+		}
+		if row, ok := reviewByOutput[sample.OutputID]; ok {
+			current.ReviewStatus = normalizeGIFAIReviewRecommendation(row.FinalRecommendation)
+		}
+		if !bestSet {
+			best = current
+			bestSet = true
+			continue
+		}
+		currentWeight := fallbackReviewStatusWeight(current.ReviewStatus)
+		bestWeight := fallbackReviewStatusWeight(best.ReviewStatus)
+		if currentWeight != bestWeight {
+			if currentWeight > bestWeight {
+				best = current
+			}
+			continue
+		}
+		currentScore := scoreOf(current.Sample)
+		bestScore := scoreOf(best.Sample)
+		if currentScore != bestScore {
+			if currentScore > bestScore {
+				best = current
+			}
+			continue
+		}
+		if current.Sample.EvalClarity != best.Sample.EvalClarity {
+			if current.Sample.EvalClarity > best.Sample.EvalClarity {
+				best = current
+			}
+			continue
+		}
+		if current.Sample.EvalLoop != best.Sample.EvalLoop {
+			if current.Sample.EvalLoop > best.Sample.EvalLoop {
+				best = current
+			}
+			continue
+		}
+		if current.Sample.IsPrimary != best.Sample.IsPrimary {
+			if current.Sample.IsPrimary {
+				best = current
+			}
+			continue
+		}
+		if current.Sample.OutputID < best.Sample.OutputID {
+			best = current
+		}
+	}
+	return best, bestSet
+}
+
+func (p *Processor) ensureAIGIFDeliverFallback(
+	job models.VideoJob,
+	triggerReason string,
+	contextMeta map[string]interface{},
+) (map[string]interface{}, error) {
+	result := map[string]interface{}{
+		"attempted":      false,
+		"applied":        false,
+		"trigger_reason": strings.TrimSpace(triggerReason),
+	}
+	if p == nil || p.db == nil || job.ID == 0 {
+		result["reason"] = "invalid_processor"
+		return result, nil
+	}
+	samples, err := p.loadGIFJudgeSamples(job.ID)
+	if err != nil {
+		result["reason"] = "load_samples_error"
+		result["error"] = err.Error()
+		return result, err
+	}
+	result["sample_count"] = len(samples)
+	if len(samples) == 0 {
+		result["reason"] = "no_gif_outputs"
+		return result, nil
+	}
+	result["attempted"] = true
+
+	outputIDs := make([]uint64, 0, len(samples))
+	for _, sample := range samples {
+		outputIDs = append(outputIDs, sample.OutputID)
+	}
+	var reviewRows []models.VideoJobGIFAIReview
+	if err := p.db.Where("job_id = ? AND output_id IN ?", job.ID, outputIDs).
+		Order("id DESC").
+		Find(&reviewRows).Error; err != nil {
+		if isMissingTableError(err, "video_job_gif_ai_reviews") {
+			result["attempted"] = false
+			result["reason"] = "review_table_missing"
+			return result, nil
+		}
+		result["reason"] = "load_reviews_error"
+		result["error"] = err.Error()
+		return result, err
+	}
+
+	latestReviewByOutput := make(map[uint64]models.VideoJobGIFAIReview, len(reviewRows))
+	deliverCount := 0
+	for _, row := range reviewRows {
+		if row.OutputID == nil || *row.OutputID == 0 {
+			continue
+		}
+		outputID := *row.OutputID
+		if _, exists := latestReviewByOutput[outputID]; exists {
+			continue
+		}
+		latestReviewByOutput[outputID] = row
+		if normalizeGIFAIReviewRecommendation(row.FinalRecommendation) == "deliver" {
+			deliverCount++
+		}
+	}
+	result["review_count"] = len(latestReviewByOutput)
+	result["deliver_count_before"] = deliverCount
+	if deliverCount > 0 {
+		result["reason"] = "deliver_exists"
+		return result, nil
+	}
+
+	selected, ok := selectDeliverFallbackCandidate(samples, latestReviewByOutput)
+	if !ok || selected.Sample.OutputID == 0 {
+		result["reason"] = "no_selectable_sample"
+		return result, nil
+	}
+	outputID := selected.Sample.OutputID
+	existingReview := latestReviewByOutput[outputID]
+	prevRecommendation := normalizeGIFAIReviewRecommendation(existingReview.FinalRecommendation)
+	if prevRecommendation == "" {
+		prevRecommendation = "none"
+	}
+	proposalID := selected.Sample.ProposalIDByWin
+	if (proposalID == nil || *proposalID == 0) && existingReview.ProposalID != nil && *existingReview.ProposalID > 0 {
+		proposalID = existingReview.ProposalID
+	}
+	if (proposalID == nil || *proposalID == 0) && selected.Sample.ProposalRank > 0 {
+		if proposal, loadErr := p.loadAIGIFProposalByRank(job.ID, selected.Sample.ProposalRank); loadErr == nil && proposal != nil {
+			id := proposal.ID
+			proposalID = &id
+		}
+	}
+	semanticVerdict := clampZeroOne(selected.Sample.EvalOverall)
+	if semanticVerdict <= 0 {
+		semanticVerdict = clampZeroOne(selected.Sample.Score)
+	}
+	if semanticVerdict <= 0 {
+		semanticVerdict = 0.5
+	}
+	metadata := map[string]interface{}{}
+	if existing := parseJSONMap(existingReview.Metadata); len(existing) > 0 {
+		for key, value := range existing {
+			metadata[key] = value
+		}
+	}
+	metadata["deliver_fallback_applied"] = true
+	metadata["deliver_fallback_reason"] = strings.TrimSpace(triggerReason)
+	metadata["deliver_fallback_trigger_reason"] = strings.TrimSpace(triggerReason)
+	metadata["deliver_fallback_previous_recommendation"] = prevRecommendation
+	metadata["deliver_fallback_selected_review_status"] = selected.ReviewStatus
+	metadata["deliver_fallback_selected_output_score"] = roundTo(selected.Sample.Score, 4)
+	metadata["deliver_fallback_selected_eval_overall"] = roundTo(selected.Sample.EvalOverall, 4)
+	metadata["deliver_fallback_selected_eval_clarity"] = roundTo(selected.Sample.EvalClarity, 4)
+	metadata["deliver_fallback_selected_eval_loop"] = roundTo(selected.Sample.EvalLoop, 4)
+	metadata["deliver_fallback_selected_is_primary"] = selected.Sample.IsPrimary
+	metadata["deliver_fallback_applied_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	if len(contextMeta) > 0 {
+		metadata["deliver_fallback_context"] = contextMeta
+	}
+	rawResponse := map[string]interface{}{
+		"type":                    "deliver_fallback",
+		"trigger_reason":          strings.TrimSpace(triggerReason),
+		"output_id":               outputID,
+		"previous_recommendation": prevRecommendation,
+		"selected_review_status":  selected.ReviewStatus,
+	}
+	if len(contextMeta) > 0 {
+		rawResponse["context"] = contextMeta
+	}
+	diagnosticReason := fmt.Sprintf("系统兜底：任务已完成但无 deliver，自动提升级最佳产物（trigger=%s）", strings.TrimSpace(triggerReason))
+	row := models.VideoJobGIFAIReview{
+		JobID:               job.ID,
+		UserID:              job.UserID,
+		OutputID:            &outputID,
+		ProposalID:          proposalID,
+		Provider:            "system",
+		Model:               "deliver_fallback_v1",
+		Endpoint:            "",
+		PromptVersion:       "deliver_fallback_v1",
+		FinalRecommendation: "deliver",
+		SemanticVerdict:     roundTo(semanticVerdict, 4),
+		DiagnosticReason:    diagnosticReason,
+		SuggestedAction:     "auto_deliver_fallback",
+		Metadata:            mustJSON(metadata),
+		RawResponse:         mustJSON(rawResponse),
+	}
+	if err := p.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "job_id"}, {Name: "output_id"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"proposal_id":          gorm.Expr("EXCLUDED.proposal_id"),
+			"provider":             gorm.Expr("EXCLUDED.provider"),
+			"model":                gorm.Expr("EXCLUDED.model"),
+			"endpoint":             gorm.Expr("EXCLUDED.endpoint"),
+			"prompt_version":       gorm.Expr("EXCLUDED.prompt_version"),
+			"final_recommendation": gorm.Expr("EXCLUDED.final_recommendation"),
+			"semantic_verdict":     gorm.Expr("EXCLUDED.semantic_verdict"),
+			"diagnostic_reason":    gorm.Expr("EXCLUDED.diagnostic_reason"),
+			"suggested_action":     gorm.Expr("EXCLUDED.suggested_action"),
+			"metadata":             gorm.Expr("EXCLUDED.metadata"),
+			"raw_response":         gorm.Expr("EXCLUDED.raw_response"),
+			"updated_at":           time.Now(),
+		}),
+	}).Create(&row).Error; err != nil {
+		if isMissingTableError(err, "video_job_gif_ai_reviews") {
+			result["attempted"] = false
+			result["reason"] = "review_table_missing"
+			return result, nil
+		}
+		result["reason"] = "persist_failed"
+		result["error"] = err.Error()
+		return result, err
+	}
+
+	result["applied"] = true
+	result["reason"] = "deliver_promoted"
+	result["deliver_count_after"] = 1
+	result["selected_output_id"] = outputID
+	result["previous_recommendation"] = prevRecommendation
+	return result, nil
 }
 
 type gifAIJudgeHardGateVerdict struct {
@@ -1475,6 +2495,7 @@ func (p *Processor) loadGIFJudgeSamples(jobID uint64) ([]gifJudgeSample, error) 
 		proposalRank := int(toFloatFromAny(outputMeta["proposal_rank"]))
 		samples = append(samples, gifJudgeSample{
 			OutputID:        output.ID,
+			IsPrimary:       output.IsPrimary,
 			Score:           roundTo(output.Score, 4),
 			SizeBytes:       output.SizeBytes,
 			Width:           output.Width,

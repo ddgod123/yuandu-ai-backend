@@ -174,27 +174,27 @@ func (h *Handler) GetAdminVideoJobHealth(c *gin.Context) {
 func (h *Handler) loadAdminVideoJobHealthSnapshot(id uint64) (*adminVideoJobHealthSnapshot, error) {
 	snapshot := &adminVideoJobHealthSnapshot{}
 
-	var publicJob models.VideoImageJobPublic
-	publicErr := h.db.Where("id = ?", id).First(&publicJob).Error
-	if publicErr == nil {
-		snapshot.PublicFound = true
-		snapshot.Job = convertPublicVideoImageJobToLegacy(publicJob)
-	}
-	if publicErr != nil && !errors.Is(publicErr, gorm.ErrRecordNotFound) {
-		return nil, publicErr
-	}
-
 	var legacyJob models.VideoJob
 	legacyErr := h.db.Where("id = ?", id).First(&legacyJob).Error
 	if legacyErr == nil {
 		snapshot.LegacyFound = true
 		snapshot.LegacyJob = &legacyJob
-		if !snapshot.PublicFound {
-			snapshot.Job = legacyJob
-		}
+		snapshot.Job = legacyJob
 	}
 	if legacyErr != nil && !errors.Is(legacyErr, gorm.ErrRecordNotFound) {
 		return nil, legacyErr
+	}
+
+	var publicJob models.VideoImageJobPublic
+	publicErr := h.db.Where("id = ?", id).First(&publicJob).Error
+	if publicErr == nil {
+		snapshot.PublicFound = true
+		if !snapshot.LegacyFound {
+			snapshot.Job = convertPublicVideoImageJobToLegacy(publicJob)
+		}
+	}
+	if publicErr != nil && !errors.Is(publicErr, gorm.ErrRecordNotFound) {
+		return nil, publicErr
 	}
 
 	if !snapshot.PublicFound && !snapshot.LegacyFound {

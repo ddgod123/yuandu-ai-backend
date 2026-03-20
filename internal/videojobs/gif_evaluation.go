@@ -90,6 +90,9 @@ func UpsertGIFEvaluationByPublicOutput(tx *gorm.DB, output models.VideoImageOutp
 		"motion_mean":          roundTo(motion, 4),
 		"candidate_feature":    candidateFeature,
 	}
+	if optimization := mapFromAny(outputMeta["gif_optimization_v1"]); len(optimization) > 0 {
+		featureJSON["gif_optimization_v1"] = optimization
+	}
 
 	outputID := output.ID
 	row := models.VideoJobGIFEvaluation{

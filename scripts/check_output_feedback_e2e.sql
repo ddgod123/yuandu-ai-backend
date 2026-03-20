@@ -1,11 +1,70 @@
--- output_id 级反馈闭环巡检（按变量传参）
--- 用法示例：
+-- output_id 级反馈闭环巡检（支持默认参数）
+-- 传参示例：
 --   psql "$DATABASE_URL" \
 --     -v job_id=26 \
 --     -v user_id=5 \
 --     -v output_id=17 \
 --     -v action='top_pick' \
 --     -f backend/scripts/check_output_feedback_e2e.sql
+--
+-- 不传参时默认行为：
+--   job_id   = 最近一条 done 的 GIF 任务
+--   user_id  = 该任务所属 user_id
+--   output_id= 该任务第一条 GIF 主产物
+--   action   = top_pick
+
+\if :{?action}
+\else
+\set action top_pick
+\endif
+
+\if :{?job_id}
+\else
+SELECT COALESCE((
+  SELECT j.id
+  FROM public.video_image_jobs j
+  WHERE LOWER(COALESCE(NULLIF(TRIM(j.requested_format), ''), 'gif')) = 'gif'
+    AND LOWER(COALESCE(NULLIF(TRIM(j.status), ''), 'unknown')) = 'done'
+  ORDER BY j.id DESC
+  LIMIT 1
+), 0) AS default_job_id
+\gset
+\set job_id :default_job_id
+\endif
+
+\if :{?user_id}
+\else
+SELECT COALESCE((
+  SELECT j.user_id
+  FROM public.video_image_jobs j
+  WHERE j.id = :'job_id'::bigint
+  LIMIT 1
+), 0) AS default_user_id
+\gset
+\set user_id :default_user_id
+\endif
+
+\if :{?output_id}
+\else
+SELECT COALESCE((
+  SELECT o.id
+  FROM public.video_image_outputs o
+  WHERE o.job_id = :'job_id'::bigint
+    AND o.format = 'gif'
+    AND o.file_role = 'main'
+  ORDER BY o.id ASC
+  LIMIT 1
+), 0) AS default_output_id
+\gset
+\set output_id :default_output_id
+\endif
+
+\echo '=== params ==='
+SELECT
+  :'job_id'::bigint AS job_id,
+  :'user_id'::bigint AS user_id,
+  :'output_id'::bigint AS output_id,
+  :'action' AS action;
 
 \echo '=== 1) feedback row (latest) ==='
 SELECT

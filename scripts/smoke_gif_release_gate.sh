@@ -18,6 +18,10 @@ set -euo pipefail
 #   POLL_TIMEOUT_SEC=120           # 取消态确认超时
 #   POLL_INTERVAL_SEC=2
 #   RUN_SQL_CHECKS=1               # 默认：DATABASE_URL 有值时自动开启
+#   RUN_COST_GATE=1                # 默认：RUN_SQL_CHECKS=1 时自动开启
+#   GIF_COST_GATE_WINDOW_HOURS=24
+#   GIF_COST_GATE_MAX_AVG_CNY=1.20
+#   GIF_COST_GATE_MIN_SAMPLES=10
 #   SKIP_DOWNLOAD_VALIDATE=0       # =1 时不下载并校验 zip 文件内容
 #   ALLOW_INSECURE_SSL=1           # =1 时下载 zip 使用 curl -k（开发环境自签名证书）
 
@@ -41,6 +45,10 @@ SKIP_DOWNLOAD_VALIDATE="${SKIP_DOWNLOAD_VALIDATE:-0}"
 ALLOW_INSECURE_SSL="${ALLOW_INSECURE_SSL:-0}"
 DATABASE_URL="${DATABASE_URL:-}"
 RUN_SQL_CHECKS="${RUN_SQL_CHECKS:-}"
+RUN_COST_GATE="${RUN_COST_GATE:-}"
+GIF_COST_GATE_WINDOW_HOURS="${GIF_COST_GATE_WINDOW_HOURS:-24}"
+GIF_COST_GATE_MAX_AVG_CNY="${GIF_COST_GATE_MAX_AVG_CNY:-1.20}"
+GIF_COST_GATE_MIN_SAMPLES="${GIF_COST_GATE_MIN_SAMPLES:-10}"
 
 if [[ -z "${SOURCE_VIDEO_KEY}" ]]; then
   echo "[ERROR] SOURCE_VIDEO_KEY is required"
@@ -52,6 +60,13 @@ if [[ -z "${RUN_SQL_CHECKS}" ]]; then
     RUN_SQL_CHECKS="1"
   else
     RUN_SQL_CHECKS="0"
+  fi
+fi
+if [[ -z "${RUN_COST_GATE}" ]]; then
+  if [[ "${RUN_SQL_CHECKS}" == "1" ]]; then
+    RUN_COST_GATE="1"
+  else
+    RUN_COST_GATE="0"
   fi
 fi
 
@@ -159,6 +174,7 @@ echo "[INFO] API_BASE=${API_BASE}"
 echo "[INFO] SOURCE_VIDEO_KEY=${SOURCE_VIDEO_KEY}"
 echo "[INFO] ENABLE_DELETE_TEST=${ENABLE_DELETE_TEST}"
 echo "[INFO] RUN_SQL_CHECKS=${RUN_SQL_CHECKS}"
+echo "[INFO] RUN_COST_GATE=${RUN_COST_GATE}"
 echo "[INFO] ALLOW_INSECURE_SSL=${ALLOW_INSECURE_SSL}"
 
 # 0) 健康检查
@@ -310,6 +326,17 @@ if [[ "${RUN_SQL_CHECKS}" == "1" ]]; then
       pass "sql check_feedback_integrity"
     else
       fail "sql check_feedback_integrity"
+    fi
+    if [[ "${RUN_COST_GATE}" == "1" ]]; then
+      if "${script_dir}/check_gif_cost_gate.sh" \
+        "${DATABASE_URL}" \
+        "${GIF_COST_GATE_WINDOW_HOURS}" \
+        "${GIF_COST_GATE_MAX_AVG_CNY}" \
+        "${GIF_COST_GATE_MIN_SAMPLES}" >/dev/null; then
+        pass "sql check_gif_cost_gate"
+      else
+        fail "sql check_gif_cost_gate"
+      fi
     fi
     if [[ "${DONE_JOB_ID}" =~ ^[0-9]+$ && "${DONE_JOB_ID}" -gt 0 ]]; then
       if "${script_dir}/check_video_job_package.sh" "${DONE_JOB_ID}" "${DATABASE_URL}" >/dev/null; then

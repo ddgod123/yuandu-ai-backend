@@ -41,6 +41,7 @@ type Config struct {
 	AsynqRedisDB       int
 	WorkerStartCommand string
 	WorkerStartTimeout int
+	GIFSICLEBin        string
 	// Enable legacy feedback_v1 fallback/mirror path.
 	// Default false: strict output_id/candidate_id learning only.
 	EnableLegacyFeedbackFallback bool
@@ -54,6 +55,8 @@ type Config struct {
 	QiniuUseCDN    bool
 	QiniuPrivate   bool
 	QiniuSignTTL   int
+	// Allow degraded create path when source preflight probe fails (dev/staging helper).
+	VideoSourceProbeAllowDegraded bool
 
 	AliyunAccessKeyId                     string
 	AliyunAccessKeySecret                 string
@@ -208,6 +211,7 @@ func Load() Config {
 	cfg.AsynqRedisDB = getEnvAsInt("ASYNQ_REDIS_DB", cfg.RedisDB)
 	cfg.WorkerStartCommand = getEnv("WORKER_START_COMMAND", "")
 	cfg.WorkerStartTimeout = getEnvAsInt("WORKER_START_TIMEOUT_SECONDS", 20)
+	cfg.GIFSICLEBin = getEnv("GIFSICLE_BIN", "")
 	cfg.EnableLegacyFeedbackFallback = getEnvAsBool("ENABLE_LEGACY_FEEDBACK_FALLBACK", false)
 
 	cfg.QiniuAccessKey = getEnv("QINIU_ACCESS_KEY", "")
@@ -219,6 +223,7 @@ func Load() Config {
 	cfg.QiniuUseCDN = getEnvAsBool("QINIU_USE_CDN", false)
 	cfg.QiniuPrivate = getEnvAsBool("QINIU_PRIVATE", false)
 	cfg.QiniuSignTTL = getEnvAsInt("QINIU_SIGN_TTL", 3600)
+	cfg.VideoSourceProbeAllowDegraded = getEnvAsBool("VIDEO_SOURCE_PROBE_ALLOW_DEGRADED", strings.ToLower(strings.TrimSpace(cfg.Env)) != "prod")
 
 	cfg.AliyunAccessKeyId = getEnv("ALIYUN_ACCESS_KEY_ID", "")
 	cfg.AliyunAccessKeySecret = getEnv("ALIYUN_ACCESS_KEY_SECRET", "")

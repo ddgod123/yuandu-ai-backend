@@ -42,14 +42,113 @@ type VideoQualitySettingRequest struct {
 	GIFDefaultMaxColors                  int     `json:"gif_default_max_colors"`
 	GIFDitherMode                        string  `json:"gif_dither_mode"`
 	GIFTargetSizeKB                      int     `json:"gif_target_size_kb"`
+	GIFGifsicleEnabled                   bool    `json:"gif_gifsicle_enabled"`
+	GIFGifsicleLevel                     int     `json:"gif_gifsicle_level"`
+	GIFGifsicleSkipBelowKB               int     `json:"gif_gifsicle_skip_below_kb"`
+	GIFGifsicleMinGainRatio              float64 `json:"gif_gifsicle_min_gain_ratio"`
 	GIFLoopTuneEnabled                   bool    `json:"gif_loop_tune_enabled"`
 	GIFLoopTuneMinEnableSec              float64 `json:"gif_loop_tune_min_enable_sec"`
 	GIFLoopTuneMinImprovement            float64 `json:"gif_loop_tune_min_improvement"`
 	GIFLoopTuneMotionTarget              float64 `json:"gif_loop_tune_motion_target"`
 	GIFLoopTunePreferDuration            float64 `json:"gif_loop_tune_prefer_duration_sec"`
 	GIFCandidateMaxOutputs               int     `json:"gif_candidate_max_outputs"`
+	GIFCandidateLongVideoMaxOutputs      int     `json:"gif_candidate_long_video_max_outputs"`
+	GIFCandidateUltraVideoMaxOutputs     int     `json:"gif_candidate_ultra_video_max_outputs"`
 	GIFCandidateConfidenceThreshold      float64 `json:"gif_candidate_confidence_threshold"`
 	GIFCandidateDedupIOUThreshold        float64 `json:"gif_candidate_dedup_iou_threshold"`
+	GIFRenderBudgetNormalMultiplier      float64 `json:"gif_render_budget_normal_mult"`
+	GIFRenderBudgetLongMultiplier        float64 `json:"gif_render_budget_long_mult"`
+	GIFRenderBudgetUltraMultiplier       float64 `json:"gif_render_budget_ultra_mult"`
+	GIFPipelineShortVideoMaxSec          float64 `json:"gif_pipeline_short_video_max_sec"`
+	GIFPipelineLongVideoMinSec           float64 `json:"gif_pipeline_long_video_min_sec"`
+	GIFPipelineShortVideoMode            string  `json:"gif_pipeline_short_video_mode"`
+	GIFPipelineDefaultMode               string  `json:"gif_pipeline_default_mode"`
+	GIFPipelineLongVideoMode             string  `json:"gif_pipeline_long_video_mode"`
+	GIFPipelineHighPriorityEnabled       bool    `json:"gif_pipeline_high_priority_enabled"`
+	GIFPipelineHighPriorityMode          string  `json:"gif_pipeline_high_priority_mode"`
+	GIFDurationTierMediumSec             float64 `json:"gif_duration_tier_medium_sec"`
+	GIFDurationTierLongSec               float64 `json:"gif_duration_tier_long_sec"`
+	GIFDurationTierUltraSec              float64 `json:"gif_duration_tier_ultra_sec"`
+	GIFSegmentTimeoutMinSec              int     `json:"gif_segment_timeout_min_sec"`
+	GIFSegmentTimeoutMaxSec              int     `json:"gif_segment_timeout_max_sec"`
+	GIFSegmentTimeoutFallbackCapSec      int     `json:"gif_segment_timeout_fallback_cap_sec"`
+	GIFSegmentTimeoutEmergencyCapSec     int     `json:"gif_segment_timeout_emergency_cap_sec"`
+	GIFSegmentTimeoutLastResortCapSec    int     `json:"gif_segment_timeout_last_resort_cap_sec"`
+	GIFRenderRetryMaxAttempts            int     `json:"gif_render_retry_max_attempts"`
+	GIFRenderRetryPrimaryColorsFloor     int     `json:"gif_render_retry_primary_colors_floor"`
+	GIFRenderRetryPrimaryColorsStep      int     `json:"gif_render_retry_primary_colors_step"`
+	GIFRenderRetryFPSFloor               int     `json:"gif_render_retry_fps_floor"`
+	GIFRenderRetryFPSStep                int     `json:"gif_render_retry_fps_step"`
+	GIFRenderRetryWidthTrigger           int     `json:"gif_render_retry_width_trigger"`
+	GIFRenderRetryWidthScale             float64 `json:"gif_render_retry_width_scale"`
+	GIFRenderRetryWidthFloor             int     `json:"gif_render_retry_width_floor"`
+	GIFRenderRetrySecondaryColorsFloor   int     `json:"gif_render_retry_secondary_colors_floor"`
+	GIFRenderRetrySecondaryColorsStep    int     `json:"gif_render_retry_secondary_colors_step"`
+	GIFRenderInitialSizeFPSCap           int     `json:"gif_render_initial_size_fps_cap"`
+	GIFRenderInitialClarityFPSFloor      int     `json:"gif_render_initial_clarity_fps_floor"`
+	GIFRenderInitialSizeColorsCap        int     `json:"gif_render_initial_size_colors_cap"`
+	GIFRenderInitialClarityColorsFloor   int     `json:"gif_render_initial_clarity_colors_floor"`
+	GIFMotionLowScoreThreshold           float64 `json:"gif_motion_low_score_threshold"`
+	GIFMotionHighScoreThreshold          float64 `json:"gif_motion_high_score_threshold"`
+	GIFMotionLowFPSDelta                 int     `json:"gif_motion_low_fps_delta"`
+	GIFMotionHighFPSDelta                int     `json:"gif_motion_high_fps_delta"`
+	GIFAdaptiveFPSMin                    int     `json:"gif_adaptive_fps_min"`
+	GIFAdaptiveFPSMax                    int     `json:"gif_adaptive_fps_max"`
+	GIFWidthSizeLow                      int     `json:"gif_width_size_low"`
+	GIFWidthSizeMedium                   int     `json:"gif_width_size_medium"`
+	GIFWidthSizeHigh                     int     `json:"gif_width_size_high"`
+	GIFWidthClarityLow                   int     `json:"gif_width_clarity_low"`
+	GIFWidthClarityMedium                int     `json:"gif_width_clarity_medium"`
+	GIFWidthClarityHigh                  int     `json:"gif_width_clarity_high"`
+	GIFColorsSizeLow                     int     `json:"gif_colors_size_low"`
+	GIFColorsSizeMedium                  int     `json:"gif_colors_size_medium"`
+	GIFColorsSizeHigh                    int     `json:"gif_colors_size_high"`
+	GIFColorsClarityLow                  int     `json:"gif_colors_clarity_low"`
+	GIFColorsClarityMedium               int     `json:"gif_colors_clarity_medium"`
+	GIFColorsClarityHigh                 int     `json:"gif_colors_clarity_high"`
+	GIFDurationLowSec                    float64 `json:"gif_duration_low_sec"`
+	GIFDurationMediumSec                 float64 `json:"gif_duration_medium_sec"`
+	GIFDurationHighSec                   float64 `json:"gif_duration_high_sec"`
+	GIFDurationSizeProfileMaxSec         float64 `json:"gif_duration_size_profile_max_sec"`
+	GIFDownshiftHighResLongSideThreshold int     `json:"gif_downshift_high_res_long_side_threshold"`
+	GIFDownshiftEarlyDurationSec         float64 `json:"gif_downshift_early_duration_sec"`
+	GIFDownshiftEarlyLongSideThreshold   int     `json:"gif_downshift_early_long_side_threshold"`
+	GIFDownshiftMediumFPSCap             int     `json:"gif_downshift_medium_fps_cap"`
+	GIFDownshiftMediumWidthCap           int     `json:"gif_downshift_medium_width_cap"`
+	GIFDownshiftMediumColorsCap          int     `json:"gif_downshift_medium_colors_cap"`
+	GIFDownshiftMediumDurationCapSec     float64 `json:"gif_downshift_medium_duration_cap_sec"`
+	GIFDownshiftLongFPSCap               int     `json:"gif_downshift_long_fps_cap"`
+	GIFDownshiftLongWidthCap             int     `json:"gif_downshift_long_width_cap"`
+	GIFDownshiftLongColorsCap            int     `json:"gif_downshift_long_colors_cap"`
+	GIFDownshiftLongDurationCapSec       float64 `json:"gif_downshift_long_duration_cap_sec"`
+	GIFDownshiftUltraFPSCap              int     `json:"gif_downshift_ultra_fps_cap"`
+	GIFDownshiftUltraWidthCap            int     `json:"gif_downshift_ultra_width_cap"`
+	GIFDownshiftUltraColorsCap           int     `json:"gif_downshift_ultra_colors_cap"`
+	GIFDownshiftUltraDurationCapSec      float64 `json:"gif_downshift_ultra_duration_cap_sec"`
+	GIFDownshiftHighResFPSCap            int     `json:"gif_downshift_high_res_fps_cap"`
+	GIFDownshiftHighResWidthCap          int     `json:"gif_downshift_high_res_width_cap"`
+	GIFDownshiftHighResColorsCap         int     `json:"gif_downshift_high_res_colors_cap"`
+	GIFDownshiftHighResDurationCapSec    float64 `json:"gif_downshift_high_res_duration_cap_sec"`
+	GIFTimeoutFallbackFPSCap             int     `json:"gif_timeout_fallback_fps_cap"`
+	GIFTimeoutFallbackWidthCap           int     `json:"gif_timeout_fallback_width_cap"`
+	GIFTimeoutFallbackColorsCap          int     `json:"gif_timeout_fallback_colors_cap"`
+	GIFTimeoutFallbackMinWidth           int     `json:"gif_timeout_fallback_min_width"`
+	GIFTimeoutFallbackUltraFPSCap        int     `json:"gif_timeout_fallback_ultra_fps_cap"`
+	GIFTimeoutFallbackUltraWidthCap      int     `json:"gif_timeout_fallback_ultra_width_cap"`
+	GIFTimeoutFallbackUltraColorsCap     int     `json:"gif_timeout_fallback_ultra_colors_cap"`
+	GIFTimeoutEmergencyFPSCap            int     `json:"gif_timeout_emergency_fps_cap"`
+	GIFTimeoutEmergencyWidthCap          int     `json:"gif_timeout_emergency_width_cap"`
+	GIFTimeoutEmergencyColorsCap         int     `json:"gif_timeout_emergency_colors_cap"`
+	GIFTimeoutEmergencyMinWidth          int     `json:"gif_timeout_emergency_min_width"`
+	GIFTimeoutEmergencyDurationTrigger   float64 `json:"gif_timeout_emergency_duration_trigger_sec"`
+	GIFTimeoutEmergencyDurationScale     float64 `json:"gif_timeout_emergency_duration_scale"`
+	GIFTimeoutEmergencyDurationMinSec    float64 `json:"gif_timeout_emergency_duration_min_sec"`
+	GIFTimeoutLastResortFPSCap           int     `json:"gif_timeout_last_resort_fps_cap"`
+	GIFTimeoutLastResortWidthCap         int     `json:"gif_timeout_last_resort_width_cap"`
+	GIFTimeoutLastResortColorsCap        int     `json:"gif_timeout_last_resort_colors_cap"`
+	GIFTimeoutLastResortMinWidth         int     `json:"gif_timeout_last_resort_min_width"`
+	GIFTimeoutLastResortDurationMinSec   float64 `json:"gif_timeout_last_resort_duration_min_sec"`
+	GIFTimeoutLastResortDurationMaxSec   float64 `json:"gif_timeout_last_resort_duration_max_sec"`
 	WebPTargetSizeKB                     int     `json:"webp_target_size_kb"`
 	JPGTargetSizeKB                      int     `json:"jpg_target_size_kb"`
 	PNGTargetSizeKB                      int     `json:"png_target_size_kb"`
@@ -74,6 +173,7 @@ type VideoQualitySettingRequest struct {
 	HighlightNegativeGuardMinWeight      float64 `json:"highlight_feedback_negative_guard_min_weight"`
 	HighlightNegativePenaltyScale        float64 `json:"highlight_feedback_negative_guard_penalty_scale"`
 	HighlightNegativePenaltyWeight       float64 `json:"highlight_feedback_negative_guard_penalty_weight"`
+	AIDirectorInputMode                  string  `json:"ai_director_input_mode"`
 	AIDirectorOperatorInstruction        string  `json:"ai_director_operator_instruction"`
 	AIDirectorOperatorInstructionVersion string  `json:"ai_director_operator_instruction_version"`
 	AIDirectorOperatorEnabled            bool    `json:"ai_director_operator_enabled"`
@@ -171,14 +271,305 @@ func validateVideoQualitySettingRequest(req VideoQualitySettingRequest) error {
 	if req.GIFTargetSizeKB < 64 || req.WebPTargetSizeKB < 64 || req.JPGTargetSizeKB < 32 || req.PNGTargetSizeKB < 32 {
 		return errors.New("invalid target size kb: expected gif/webp>=64 and jpg/png>=32")
 	}
+	if req.GIFGifsicleLevel < 1 || req.GIFGifsicleLevel > 3 {
+		return errors.New("invalid gif_gifsicle_level: expected 1..3")
+	}
+	if req.GIFGifsicleSkipBelowKB < 0 || req.GIFGifsicleSkipBelowKB > 4096 {
+		return errors.New("invalid gif_gifsicle_skip_below_kb: expected 0..4096")
+	}
+	if req.GIFGifsicleMinGainRatio < 0 || req.GIFGifsicleMinGainRatio > 0.5 {
+		return errors.New("invalid gif_gifsicle_min_gain_ratio: expected 0..0.5")
+	}
 	if req.GIFCandidateMaxOutputs < 1 || req.GIFCandidateMaxOutputs > 6 {
 		return errors.New("invalid gif_candidate_max_outputs: expected 1..6")
+	}
+	if req.GIFCandidateLongVideoMaxOutputs < 1 || req.GIFCandidateLongVideoMaxOutputs > 6 {
+		return errors.New("invalid gif_candidate_long_video_max_outputs: expected 1..6")
+	}
+	if req.GIFCandidateUltraVideoMaxOutputs < 1 || req.GIFCandidateUltraVideoMaxOutputs > 6 {
+		return errors.New("invalid gif_candidate_ultra_video_max_outputs: expected 1..6")
+	}
+	if req.GIFCandidateLongVideoMaxOutputs > req.GIFCandidateMaxOutputs {
+		return errors.New("invalid gif candidate cap: long_video_max_outputs must be <= gif_candidate_max_outputs")
+	}
+	if req.GIFCandidateUltraVideoMaxOutputs > req.GIFCandidateLongVideoMaxOutputs {
+		return errors.New("invalid gif candidate cap: ultra_video_max_outputs must be <= long_video_max_outputs")
 	}
 	if req.GIFCandidateConfidenceThreshold < 0 || req.GIFCandidateConfidenceThreshold > 0.95 {
 		return errors.New("invalid gif_candidate_confidence_threshold: expected 0..0.95")
 	}
 	if req.GIFCandidateDedupIOUThreshold <= 0 || req.GIFCandidateDedupIOUThreshold >= 1 {
 		return errors.New("invalid gif_candidate_dedup_iou_threshold: expected (0,1)")
+	}
+	if req.GIFRenderBudgetNormalMultiplier < 1 || req.GIFRenderBudgetNormalMultiplier > 4 {
+		return errors.New("invalid gif_render_budget_normal_mult: expected 1..4")
+	}
+	if req.GIFRenderBudgetLongMultiplier < 0.8 || req.GIFRenderBudgetLongMultiplier > req.GIFRenderBudgetNormalMultiplier {
+		return errors.New("invalid gif_render_budget_long_mult: expected 0.8..normal_mult")
+	}
+	if req.GIFRenderBudgetUltraMultiplier < 0.5 || req.GIFRenderBudgetUltraMultiplier > req.GIFRenderBudgetLongMultiplier {
+		return errors.New("invalid gif_render_budget_ultra_mult: expected 0.5..long_mult")
+	}
+	if req.GIFPipelineShortVideoMaxSec < 3 || req.GIFPipelineShortVideoMaxSec > 300 {
+		return errors.New("invalid gif_pipeline_short_video_max_sec: expected 3..300")
+	}
+	if req.GIFPipelineLongVideoMinSec <= req.GIFPipelineShortVideoMaxSec || req.GIFPipelineLongVideoMinSec > 3600 {
+		return errors.New("invalid gif_pipeline_long_video_min_sec: expected > short_video_max_sec and <= 3600")
+	}
+	if !isValidGIFPipelineMode(req.GIFPipelineShortVideoMode) ||
+		!isValidGIFPipelineMode(req.GIFPipelineDefaultMode) ||
+		!isValidGIFPipelineMode(req.GIFPipelineLongVideoMode) ||
+		!isValidGIFPipelineMode(req.GIFPipelineHighPriorityMode) {
+		return errors.New("invalid gif pipeline mode: expected one of light|standard|hq")
+	}
+	if req.GIFDurationTierMediumSec < 10 || req.GIFDurationTierMediumSec > 600 {
+		return errors.New("invalid gif_duration_tier_medium_sec: expected 10..600")
+	}
+	if req.GIFDurationTierLongSec <= req.GIFDurationTierMediumSec || req.GIFDurationTierLongSec > 1800 {
+		return errors.New("invalid gif_duration_tier_long_sec: expected > medium and <= 1800")
+	}
+	if req.GIFDurationTierUltraSec <= req.GIFDurationTierLongSec || req.GIFDurationTierUltraSec > 7200 {
+		return errors.New("invalid gif_duration_tier_ultra_sec: expected > long and <= 7200")
+	}
+	if req.GIFSegmentTimeoutMinSec < 10 || req.GIFSegmentTimeoutMinSec > 300 {
+		return errors.New("invalid gif_segment_timeout_min_sec: expected 10..300")
+	}
+	if req.GIFSegmentTimeoutMaxSec < req.GIFSegmentTimeoutMinSec || req.GIFSegmentTimeoutMaxSec > 600 {
+		return errors.New("invalid gif_segment_timeout_max_sec: expected >= min and <= 600")
+	}
+	if req.GIFSegmentTimeoutFallbackCapSec < req.GIFSegmentTimeoutMinSec || req.GIFSegmentTimeoutFallbackCapSec > req.GIFSegmentTimeoutMaxSec {
+		return errors.New("invalid gif_segment_timeout_fallback_cap_sec: expected in [min,max]")
+	}
+	if req.GIFSegmentTimeoutEmergencyCapSec < req.GIFSegmentTimeoutMinSec || req.GIFSegmentTimeoutEmergencyCapSec > req.GIFSegmentTimeoutFallbackCapSec {
+		return errors.New("invalid gif_segment_timeout_emergency_cap_sec: expected in [min,fallback_cap]")
+	}
+	if req.GIFSegmentTimeoutLastResortCapSec < req.GIFSegmentTimeoutMinSec || req.GIFSegmentTimeoutLastResortCapSec > req.GIFSegmentTimeoutEmergencyCapSec {
+		return errors.New("invalid gif_segment_timeout_last_resort_cap_sec: expected in [min,emergency_cap]")
+	}
+	if req.GIFRenderRetryMaxAttempts < 1 || req.GIFRenderRetryMaxAttempts > 12 {
+		return errors.New("invalid gif_render_retry_max_attempts: expected 1..12")
+	}
+	if req.GIFRenderRetryPrimaryColorsFloor < 16 || req.GIFRenderRetryPrimaryColorsFloor > 256 {
+		return errors.New("invalid gif_render_retry_primary_colors_floor: expected 16..256")
+	}
+	if req.GIFRenderRetryPrimaryColorsStep < 1 || req.GIFRenderRetryPrimaryColorsStep > 128 {
+		return errors.New("invalid gif_render_retry_primary_colors_step: expected 1..128")
+	}
+	if req.GIFRenderRetryFPSFloor < 2 || req.GIFRenderRetryFPSFloor > 30 {
+		return errors.New("invalid gif_render_retry_fps_floor: expected 2..30")
+	}
+	if req.GIFRenderRetryFPSStep < 1 || req.GIFRenderRetryFPSStep > 12 {
+		return errors.New("invalid gif_render_retry_fps_step: expected 1..12")
+	}
+	if req.GIFRenderRetryWidthTrigger < 240 || req.GIFRenderRetryWidthTrigger > 2048 {
+		return errors.New("invalid gif_render_retry_width_trigger: expected 240..2048")
+	}
+	if req.GIFRenderRetryWidthScale < 0.5 || req.GIFRenderRetryWidthScale > 0.98 {
+		return errors.New("invalid gif_render_retry_width_scale: expected 0.5..0.98")
+	}
+	if req.GIFRenderRetryWidthFloor < 240 || req.GIFRenderRetryWidthFloor > req.GIFRenderRetryWidthTrigger {
+		return errors.New("invalid gif_render_retry_width_floor: expected 240..width_trigger")
+	}
+	if req.GIFRenderRetrySecondaryColorsFloor < 16 || req.GIFRenderRetrySecondaryColorsFloor > req.GIFRenderRetryPrimaryColorsFloor {
+		return errors.New("invalid gif_render_retry_secondary_colors_floor: expected 16..primary_colors_floor")
+	}
+	if req.GIFRenderRetrySecondaryColorsStep < 1 || req.GIFRenderRetrySecondaryColorsStep > 128 {
+		return errors.New("invalid gif_render_retry_secondary_colors_step: expected 1..128")
+	}
+	if req.GIFRenderInitialSizeFPSCap < 2 || req.GIFRenderInitialSizeFPSCap > 30 {
+		return errors.New("invalid gif_render_initial_size_fps_cap: expected 2..30")
+	}
+	if req.GIFRenderInitialClarityFPSFloor < req.GIFRenderInitialSizeFPSCap || req.GIFRenderInitialClarityFPSFloor > 30 {
+		return errors.New("invalid gif_render_initial_clarity_fps_floor: expected >= size_fps_cap and <= 30")
+	}
+	if req.GIFRenderInitialSizeColorsCap < 16 || req.GIFRenderInitialSizeColorsCap > 256 {
+		return errors.New("invalid gif_render_initial_size_colors_cap: expected 16..256")
+	}
+	if req.GIFRenderInitialClarityColorsFloor < req.GIFRenderInitialSizeColorsCap || req.GIFRenderInitialClarityColorsFloor > 256 {
+		return errors.New("invalid gif_render_initial_clarity_colors_floor: expected >= size_colors_cap and <= 256")
+	}
+	if req.GIFMotionLowScoreThreshold < 0 || req.GIFMotionLowScoreThreshold > 0.95 {
+		return errors.New("invalid gif_motion_low_score_threshold: expected 0..0.95")
+	}
+	if req.GIFMotionHighScoreThreshold <= req.GIFMotionLowScoreThreshold || req.GIFMotionHighScoreThreshold > 1 {
+		return errors.New("invalid gif_motion_high_score_threshold: expected > low_score_threshold and <= 1")
+	}
+	if req.GIFMotionLowFPSDelta < -12 || req.GIFMotionLowFPSDelta > 0 {
+		return errors.New("invalid gif_motion_low_fps_delta: expected -12..0")
+	}
+	if req.GIFMotionHighFPSDelta < 0 || req.GIFMotionHighFPSDelta > 12 {
+		return errors.New("invalid gif_motion_high_fps_delta: expected 0..12")
+	}
+	if req.GIFAdaptiveFPSMin < 2 || req.GIFAdaptiveFPSMin > 30 {
+		return errors.New("invalid gif_adaptive_fps_min: expected 2..30")
+	}
+	if req.GIFAdaptiveFPSMax < req.GIFAdaptiveFPSMin || req.GIFAdaptiveFPSMax > 60 {
+		return errors.New("invalid gif_adaptive_fps_max: expected >= min and <= 60")
+	}
+	if req.GIFWidthSizeLow < 320 || req.GIFWidthSizeLow > 1920 {
+		return errors.New("invalid gif_width_size_low: expected 320..1920")
+	}
+	if req.GIFWidthSizeMedium < req.GIFWidthSizeLow || req.GIFWidthSizeMedium > 1920 {
+		return errors.New("invalid gif_width_size_medium: expected >= width_size_low and <= 1920")
+	}
+	if req.GIFWidthSizeHigh < req.GIFWidthSizeMedium || req.GIFWidthSizeHigh > 1920 {
+		return errors.New("invalid gif_width_size_high: expected >= width_size_medium and <= 1920")
+	}
+	if req.GIFWidthClarityLow < 320 || req.GIFWidthClarityLow > 1920 {
+		return errors.New("invalid gif_width_clarity_low: expected 320..1920")
+	}
+	if req.GIFWidthClarityMedium < req.GIFWidthClarityLow || req.GIFWidthClarityMedium > 1920 {
+		return errors.New("invalid gif_width_clarity_medium: expected >= width_clarity_low and <= 1920")
+	}
+	if req.GIFWidthClarityHigh < req.GIFWidthClarityMedium || req.GIFWidthClarityHigh > 1920 {
+		return errors.New("invalid gif_width_clarity_high: expected >= width_clarity_medium and <= 1920")
+	}
+	if req.GIFColorsSizeLow < 16 || req.GIFColorsSizeLow > 256 {
+		return errors.New("invalid gif_colors_size_low: expected 16..256")
+	}
+	if req.GIFColorsSizeMedium < req.GIFColorsSizeLow || req.GIFColorsSizeMedium > 256 {
+		return errors.New("invalid gif_colors_size_medium: expected >= colors_size_low and <= 256")
+	}
+	if req.GIFColorsSizeHigh < req.GIFColorsSizeMedium || req.GIFColorsSizeHigh > 256 {
+		return errors.New("invalid gif_colors_size_high: expected >= colors_size_medium and <= 256")
+	}
+	if req.GIFColorsClarityLow < 16 || req.GIFColorsClarityLow > 256 {
+		return errors.New("invalid gif_colors_clarity_low: expected 16..256")
+	}
+	if req.GIFColorsClarityMedium < req.GIFColorsClarityLow || req.GIFColorsClarityMedium > 256 {
+		return errors.New("invalid gif_colors_clarity_medium: expected >= colors_clarity_low and <= 256")
+	}
+	if req.GIFColorsClarityHigh < req.GIFColorsClarityMedium || req.GIFColorsClarityHigh > 256 {
+		return errors.New("invalid gif_colors_clarity_high: expected >= colors_clarity_medium and <= 256")
+	}
+	if req.GIFDurationLowSec < 0.8 || req.GIFDurationLowSec > 6.0 {
+		return errors.New("invalid gif_duration_low_sec: expected 0.8..6.0")
+	}
+	if req.GIFDurationMediumSec < req.GIFDurationLowSec || req.GIFDurationMediumSec > 6.0 {
+		return errors.New("invalid gif_duration_medium_sec: expected >= duration_low_sec and <= 6.0")
+	}
+	if req.GIFDurationHighSec < req.GIFDurationMediumSec || req.GIFDurationHighSec > 6.0 {
+		return errors.New("invalid gif_duration_high_sec: expected >= duration_medium_sec and <= 6.0")
+	}
+	if req.GIFDurationSizeProfileMaxSec < req.GIFDurationLowSec || req.GIFDurationSizeProfileMaxSec > req.GIFDurationHighSec {
+		return errors.New("invalid gif_duration_size_profile_max_sec: expected in [duration_low_sec,duration_high_sec]")
+	}
+	if req.GIFDownshiftHighResLongSideThreshold < 720 || req.GIFDownshiftHighResLongSideThreshold > 4096 {
+		return errors.New("invalid gif_downshift_high_res_long_side_threshold: expected 720..4096")
+	}
+	if req.GIFDownshiftEarlyDurationSec < 10 || req.GIFDownshiftEarlyDurationSec > 300 {
+		return errors.New("invalid gif_downshift_early_duration_sec: expected 10..300")
+	}
+	if req.GIFDownshiftEarlyLongSideThreshold < req.GIFDownshiftHighResLongSideThreshold || req.GIFDownshiftEarlyLongSideThreshold > 4096 {
+		return errors.New("invalid gif_downshift_early_long_side_threshold: expected >= high_res_long_side_threshold and <= 4096")
+	}
+	if req.GIFDownshiftMediumFPSCap < 4 || req.GIFDownshiftMediumFPSCap > 30 {
+		return errors.New("invalid gif_downshift_medium_fps_cap: expected 4..30")
+	}
+	if req.GIFDownshiftMediumWidthCap < 320 || req.GIFDownshiftMediumWidthCap > 1920 {
+		return errors.New("invalid gif_downshift_medium_width_cap: expected 320..1920")
+	}
+	if req.GIFDownshiftMediumColorsCap < 16 || req.GIFDownshiftMediumColorsCap > 256 {
+		return errors.New("invalid gif_downshift_medium_colors_cap: expected 16..256")
+	}
+	if req.GIFDownshiftMediumDurationCapSec < 1.0 || req.GIFDownshiftMediumDurationCapSec > 6.0 {
+		return errors.New("invalid gif_downshift_medium_duration_cap_sec: expected 1.0..6.0")
+	}
+	if req.GIFDownshiftLongFPSCap < 4 || req.GIFDownshiftLongFPSCap > req.GIFDownshiftMediumFPSCap {
+		return errors.New("invalid gif_downshift_long_fps_cap: expected 4..medium_fps_cap")
+	}
+	if req.GIFDownshiftLongWidthCap < 320 || req.GIFDownshiftLongWidthCap > req.GIFDownshiftMediumWidthCap {
+		return errors.New("invalid gif_downshift_long_width_cap: expected 320..medium_width_cap")
+	}
+	if req.GIFDownshiftLongColorsCap < 16 || req.GIFDownshiftLongColorsCap > req.GIFDownshiftMediumColorsCap {
+		return errors.New("invalid gif_downshift_long_colors_cap: expected 16..medium_colors_cap")
+	}
+	if req.GIFDownshiftLongDurationCapSec < 0.8 || req.GIFDownshiftLongDurationCapSec > req.GIFDownshiftMediumDurationCapSec {
+		return errors.New("invalid gif_downshift_long_duration_cap_sec: expected 0.8..medium_duration_cap_sec")
+	}
+	if req.GIFDownshiftUltraFPSCap < 4 || req.GIFDownshiftUltraFPSCap > req.GIFDownshiftLongFPSCap {
+		return errors.New("invalid gif_downshift_ultra_fps_cap: expected 4..long_fps_cap")
+	}
+	if req.GIFDownshiftUltraWidthCap < 320 || req.GIFDownshiftUltraWidthCap > req.GIFDownshiftLongWidthCap {
+		return errors.New("invalid gif_downshift_ultra_width_cap: expected 320..long_width_cap")
+	}
+	if req.GIFDownshiftUltraColorsCap < 16 || req.GIFDownshiftUltraColorsCap > req.GIFDownshiftLongColorsCap {
+		return errors.New("invalid gif_downshift_ultra_colors_cap: expected 16..long_colors_cap")
+	}
+	if req.GIFDownshiftUltraDurationCapSec < 0.8 || req.GIFDownshiftUltraDurationCapSec > req.GIFDownshiftLongDurationCapSec {
+		return errors.New("invalid gif_downshift_ultra_duration_cap_sec: expected 0.8..long_duration_cap_sec")
+	}
+	if req.GIFDownshiftHighResFPSCap < 4 || req.GIFDownshiftHighResFPSCap > req.GIFDownshiftMediumFPSCap {
+		return errors.New("invalid gif_downshift_high_res_fps_cap: expected 4..medium_fps_cap")
+	}
+	if req.GIFDownshiftHighResWidthCap < 320 || req.GIFDownshiftHighResWidthCap > req.GIFDownshiftMediumWidthCap {
+		return errors.New("invalid gif_downshift_high_res_width_cap: expected 320..medium_width_cap")
+	}
+	if req.GIFDownshiftHighResColorsCap < 16 || req.GIFDownshiftHighResColorsCap > req.GIFDownshiftMediumColorsCap {
+		return errors.New("invalid gif_downshift_high_res_colors_cap: expected 16..medium_colors_cap")
+	}
+	if req.GIFDownshiftHighResDurationCapSec < 0.8 || req.GIFDownshiftHighResDurationCapSec > req.GIFDownshiftMediumDurationCapSec {
+		return errors.New("invalid gif_downshift_high_res_duration_cap_sec: expected 0.8..medium_duration_cap_sec")
+	}
+	if req.GIFTimeoutFallbackFPSCap < 4 || req.GIFTimeoutFallbackFPSCap > 30 {
+		return errors.New("invalid gif_timeout_fallback_fps_cap: expected 4..30")
+	}
+	if req.GIFTimeoutFallbackWidthCap < 320 || req.GIFTimeoutFallbackWidthCap > 1920 {
+		return errors.New("invalid gif_timeout_fallback_width_cap: expected 320..1920")
+	}
+	if req.GIFTimeoutFallbackColorsCap < 16 || req.GIFTimeoutFallbackColorsCap > 256 {
+		return errors.New("invalid gif_timeout_fallback_colors_cap: expected 16..256")
+	}
+	if req.GIFTimeoutFallbackMinWidth < 240 || req.GIFTimeoutFallbackMinWidth > req.GIFTimeoutFallbackWidthCap {
+		return errors.New("invalid gif_timeout_fallback_min_width: expected 240..fallback_width_cap")
+	}
+	if req.GIFTimeoutFallbackUltraFPSCap < 4 || req.GIFTimeoutFallbackUltraFPSCap > req.GIFTimeoutFallbackFPSCap {
+		return errors.New("invalid gif_timeout_fallback_ultra_fps_cap: expected 4..fallback_fps_cap")
+	}
+	if req.GIFTimeoutFallbackUltraWidthCap < req.GIFTimeoutFallbackMinWidth || req.GIFTimeoutFallbackUltraWidthCap > req.GIFTimeoutFallbackWidthCap {
+		return errors.New("invalid gif_timeout_fallback_ultra_width_cap: expected [fallback_min_width,fallback_width_cap]")
+	}
+	if req.GIFTimeoutFallbackUltraColorsCap < 16 || req.GIFTimeoutFallbackUltraColorsCap > req.GIFTimeoutFallbackColorsCap {
+		return errors.New("invalid gif_timeout_fallback_ultra_colors_cap: expected 16..fallback_colors_cap")
+	}
+	if req.GIFTimeoutEmergencyFPSCap < 4 || req.GIFTimeoutEmergencyFPSCap > req.GIFTimeoutFallbackFPSCap {
+		return errors.New("invalid gif_timeout_emergency_fps_cap: expected 4..fallback_fps_cap")
+	}
+	if req.GIFTimeoutEmergencyWidthCap < 240 || req.GIFTimeoutEmergencyWidthCap > req.GIFTimeoutFallbackWidthCap {
+		return errors.New("invalid gif_timeout_emergency_width_cap: expected 240..fallback_width_cap")
+	}
+	if req.GIFTimeoutEmergencyColorsCap < 16 || req.GIFTimeoutEmergencyColorsCap > req.GIFTimeoutFallbackColorsCap {
+		return errors.New("invalid gif_timeout_emergency_colors_cap: expected 16..fallback_colors_cap")
+	}
+	if req.GIFTimeoutEmergencyMinWidth < 240 || req.GIFTimeoutEmergencyMinWidth > req.GIFTimeoutEmergencyWidthCap {
+		return errors.New("invalid gif_timeout_emergency_min_width: expected 240..emergency_width_cap")
+	}
+	if req.GIFTimeoutEmergencyDurationTrigger < 1.0 || req.GIFTimeoutEmergencyDurationTrigger > 6.0 {
+		return errors.New("invalid gif_timeout_emergency_duration_trigger_sec: expected 1.0..6.0")
+	}
+	if req.GIFTimeoutEmergencyDurationScale < 0.5 || req.GIFTimeoutEmergencyDurationScale > 1.0 {
+		return errors.New("invalid gif_timeout_emergency_duration_scale: expected 0.5..1.0")
+	}
+	if req.GIFTimeoutEmergencyDurationMinSec < 0.8 || req.GIFTimeoutEmergencyDurationMinSec > 4.0 {
+		return errors.New("invalid gif_timeout_emergency_duration_min_sec: expected 0.8..4.0")
+	}
+	if req.GIFTimeoutLastResortFPSCap < 4 || req.GIFTimeoutLastResortFPSCap > req.GIFTimeoutEmergencyFPSCap {
+		return errors.New("invalid gif_timeout_last_resort_fps_cap: expected 4..emergency_fps_cap")
+	}
+	if req.GIFTimeoutLastResortWidthCap < 240 || req.GIFTimeoutLastResortWidthCap > req.GIFTimeoutEmergencyWidthCap {
+		return errors.New("invalid gif_timeout_last_resort_width_cap: expected 240..emergency_width_cap")
+	}
+	if req.GIFTimeoutLastResortColorsCap < 16 || req.GIFTimeoutLastResortColorsCap > req.GIFTimeoutEmergencyColorsCap {
+		return errors.New("invalid gif_timeout_last_resort_colors_cap: expected 16..emergency_colors_cap")
+	}
+	if req.GIFTimeoutLastResortMinWidth < 240 || req.GIFTimeoutLastResortMinWidth > req.GIFTimeoutLastResortWidthCap {
+		return errors.New("invalid gif_timeout_last_resort_min_width: expected 240..last_resort_width_cap")
+	}
+	if req.GIFTimeoutLastResortDurationMinSec < 0.6 || req.GIFTimeoutLastResortDurationMinSec > 3.0 {
+		return errors.New("invalid gif_timeout_last_resort_duration_min_sec: expected 0.6..3.0")
+	}
+	if req.GIFTimeoutLastResortDurationMaxSec < req.GIFTimeoutLastResortDurationMinSec || req.GIFTimeoutLastResortDurationMaxSec > 4.0 {
+		return errors.New("invalid gif_timeout_last_resort_duration_max_sec: expected >= min and <= 4.0")
 	}
 	if req.GIFLoopTuneMinEnableSec <= 0 || req.GIFLoopTuneMinImprovement < 0 {
 		return errors.New("invalid gif loop tune settings: min_enable_sec must be >0 and min_improvement must be >=0")
@@ -261,6 +652,11 @@ func validateVideoQualitySettingRequest(req VideoQualitySettingRequest) error {
 	if req.HighlightNegativePenaltyWeight < 0 || req.HighlightNegativePenaltyWeight > 2 {
 		return errors.New("invalid highlight_feedback_negative_guard_penalty_weight: expected 0..2")
 	}
+	switch strings.ToLower(strings.TrimSpace(req.AIDirectorInputMode)) {
+	case "", "frames", "full_video", "hybrid":
+	default:
+		return errors.New("invalid ai_director_input_mode: expected frames|full_video|hybrid")
+	}
 	if len(strings.TrimSpace(req.AIDirectorOperatorInstructionVersion)) == 0 {
 		return errors.New("invalid ai_director_operator_instruction_version: expected non-empty")
 	}
@@ -325,6 +721,15 @@ func validateLowRateThreshold(name string, warn, critical float64) error {
 	return nil
 }
 
+func isValidGIFPipelineMode(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "light", "standard", "hq":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateHighRateThreshold(name string, warn, critical float64) error {
 	if warn <= 0 || warn >= 1 || critical <= 0 || critical >= 1 {
 		return fmt.Errorf("invalid %s thresholds: expected both warn/critical in (0,1)", name)
@@ -369,14 +774,113 @@ func qualitySettingsFromModel(setting models.VideoQualitySetting) videojobs.Qual
 		GIFDefaultMaxColors:                  setting.GIFDefaultMaxColors,
 		GIFDitherMode:                        setting.GIFDitherMode,
 		GIFTargetSizeKB:                      setting.GIFTargetSizeKB,
+		GIFGifsicleEnabled:                   setting.GIFGifsicleEnabled,
+		GIFGifsicleLevel:                     setting.GIFGifsicleLevel,
+		GIFGifsicleSkipBelowKB:               setting.GIFGifsicleSkipBelowKB,
+		GIFGifsicleMinGainRatio:              setting.GIFGifsicleMinGainRatio,
 		GIFLoopTuneEnabled:                   setting.GIFLoopTuneEnabled,
 		GIFLoopTuneMinEnableSec:              setting.GIFLoopTuneMinEnableSec,
 		GIFLoopTuneMinImprovement:            setting.GIFLoopTuneMinImprovement,
 		GIFLoopTuneMotionTarget:              setting.GIFLoopTuneMotionTarget,
 		GIFLoopTunePreferDuration:            setting.GIFLoopTunePreferDuration,
 		GIFCandidateMaxOutputs:               setting.GIFCandidateMaxOutputs,
+		GIFCandidateLongVideoMaxOutputs:      setting.GIFCandidateLongVideoMaxOutputs,
+		GIFCandidateUltraVideoMaxOutputs:     setting.GIFCandidateUltraVideoMaxOutputs,
 		GIFCandidateConfidenceThreshold:      setting.GIFCandidateConfidenceThreshold,
 		GIFCandidateDedupIOUThreshold:        setting.GIFCandidateDedupIOUThreshold,
+		GIFRenderBudgetNormalMultiplier:      setting.GIFRenderBudgetNormalMultiplier,
+		GIFRenderBudgetLongMultiplier:        setting.GIFRenderBudgetLongMultiplier,
+		GIFRenderBudgetUltraMultiplier:       setting.GIFRenderBudgetUltraMultiplier,
+		GIFPipelineShortVideoMaxSec:          setting.GIFPipelineShortVideoMaxSec,
+		GIFPipelineLongVideoMinSec:           setting.GIFPipelineLongVideoMinSec,
+		GIFPipelineShortVideoMode:            setting.GIFPipelineShortVideoMode,
+		GIFPipelineDefaultMode:               setting.GIFPipelineDefaultMode,
+		GIFPipelineLongVideoMode:             setting.GIFPipelineLongVideoMode,
+		GIFPipelineHighPriorityEnabled:       setting.GIFPipelineHighPriorityEnabled,
+		GIFPipelineHighPriorityMode:          setting.GIFPipelineHighPriorityMode,
+		GIFDurationTierMediumSec:             setting.GIFDurationTierMediumSec,
+		GIFDurationTierLongSec:               setting.GIFDurationTierLongSec,
+		GIFDurationTierUltraSec:              setting.GIFDurationTierUltraSec,
+		GIFSegmentTimeoutMinSec:              setting.GIFSegmentTimeoutMinSec,
+		GIFSegmentTimeoutMaxSec:              setting.GIFSegmentTimeoutMaxSec,
+		GIFSegmentTimeoutFallbackCapSec:      setting.GIFSegmentTimeoutFallbackCapSec,
+		GIFSegmentTimeoutEmergencyCapSec:     setting.GIFSegmentTimeoutEmergencyCapSec,
+		GIFSegmentTimeoutLastResortCapSec:    setting.GIFSegmentTimeoutLastResortCapSec,
+		GIFRenderRetryMaxAttempts:            setting.GIFRenderRetryMaxAttempts,
+		GIFRenderRetryPrimaryColorsFloor:     setting.GIFRenderRetryPrimaryColorsFloor,
+		GIFRenderRetryPrimaryColorsStep:      setting.GIFRenderRetryPrimaryColorsStep,
+		GIFRenderRetryFPSFloor:               setting.GIFRenderRetryFPSFloor,
+		GIFRenderRetryFPSStep:                setting.GIFRenderRetryFPSStep,
+		GIFRenderRetryWidthTrigger:           setting.GIFRenderRetryWidthTrigger,
+		GIFRenderRetryWidthScale:             setting.GIFRenderRetryWidthScale,
+		GIFRenderRetryWidthFloor:             setting.GIFRenderRetryWidthFloor,
+		GIFRenderRetrySecondaryColorsFloor:   setting.GIFRenderRetrySecondaryColorsFloor,
+		GIFRenderRetrySecondaryColorsStep:    setting.GIFRenderRetrySecondaryColorsStep,
+		GIFRenderInitialSizeFPSCap:           setting.GIFRenderInitialSizeFPSCap,
+		GIFRenderInitialClarityFPSFloor:      setting.GIFRenderInitialClarityFPSFloor,
+		GIFRenderInitialSizeColorsCap:        setting.GIFRenderInitialSizeColorsCap,
+		GIFRenderInitialClarityColorsFloor:   setting.GIFRenderInitialClarityColorsFloor,
+		GIFMotionLowScoreThreshold:           setting.GIFMotionLowScoreThreshold,
+		GIFMotionHighScoreThreshold:          setting.GIFMotionHighScoreThreshold,
+		GIFMotionLowFPSDelta:                 setting.GIFMotionLowFPSDelta,
+		GIFMotionHighFPSDelta:                setting.GIFMotionHighFPSDelta,
+		GIFAdaptiveFPSMin:                    setting.GIFAdaptiveFPSMin,
+		GIFAdaptiveFPSMax:                    setting.GIFAdaptiveFPSMax,
+		GIFWidthSizeLow:                      setting.GIFWidthSizeLow,
+		GIFWidthSizeMedium:                   setting.GIFWidthSizeMedium,
+		GIFWidthSizeHigh:                     setting.GIFWidthSizeHigh,
+		GIFWidthClarityLow:                   setting.GIFWidthClarityLow,
+		GIFWidthClarityMedium:                setting.GIFWidthClarityMedium,
+		GIFWidthClarityHigh:                  setting.GIFWidthClarityHigh,
+		GIFColorsSizeLow:                     setting.GIFColorsSizeLow,
+		GIFColorsSizeMedium:                  setting.GIFColorsSizeMedium,
+		GIFColorsSizeHigh:                    setting.GIFColorsSizeHigh,
+		GIFColorsClarityLow:                  setting.GIFColorsClarityLow,
+		GIFColorsClarityMedium:               setting.GIFColorsClarityMedium,
+		GIFColorsClarityHigh:                 setting.GIFColorsClarityHigh,
+		GIFDurationLowSec:                    setting.GIFDurationLowSec,
+		GIFDurationMediumSec:                 setting.GIFDurationMediumSec,
+		GIFDurationHighSec:                   setting.GIFDurationHighSec,
+		GIFDurationSizeProfileMaxSec:         setting.GIFDurationSizeProfileMaxSec,
+		GIFDownshiftHighResLongSideThreshold: setting.GIFDownshiftHighResLongSideThreshold,
+		GIFDownshiftEarlyDurationSec:         setting.GIFDownshiftEarlyDurationSec,
+		GIFDownshiftEarlyLongSideThreshold:   setting.GIFDownshiftEarlyLongSideThreshold,
+		GIFDownshiftMediumFPSCap:             setting.GIFDownshiftMediumFPSCap,
+		GIFDownshiftMediumWidthCap:           setting.GIFDownshiftMediumWidthCap,
+		GIFDownshiftMediumColorsCap:          setting.GIFDownshiftMediumColorsCap,
+		GIFDownshiftMediumDurationCapSec:     setting.GIFDownshiftMediumDurationCapSec,
+		GIFDownshiftLongFPSCap:               setting.GIFDownshiftLongFPSCap,
+		GIFDownshiftLongWidthCap:             setting.GIFDownshiftLongWidthCap,
+		GIFDownshiftLongColorsCap:            setting.GIFDownshiftLongColorsCap,
+		GIFDownshiftLongDurationCapSec:       setting.GIFDownshiftLongDurationCapSec,
+		GIFDownshiftUltraFPSCap:              setting.GIFDownshiftUltraFPSCap,
+		GIFDownshiftUltraWidthCap:            setting.GIFDownshiftUltraWidthCap,
+		GIFDownshiftUltraColorsCap:           setting.GIFDownshiftUltraColorsCap,
+		GIFDownshiftUltraDurationCapSec:      setting.GIFDownshiftUltraDurationCapSec,
+		GIFDownshiftHighResFPSCap:            setting.GIFDownshiftHighResFPSCap,
+		GIFDownshiftHighResWidthCap:          setting.GIFDownshiftHighResWidthCap,
+		GIFDownshiftHighResColorsCap:         setting.GIFDownshiftHighResColorsCap,
+		GIFDownshiftHighResDurationCapSec:    setting.GIFDownshiftHighResDurationCapSec,
+		GIFTimeoutFallbackFPSCap:             setting.GIFTimeoutFallbackFPSCap,
+		GIFTimeoutFallbackWidthCap:           setting.GIFTimeoutFallbackWidthCap,
+		GIFTimeoutFallbackColorsCap:          setting.GIFTimeoutFallbackColorsCap,
+		GIFTimeoutFallbackMinWidth:           setting.GIFTimeoutFallbackMinWidth,
+		GIFTimeoutFallbackUltraFPSCap:        setting.GIFTimeoutFallbackUltraFPSCap,
+		GIFTimeoutFallbackUltraWidthCap:      setting.GIFTimeoutFallbackUltraWidthCap,
+		GIFTimeoutFallbackUltraColorsCap:     setting.GIFTimeoutFallbackUltraColorsCap,
+		GIFTimeoutEmergencyFPSCap:            setting.GIFTimeoutEmergencyFPSCap,
+		GIFTimeoutEmergencyWidthCap:          setting.GIFTimeoutEmergencyWidthCap,
+		GIFTimeoutEmergencyColorsCap:         setting.GIFTimeoutEmergencyColorsCap,
+		GIFTimeoutEmergencyMinWidth:          setting.GIFTimeoutEmergencyMinWidth,
+		GIFTimeoutEmergencyDurationTrigger:   setting.GIFTimeoutEmergencyDurationTrigger,
+		GIFTimeoutEmergencyDurationScale:     setting.GIFTimeoutEmergencyDurationScale,
+		GIFTimeoutEmergencyDurationMinSec:    setting.GIFTimeoutEmergencyDurationMinSec,
+		GIFTimeoutLastResortFPSCap:           setting.GIFTimeoutLastResortFPSCap,
+		GIFTimeoutLastResortWidthCap:         setting.GIFTimeoutLastResortWidthCap,
+		GIFTimeoutLastResortColorsCap:        setting.GIFTimeoutLastResortColorsCap,
+		GIFTimeoutLastResortMinWidth:         setting.GIFTimeoutLastResortMinWidth,
+		GIFTimeoutLastResortDurationMinSec:   setting.GIFTimeoutLastResortDurationMinSec,
+		GIFTimeoutLastResortDurationMaxSec:   setting.GIFTimeoutLastResortDurationMaxSec,
 		WebPTargetSizeKB:                     setting.WebPTargetSizeKB,
 		JPGTargetSizeKB:                      setting.JPGTargetSizeKB,
 		PNGTargetSizeKB:                      setting.PNGTargetSizeKB,
@@ -401,6 +905,7 @@ func qualitySettingsFromModel(setting models.VideoQualitySetting) videojobs.Qual
 		HighlightNegativeGuardMinWeight:      setting.HighlightNegativeGuardMinWeight,
 		HighlightNegativePenaltyScale:        setting.HighlightNegativePenaltyScale,
 		HighlightNegativePenaltyWeight:       setting.HighlightNegativePenaltyWeight,
+		AIDirectorInputMode:                  setting.AIDirectorInputMode,
 		AIDirectorOperatorInstruction:        setting.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion: setting.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:            setting.AIDirectorOperatorEnabled,
@@ -434,14 +939,113 @@ func applyQualitySettingsToModel(dst *models.VideoQualitySetting, settings video
 	dst.GIFDefaultMaxColors = settings.GIFDefaultMaxColors
 	dst.GIFDitherMode = strings.TrimSpace(settings.GIFDitherMode)
 	dst.GIFTargetSizeKB = settings.GIFTargetSizeKB
+	dst.GIFGifsicleEnabled = settings.GIFGifsicleEnabled
+	dst.GIFGifsicleLevel = settings.GIFGifsicleLevel
+	dst.GIFGifsicleSkipBelowKB = settings.GIFGifsicleSkipBelowKB
+	dst.GIFGifsicleMinGainRatio = settings.GIFGifsicleMinGainRatio
 	dst.GIFLoopTuneEnabled = settings.GIFLoopTuneEnabled
 	dst.GIFLoopTuneMinEnableSec = settings.GIFLoopTuneMinEnableSec
 	dst.GIFLoopTuneMinImprovement = settings.GIFLoopTuneMinImprovement
 	dst.GIFLoopTuneMotionTarget = settings.GIFLoopTuneMotionTarget
 	dst.GIFLoopTunePreferDuration = settings.GIFLoopTunePreferDuration
 	dst.GIFCandidateMaxOutputs = settings.GIFCandidateMaxOutputs
+	dst.GIFCandidateLongVideoMaxOutputs = settings.GIFCandidateLongVideoMaxOutputs
+	dst.GIFCandidateUltraVideoMaxOutputs = settings.GIFCandidateUltraVideoMaxOutputs
 	dst.GIFCandidateConfidenceThreshold = settings.GIFCandidateConfidenceThreshold
 	dst.GIFCandidateDedupIOUThreshold = settings.GIFCandidateDedupIOUThreshold
+	dst.GIFRenderBudgetNormalMultiplier = settings.GIFRenderBudgetNormalMultiplier
+	dst.GIFRenderBudgetLongMultiplier = settings.GIFRenderBudgetLongMultiplier
+	dst.GIFRenderBudgetUltraMultiplier = settings.GIFRenderBudgetUltraMultiplier
+	dst.GIFPipelineShortVideoMaxSec = settings.GIFPipelineShortVideoMaxSec
+	dst.GIFPipelineLongVideoMinSec = settings.GIFPipelineLongVideoMinSec
+	dst.GIFPipelineShortVideoMode = strings.TrimSpace(settings.GIFPipelineShortVideoMode)
+	dst.GIFPipelineDefaultMode = strings.TrimSpace(settings.GIFPipelineDefaultMode)
+	dst.GIFPipelineLongVideoMode = strings.TrimSpace(settings.GIFPipelineLongVideoMode)
+	dst.GIFPipelineHighPriorityEnabled = settings.GIFPipelineHighPriorityEnabled
+	dst.GIFPipelineHighPriorityMode = strings.TrimSpace(settings.GIFPipelineHighPriorityMode)
+	dst.GIFDurationTierMediumSec = settings.GIFDurationTierMediumSec
+	dst.GIFDurationTierLongSec = settings.GIFDurationTierLongSec
+	dst.GIFDurationTierUltraSec = settings.GIFDurationTierUltraSec
+	dst.GIFSegmentTimeoutMinSec = settings.GIFSegmentTimeoutMinSec
+	dst.GIFSegmentTimeoutMaxSec = settings.GIFSegmentTimeoutMaxSec
+	dst.GIFSegmentTimeoutFallbackCapSec = settings.GIFSegmentTimeoutFallbackCapSec
+	dst.GIFSegmentTimeoutEmergencyCapSec = settings.GIFSegmentTimeoutEmergencyCapSec
+	dst.GIFSegmentTimeoutLastResortCapSec = settings.GIFSegmentTimeoutLastResortCapSec
+	dst.GIFRenderRetryMaxAttempts = settings.GIFRenderRetryMaxAttempts
+	dst.GIFRenderRetryPrimaryColorsFloor = settings.GIFRenderRetryPrimaryColorsFloor
+	dst.GIFRenderRetryPrimaryColorsStep = settings.GIFRenderRetryPrimaryColorsStep
+	dst.GIFRenderRetryFPSFloor = settings.GIFRenderRetryFPSFloor
+	dst.GIFRenderRetryFPSStep = settings.GIFRenderRetryFPSStep
+	dst.GIFRenderRetryWidthTrigger = settings.GIFRenderRetryWidthTrigger
+	dst.GIFRenderRetryWidthScale = settings.GIFRenderRetryWidthScale
+	dst.GIFRenderRetryWidthFloor = settings.GIFRenderRetryWidthFloor
+	dst.GIFRenderRetrySecondaryColorsFloor = settings.GIFRenderRetrySecondaryColorsFloor
+	dst.GIFRenderRetrySecondaryColorsStep = settings.GIFRenderRetrySecondaryColorsStep
+	dst.GIFRenderInitialSizeFPSCap = settings.GIFRenderInitialSizeFPSCap
+	dst.GIFRenderInitialClarityFPSFloor = settings.GIFRenderInitialClarityFPSFloor
+	dst.GIFRenderInitialSizeColorsCap = settings.GIFRenderInitialSizeColorsCap
+	dst.GIFRenderInitialClarityColorsFloor = settings.GIFRenderInitialClarityColorsFloor
+	dst.GIFMotionLowScoreThreshold = settings.GIFMotionLowScoreThreshold
+	dst.GIFMotionHighScoreThreshold = settings.GIFMotionHighScoreThreshold
+	dst.GIFMotionLowFPSDelta = settings.GIFMotionLowFPSDelta
+	dst.GIFMotionHighFPSDelta = settings.GIFMotionHighFPSDelta
+	dst.GIFAdaptiveFPSMin = settings.GIFAdaptiveFPSMin
+	dst.GIFAdaptiveFPSMax = settings.GIFAdaptiveFPSMax
+	dst.GIFWidthSizeLow = settings.GIFWidthSizeLow
+	dst.GIFWidthSizeMedium = settings.GIFWidthSizeMedium
+	dst.GIFWidthSizeHigh = settings.GIFWidthSizeHigh
+	dst.GIFWidthClarityLow = settings.GIFWidthClarityLow
+	dst.GIFWidthClarityMedium = settings.GIFWidthClarityMedium
+	dst.GIFWidthClarityHigh = settings.GIFWidthClarityHigh
+	dst.GIFColorsSizeLow = settings.GIFColorsSizeLow
+	dst.GIFColorsSizeMedium = settings.GIFColorsSizeMedium
+	dst.GIFColorsSizeHigh = settings.GIFColorsSizeHigh
+	dst.GIFColorsClarityLow = settings.GIFColorsClarityLow
+	dst.GIFColorsClarityMedium = settings.GIFColorsClarityMedium
+	dst.GIFColorsClarityHigh = settings.GIFColorsClarityHigh
+	dst.GIFDurationLowSec = settings.GIFDurationLowSec
+	dst.GIFDurationMediumSec = settings.GIFDurationMediumSec
+	dst.GIFDurationHighSec = settings.GIFDurationHighSec
+	dst.GIFDurationSizeProfileMaxSec = settings.GIFDurationSizeProfileMaxSec
+	dst.GIFDownshiftHighResLongSideThreshold = settings.GIFDownshiftHighResLongSideThreshold
+	dst.GIFDownshiftEarlyDurationSec = settings.GIFDownshiftEarlyDurationSec
+	dst.GIFDownshiftEarlyLongSideThreshold = settings.GIFDownshiftEarlyLongSideThreshold
+	dst.GIFDownshiftMediumFPSCap = settings.GIFDownshiftMediumFPSCap
+	dst.GIFDownshiftMediumWidthCap = settings.GIFDownshiftMediumWidthCap
+	dst.GIFDownshiftMediumColorsCap = settings.GIFDownshiftMediumColorsCap
+	dst.GIFDownshiftMediumDurationCapSec = settings.GIFDownshiftMediumDurationCapSec
+	dst.GIFDownshiftLongFPSCap = settings.GIFDownshiftLongFPSCap
+	dst.GIFDownshiftLongWidthCap = settings.GIFDownshiftLongWidthCap
+	dst.GIFDownshiftLongColorsCap = settings.GIFDownshiftLongColorsCap
+	dst.GIFDownshiftLongDurationCapSec = settings.GIFDownshiftLongDurationCapSec
+	dst.GIFDownshiftUltraFPSCap = settings.GIFDownshiftUltraFPSCap
+	dst.GIFDownshiftUltraWidthCap = settings.GIFDownshiftUltraWidthCap
+	dst.GIFDownshiftUltraColorsCap = settings.GIFDownshiftUltraColorsCap
+	dst.GIFDownshiftUltraDurationCapSec = settings.GIFDownshiftUltraDurationCapSec
+	dst.GIFDownshiftHighResFPSCap = settings.GIFDownshiftHighResFPSCap
+	dst.GIFDownshiftHighResWidthCap = settings.GIFDownshiftHighResWidthCap
+	dst.GIFDownshiftHighResColorsCap = settings.GIFDownshiftHighResColorsCap
+	dst.GIFDownshiftHighResDurationCapSec = settings.GIFDownshiftHighResDurationCapSec
+	dst.GIFTimeoutFallbackFPSCap = settings.GIFTimeoutFallbackFPSCap
+	dst.GIFTimeoutFallbackWidthCap = settings.GIFTimeoutFallbackWidthCap
+	dst.GIFTimeoutFallbackColorsCap = settings.GIFTimeoutFallbackColorsCap
+	dst.GIFTimeoutFallbackMinWidth = settings.GIFTimeoutFallbackMinWidth
+	dst.GIFTimeoutFallbackUltraFPSCap = settings.GIFTimeoutFallbackUltraFPSCap
+	dst.GIFTimeoutFallbackUltraWidthCap = settings.GIFTimeoutFallbackUltraWidthCap
+	dst.GIFTimeoutFallbackUltraColorsCap = settings.GIFTimeoutFallbackUltraColorsCap
+	dst.GIFTimeoutEmergencyFPSCap = settings.GIFTimeoutEmergencyFPSCap
+	dst.GIFTimeoutEmergencyWidthCap = settings.GIFTimeoutEmergencyWidthCap
+	dst.GIFTimeoutEmergencyColorsCap = settings.GIFTimeoutEmergencyColorsCap
+	dst.GIFTimeoutEmergencyMinWidth = settings.GIFTimeoutEmergencyMinWidth
+	dst.GIFTimeoutEmergencyDurationTrigger = settings.GIFTimeoutEmergencyDurationTrigger
+	dst.GIFTimeoutEmergencyDurationScale = settings.GIFTimeoutEmergencyDurationScale
+	dst.GIFTimeoutEmergencyDurationMinSec = settings.GIFTimeoutEmergencyDurationMinSec
+	dst.GIFTimeoutLastResortFPSCap = settings.GIFTimeoutLastResortFPSCap
+	dst.GIFTimeoutLastResortWidthCap = settings.GIFTimeoutLastResortWidthCap
+	dst.GIFTimeoutLastResortColorsCap = settings.GIFTimeoutLastResortColorsCap
+	dst.GIFTimeoutLastResortMinWidth = settings.GIFTimeoutLastResortMinWidth
+	dst.GIFTimeoutLastResortDurationMinSec = settings.GIFTimeoutLastResortDurationMinSec
+	dst.GIFTimeoutLastResortDurationMaxSec = settings.GIFTimeoutLastResortDurationMaxSec
 	dst.WebPTargetSizeKB = settings.WebPTargetSizeKB
 	dst.JPGTargetSizeKB = settings.JPGTargetSizeKB
 	dst.PNGTargetSizeKB = settings.PNGTargetSizeKB
@@ -466,6 +1070,7 @@ func applyQualitySettingsToModel(dst *models.VideoQualitySetting, settings video
 	dst.HighlightNegativeGuardMinWeight = settings.HighlightNegativeGuardMinWeight
 	dst.HighlightNegativePenaltyScale = settings.HighlightNegativePenaltyScale
 	dst.HighlightNegativePenaltyWeight = settings.HighlightNegativePenaltyWeight
+	dst.AIDirectorInputMode = strings.TrimSpace(settings.AIDirectorInputMode)
 	dst.AIDirectorOperatorInstruction = strings.TrimSpace(settings.AIDirectorOperatorInstruction)
 	dst.AIDirectorOperatorInstructionVersion = strings.TrimSpace(settings.AIDirectorOperatorInstructionVersion)
 	dst.AIDirectorOperatorEnabled = settings.AIDirectorOperatorEnabled
@@ -564,14 +1169,113 @@ func videoQualitySettingRequestFromModel(setting models.VideoQualitySetting) Vid
 		GIFDefaultMaxColors:                     quality.GIFDefaultMaxColors,
 		GIFDitherMode:                           quality.GIFDitherMode,
 		GIFTargetSizeKB:                         quality.GIFTargetSizeKB,
+		GIFGifsicleEnabled:                      quality.GIFGifsicleEnabled,
+		GIFGifsicleLevel:                        quality.GIFGifsicleLevel,
+		GIFGifsicleSkipBelowKB:                  quality.GIFGifsicleSkipBelowKB,
+		GIFGifsicleMinGainRatio:                 quality.GIFGifsicleMinGainRatio,
 		GIFLoopTuneEnabled:                      quality.GIFLoopTuneEnabled,
 		GIFLoopTuneMinEnableSec:                 quality.GIFLoopTuneMinEnableSec,
 		GIFLoopTuneMinImprovement:               quality.GIFLoopTuneMinImprovement,
 		GIFLoopTuneMotionTarget:                 quality.GIFLoopTuneMotionTarget,
 		GIFLoopTunePreferDuration:               quality.GIFLoopTunePreferDuration,
 		GIFCandidateMaxOutputs:                  quality.GIFCandidateMaxOutputs,
+		GIFCandidateLongVideoMaxOutputs:         quality.GIFCandidateLongVideoMaxOutputs,
+		GIFCandidateUltraVideoMaxOutputs:        quality.GIFCandidateUltraVideoMaxOutputs,
 		GIFCandidateConfidenceThreshold:         quality.GIFCandidateConfidenceThreshold,
 		GIFCandidateDedupIOUThreshold:           quality.GIFCandidateDedupIOUThreshold,
+		GIFRenderBudgetNormalMultiplier:         quality.GIFRenderBudgetNormalMultiplier,
+		GIFRenderBudgetLongMultiplier:           quality.GIFRenderBudgetLongMultiplier,
+		GIFRenderBudgetUltraMultiplier:          quality.GIFRenderBudgetUltraMultiplier,
+		GIFPipelineShortVideoMaxSec:             quality.GIFPipelineShortVideoMaxSec,
+		GIFPipelineLongVideoMinSec:              quality.GIFPipelineLongVideoMinSec,
+		GIFPipelineShortVideoMode:               quality.GIFPipelineShortVideoMode,
+		GIFPipelineDefaultMode:                  quality.GIFPipelineDefaultMode,
+		GIFPipelineLongVideoMode:                quality.GIFPipelineLongVideoMode,
+		GIFPipelineHighPriorityEnabled:          quality.GIFPipelineHighPriorityEnabled,
+		GIFPipelineHighPriorityMode:             quality.GIFPipelineHighPriorityMode,
+		GIFDurationTierMediumSec:                quality.GIFDurationTierMediumSec,
+		GIFDurationTierLongSec:                  quality.GIFDurationTierLongSec,
+		GIFDurationTierUltraSec:                 quality.GIFDurationTierUltraSec,
+		GIFSegmentTimeoutMinSec:                 quality.GIFSegmentTimeoutMinSec,
+		GIFSegmentTimeoutMaxSec:                 quality.GIFSegmentTimeoutMaxSec,
+		GIFSegmentTimeoutFallbackCapSec:         quality.GIFSegmentTimeoutFallbackCapSec,
+		GIFSegmentTimeoutEmergencyCapSec:        quality.GIFSegmentTimeoutEmergencyCapSec,
+		GIFSegmentTimeoutLastResortCapSec:       quality.GIFSegmentTimeoutLastResortCapSec,
+		GIFRenderRetryMaxAttempts:               quality.GIFRenderRetryMaxAttempts,
+		GIFRenderRetryPrimaryColorsFloor:        quality.GIFRenderRetryPrimaryColorsFloor,
+		GIFRenderRetryPrimaryColorsStep:         quality.GIFRenderRetryPrimaryColorsStep,
+		GIFRenderRetryFPSFloor:                  quality.GIFRenderRetryFPSFloor,
+		GIFRenderRetryFPSStep:                   quality.GIFRenderRetryFPSStep,
+		GIFRenderRetryWidthTrigger:              quality.GIFRenderRetryWidthTrigger,
+		GIFRenderRetryWidthScale:                quality.GIFRenderRetryWidthScale,
+		GIFRenderRetryWidthFloor:                quality.GIFRenderRetryWidthFloor,
+		GIFRenderRetrySecondaryColorsFloor:      quality.GIFRenderRetrySecondaryColorsFloor,
+		GIFRenderRetrySecondaryColorsStep:       quality.GIFRenderRetrySecondaryColorsStep,
+		GIFRenderInitialSizeFPSCap:              quality.GIFRenderInitialSizeFPSCap,
+		GIFRenderInitialClarityFPSFloor:         quality.GIFRenderInitialClarityFPSFloor,
+		GIFRenderInitialSizeColorsCap:           quality.GIFRenderInitialSizeColorsCap,
+		GIFRenderInitialClarityColorsFloor:      quality.GIFRenderInitialClarityColorsFloor,
+		GIFMotionLowScoreThreshold:              quality.GIFMotionLowScoreThreshold,
+		GIFMotionHighScoreThreshold:             quality.GIFMotionHighScoreThreshold,
+		GIFMotionLowFPSDelta:                    quality.GIFMotionLowFPSDelta,
+		GIFMotionHighFPSDelta:                   quality.GIFMotionHighFPSDelta,
+		GIFAdaptiveFPSMin:                       quality.GIFAdaptiveFPSMin,
+		GIFAdaptiveFPSMax:                       quality.GIFAdaptiveFPSMax,
+		GIFWidthSizeLow:                         quality.GIFWidthSizeLow,
+		GIFWidthSizeMedium:                      quality.GIFWidthSizeMedium,
+		GIFWidthSizeHigh:                        quality.GIFWidthSizeHigh,
+		GIFWidthClarityLow:                      quality.GIFWidthClarityLow,
+		GIFWidthClarityMedium:                   quality.GIFWidthClarityMedium,
+		GIFWidthClarityHigh:                     quality.GIFWidthClarityHigh,
+		GIFColorsSizeLow:                        quality.GIFColorsSizeLow,
+		GIFColorsSizeMedium:                     quality.GIFColorsSizeMedium,
+		GIFColorsSizeHigh:                       quality.GIFColorsSizeHigh,
+		GIFColorsClarityLow:                     quality.GIFColorsClarityLow,
+		GIFColorsClarityMedium:                  quality.GIFColorsClarityMedium,
+		GIFColorsClarityHigh:                    quality.GIFColorsClarityHigh,
+		GIFDurationLowSec:                       quality.GIFDurationLowSec,
+		GIFDurationMediumSec:                    quality.GIFDurationMediumSec,
+		GIFDurationHighSec:                      quality.GIFDurationHighSec,
+		GIFDurationSizeProfileMaxSec:            quality.GIFDurationSizeProfileMaxSec,
+		GIFDownshiftHighResLongSideThreshold:    quality.GIFDownshiftHighResLongSideThreshold,
+		GIFDownshiftEarlyDurationSec:            quality.GIFDownshiftEarlyDurationSec,
+		GIFDownshiftEarlyLongSideThreshold:      quality.GIFDownshiftEarlyLongSideThreshold,
+		GIFDownshiftMediumFPSCap:                quality.GIFDownshiftMediumFPSCap,
+		GIFDownshiftMediumWidthCap:              quality.GIFDownshiftMediumWidthCap,
+		GIFDownshiftMediumColorsCap:             quality.GIFDownshiftMediumColorsCap,
+		GIFDownshiftMediumDurationCapSec:        quality.GIFDownshiftMediumDurationCapSec,
+		GIFDownshiftLongFPSCap:                  quality.GIFDownshiftLongFPSCap,
+		GIFDownshiftLongWidthCap:                quality.GIFDownshiftLongWidthCap,
+		GIFDownshiftLongColorsCap:               quality.GIFDownshiftLongColorsCap,
+		GIFDownshiftLongDurationCapSec:          quality.GIFDownshiftLongDurationCapSec,
+		GIFDownshiftUltraFPSCap:                 quality.GIFDownshiftUltraFPSCap,
+		GIFDownshiftUltraWidthCap:               quality.GIFDownshiftUltraWidthCap,
+		GIFDownshiftUltraColorsCap:              quality.GIFDownshiftUltraColorsCap,
+		GIFDownshiftUltraDurationCapSec:         quality.GIFDownshiftUltraDurationCapSec,
+		GIFDownshiftHighResFPSCap:               quality.GIFDownshiftHighResFPSCap,
+		GIFDownshiftHighResWidthCap:             quality.GIFDownshiftHighResWidthCap,
+		GIFDownshiftHighResColorsCap:            quality.GIFDownshiftHighResColorsCap,
+		GIFDownshiftHighResDurationCapSec:       quality.GIFDownshiftHighResDurationCapSec,
+		GIFTimeoutFallbackFPSCap:                quality.GIFTimeoutFallbackFPSCap,
+		GIFTimeoutFallbackWidthCap:              quality.GIFTimeoutFallbackWidthCap,
+		GIFTimeoutFallbackColorsCap:             quality.GIFTimeoutFallbackColorsCap,
+		GIFTimeoutFallbackMinWidth:              quality.GIFTimeoutFallbackMinWidth,
+		GIFTimeoutFallbackUltraFPSCap:           quality.GIFTimeoutFallbackUltraFPSCap,
+		GIFTimeoutFallbackUltraWidthCap:         quality.GIFTimeoutFallbackUltraWidthCap,
+		GIFTimeoutFallbackUltraColorsCap:        quality.GIFTimeoutFallbackUltraColorsCap,
+		GIFTimeoutEmergencyFPSCap:               quality.GIFTimeoutEmergencyFPSCap,
+		GIFTimeoutEmergencyWidthCap:             quality.GIFTimeoutEmergencyWidthCap,
+		GIFTimeoutEmergencyColorsCap:            quality.GIFTimeoutEmergencyColorsCap,
+		GIFTimeoutEmergencyMinWidth:             quality.GIFTimeoutEmergencyMinWidth,
+		GIFTimeoutEmergencyDurationTrigger:      quality.GIFTimeoutEmergencyDurationTrigger,
+		GIFTimeoutEmergencyDurationScale:        quality.GIFTimeoutEmergencyDurationScale,
+		GIFTimeoutEmergencyDurationMinSec:       quality.GIFTimeoutEmergencyDurationMinSec,
+		GIFTimeoutLastResortFPSCap:              quality.GIFTimeoutLastResortFPSCap,
+		GIFTimeoutLastResortWidthCap:            quality.GIFTimeoutLastResortWidthCap,
+		GIFTimeoutLastResortColorsCap:           quality.GIFTimeoutLastResortColorsCap,
+		GIFTimeoutLastResortMinWidth:            quality.GIFTimeoutLastResortMinWidth,
+		GIFTimeoutLastResortDurationMinSec:      quality.GIFTimeoutLastResortDurationMinSec,
+		GIFTimeoutLastResortDurationMaxSec:      quality.GIFTimeoutLastResortDurationMaxSec,
 		WebPTargetSizeKB:                        quality.WebPTargetSizeKB,
 		JPGTargetSizeKB:                         quality.JPGTargetSizeKB,
 		PNGTargetSizeKB:                         quality.PNGTargetSizeKB,
@@ -596,6 +1300,7 @@ func videoQualitySettingRequestFromModel(setting models.VideoQualitySetting) Vid
 		HighlightNegativeGuardMinWeight:         quality.HighlightNegativeGuardMinWeight,
 		HighlightNegativePenaltyScale:           quality.HighlightNegativePenaltyScale,
 		HighlightNegativePenaltyWeight:          quality.HighlightNegativePenaltyWeight,
+		AIDirectorInputMode:                     quality.AIDirectorInputMode,
 		AIDirectorOperatorInstruction:           quality.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion:    quality.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:               quality.AIDirectorOperatorEnabled,
@@ -628,14 +1333,113 @@ func (h *Handler) saveVideoQualitySetting(req VideoQualitySettingRequest) (model
 		GIFDefaultMaxColors:                  req.GIFDefaultMaxColors,
 		GIFDitherMode:                        req.GIFDitherMode,
 		GIFTargetSizeKB:                      req.GIFTargetSizeKB,
+		GIFGifsicleEnabled:                   req.GIFGifsicleEnabled,
+		GIFGifsicleLevel:                     req.GIFGifsicleLevel,
+		GIFGifsicleSkipBelowKB:               req.GIFGifsicleSkipBelowKB,
+		GIFGifsicleMinGainRatio:              req.GIFGifsicleMinGainRatio,
 		GIFLoopTuneEnabled:                   req.GIFLoopTuneEnabled,
 		GIFLoopTuneMinEnableSec:              req.GIFLoopTuneMinEnableSec,
 		GIFLoopTuneMinImprovement:            req.GIFLoopTuneMinImprovement,
 		GIFLoopTuneMotionTarget:              req.GIFLoopTuneMotionTarget,
 		GIFLoopTunePreferDuration:            req.GIFLoopTunePreferDuration,
 		GIFCandidateMaxOutputs:               req.GIFCandidateMaxOutputs,
+		GIFCandidateLongVideoMaxOutputs:      req.GIFCandidateLongVideoMaxOutputs,
+		GIFCandidateUltraVideoMaxOutputs:     req.GIFCandidateUltraVideoMaxOutputs,
 		GIFCandidateConfidenceThreshold:      req.GIFCandidateConfidenceThreshold,
 		GIFCandidateDedupIOUThreshold:        req.GIFCandidateDedupIOUThreshold,
+		GIFRenderBudgetNormalMultiplier:      req.GIFRenderBudgetNormalMultiplier,
+		GIFRenderBudgetLongMultiplier:        req.GIFRenderBudgetLongMultiplier,
+		GIFRenderBudgetUltraMultiplier:       req.GIFRenderBudgetUltraMultiplier,
+		GIFPipelineShortVideoMaxSec:          req.GIFPipelineShortVideoMaxSec,
+		GIFPipelineLongVideoMinSec:           req.GIFPipelineLongVideoMinSec,
+		GIFPipelineShortVideoMode:            req.GIFPipelineShortVideoMode,
+		GIFPipelineDefaultMode:               req.GIFPipelineDefaultMode,
+		GIFPipelineLongVideoMode:             req.GIFPipelineLongVideoMode,
+		GIFPipelineHighPriorityEnabled:       req.GIFPipelineHighPriorityEnabled,
+		GIFPipelineHighPriorityMode:          req.GIFPipelineHighPriorityMode,
+		GIFDurationTierMediumSec:             req.GIFDurationTierMediumSec,
+		GIFDurationTierLongSec:               req.GIFDurationTierLongSec,
+		GIFDurationTierUltraSec:              req.GIFDurationTierUltraSec,
+		GIFSegmentTimeoutMinSec:              req.GIFSegmentTimeoutMinSec,
+		GIFSegmentTimeoutMaxSec:              req.GIFSegmentTimeoutMaxSec,
+		GIFSegmentTimeoutFallbackCapSec:      req.GIFSegmentTimeoutFallbackCapSec,
+		GIFSegmentTimeoutEmergencyCapSec:     req.GIFSegmentTimeoutEmergencyCapSec,
+		GIFSegmentTimeoutLastResortCapSec:    req.GIFSegmentTimeoutLastResortCapSec,
+		GIFRenderRetryMaxAttempts:            req.GIFRenderRetryMaxAttempts,
+		GIFRenderRetryPrimaryColorsFloor:     req.GIFRenderRetryPrimaryColorsFloor,
+		GIFRenderRetryPrimaryColorsStep:      req.GIFRenderRetryPrimaryColorsStep,
+		GIFRenderRetryFPSFloor:               req.GIFRenderRetryFPSFloor,
+		GIFRenderRetryFPSStep:                req.GIFRenderRetryFPSStep,
+		GIFRenderRetryWidthTrigger:           req.GIFRenderRetryWidthTrigger,
+		GIFRenderRetryWidthScale:             req.GIFRenderRetryWidthScale,
+		GIFRenderRetryWidthFloor:             req.GIFRenderRetryWidthFloor,
+		GIFRenderRetrySecondaryColorsFloor:   req.GIFRenderRetrySecondaryColorsFloor,
+		GIFRenderRetrySecondaryColorsStep:    req.GIFRenderRetrySecondaryColorsStep,
+		GIFRenderInitialSizeFPSCap:           req.GIFRenderInitialSizeFPSCap,
+		GIFRenderInitialClarityFPSFloor:      req.GIFRenderInitialClarityFPSFloor,
+		GIFRenderInitialSizeColorsCap:        req.GIFRenderInitialSizeColorsCap,
+		GIFRenderInitialClarityColorsFloor:   req.GIFRenderInitialClarityColorsFloor,
+		GIFMotionLowScoreThreshold:           req.GIFMotionLowScoreThreshold,
+		GIFMotionHighScoreThreshold:          req.GIFMotionHighScoreThreshold,
+		GIFMotionLowFPSDelta:                 req.GIFMotionLowFPSDelta,
+		GIFMotionHighFPSDelta:                req.GIFMotionHighFPSDelta,
+		GIFAdaptiveFPSMin:                    req.GIFAdaptiveFPSMin,
+		GIFAdaptiveFPSMax:                    req.GIFAdaptiveFPSMax,
+		GIFWidthSizeLow:                      req.GIFWidthSizeLow,
+		GIFWidthSizeMedium:                   req.GIFWidthSizeMedium,
+		GIFWidthSizeHigh:                     req.GIFWidthSizeHigh,
+		GIFWidthClarityLow:                   req.GIFWidthClarityLow,
+		GIFWidthClarityMedium:                req.GIFWidthClarityMedium,
+		GIFWidthClarityHigh:                  req.GIFWidthClarityHigh,
+		GIFColorsSizeLow:                     req.GIFColorsSizeLow,
+		GIFColorsSizeMedium:                  req.GIFColorsSizeMedium,
+		GIFColorsSizeHigh:                    req.GIFColorsSizeHigh,
+		GIFColorsClarityLow:                  req.GIFColorsClarityLow,
+		GIFColorsClarityMedium:               req.GIFColorsClarityMedium,
+		GIFColorsClarityHigh:                 req.GIFColorsClarityHigh,
+		GIFDurationLowSec:                    req.GIFDurationLowSec,
+		GIFDurationMediumSec:                 req.GIFDurationMediumSec,
+		GIFDurationHighSec:                   req.GIFDurationHighSec,
+		GIFDurationSizeProfileMaxSec:         req.GIFDurationSizeProfileMaxSec,
+		GIFDownshiftHighResLongSideThreshold: req.GIFDownshiftHighResLongSideThreshold,
+		GIFDownshiftEarlyDurationSec:         req.GIFDownshiftEarlyDurationSec,
+		GIFDownshiftEarlyLongSideThreshold:   req.GIFDownshiftEarlyLongSideThreshold,
+		GIFDownshiftMediumFPSCap:             req.GIFDownshiftMediumFPSCap,
+		GIFDownshiftMediumWidthCap:           req.GIFDownshiftMediumWidthCap,
+		GIFDownshiftMediumColorsCap:          req.GIFDownshiftMediumColorsCap,
+		GIFDownshiftMediumDurationCapSec:     req.GIFDownshiftMediumDurationCapSec,
+		GIFDownshiftLongFPSCap:               req.GIFDownshiftLongFPSCap,
+		GIFDownshiftLongWidthCap:             req.GIFDownshiftLongWidthCap,
+		GIFDownshiftLongColorsCap:            req.GIFDownshiftLongColorsCap,
+		GIFDownshiftLongDurationCapSec:       req.GIFDownshiftLongDurationCapSec,
+		GIFDownshiftUltraFPSCap:              req.GIFDownshiftUltraFPSCap,
+		GIFDownshiftUltraWidthCap:            req.GIFDownshiftUltraWidthCap,
+		GIFDownshiftUltraColorsCap:           req.GIFDownshiftUltraColorsCap,
+		GIFDownshiftUltraDurationCapSec:      req.GIFDownshiftUltraDurationCapSec,
+		GIFDownshiftHighResFPSCap:            req.GIFDownshiftHighResFPSCap,
+		GIFDownshiftHighResWidthCap:          req.GIFDownshiftHighResWidthCap,
+		GIFDownshiftHighResColorsCap:         req.GIFDownshiftHighResColorsCap,
+		GIFDownshiftHighResDurationCapSec:    req.GIFDownshiftHighResDurationCapSec,
+		GIFTimeoutFallbackFPSCap:             req.GIFTimeoutFallbackFPSCap,
+		GIFTimeoutFallbackWidthCap:           req.GIFTimeoutFallbackWidthCap,
+		GIFTimeoutFallbackColorsCap:          req.GIFTimeoutFallbackColorsCap,
+		GIFTimeoutFallbackMinWidth:           req.GIFTimeoutFallbackMinWidth,
+		GIFTimeoutFallbackUltraFPSCap:        req.GIFTimeoutFallbackUltraFPSCap,
+		GIFTimeoutFallbackUltraWidthCap:      req.GIFTimeoutFallbackUltraWidthCap,
+		GIFTimeoutFallbackUltraColorsCap:     req.GIFTimeoutFallbackUltraColorsCap,
+		GIFTimeoutEmergencyFPSCap:            req.GIFTimeoutEmergencyFPSCap,
+		GIFTimeoutEmergencyWidthCap:          req.GIFTimeoutEmergencyWidthCap,
+		GIFTimeoutEmergencyColorsCap:         req.GIFTimeoutEmergencyColorsCap,
+		GIFTimeoutEmergencyMinWidth:          req.GIFTimeoutEmergencyMinWidth,
+		GIFTimeoutEmergencyDurationTrigger:   req.GIFTimeoutEmergencyDurationTrigger,
+		GIFTimeoutEmergencyDurationScale:     req.GIFTimeoutEmergencyDurationScale,
+		GIFTimeoutEmergencyDurationMinSec:    req.GIFTimeoutEmergencyDurationMinSec,
+		GIFTimeoutLastResortFPSCap:           req.GIFTimeoutLastResortFPSCap,
+		GIFTimeoutLastResortWidthCap:         req.GIFTimeoutLastResortWidthCap,
+		GIFTimeoutLastResortColorsCap:        req.GIFTimeoutLastResortColorsCap,
+		GIFTimeoutLastResortMinWidth:         req.GIFTimeoutLastResortMinWidth,
+		GIFTimeoutLastResortDurationMinSec:   req.GIFTimeoutLastResortDurationMinSec,
+		GIFTimeoutLastResortDurationMaxSec:   req.GIFTimeoutLastResortDurationMaxSec,
 		WebPTargetSizeKB:                     req.WebPTargetSizeKB,
 		JPGTargetSizeKB:                      req.JPGTargetSizeKB,
 		PNGTargetSizeKB:                      req.PNGTargetSizeKB,
@@ -660,6 +1464,7 @@ func (h *Handler) saveVideoQualitySetting(req VideoQualitySettingRequest) (model
 		HighlightNegativeGuardMinWeight:      req.HighlightNegativeGuardMinWeight,
 		HighlightNegativePenaltyScale:        req.HighlightNegativePenaltyScale,
 		HighlightNegativePenaltyWeight:       req.HighlightNegativePenaltyWeight,
+		AIDirectorInputMode:                  req.AIDirectorInputMode,
 		AIDirectorOperatorInstruction:        req.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion: req.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:            req.AIDirectorOperatorEnabled,

@@ -47,6 +47,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&VideoJobGIFAIProposal{},
 		&VideoJobGIFAIReview{},
 		&VideoJobGIFAIDirective{},
+		&VideoAIPromptTemplate{},
+		&VideoAIPromptTemplateAudit{},
 		&VideoJobGIFBaseline{},
 		&VideoJobGIFRerankLog{},
 		&VideoJobGIFManualScore{},

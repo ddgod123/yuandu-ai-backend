@@ -322,12 +322,49 @@ func TestTuneAnimatedOptionsForWindow_LongVideoDownshiftForGIF(t *testing.T) {
 	}
 }
 
+func TestTuneAnimatedOptionsForWindow_MediumLongDownshiftForGIF(t *testing.T) {
+	settings := DefaultQualitySettings()
+	meta := videoProbeMeta{
+		DurationSec: 80,
+		Width:       1920,
+		FPS:         30,
+	}
+	window := highlightCandidate{
+		StartSec:   5,
+		EndSec:     8,
+		Score:      0.82,
+		SceneScore: 0.75,
+		Reason:     "scene_change_peak",
+	}
+
+	opts, profile := tuneAnimatedOptionsForWindow(meta, jobOptions{}, settings, "gif", window)
+	if opts.FPS > 9 {
+		t.Fatalf("expected medium-long fps downshift to <=9, got %d", opts.FPS)
+	}
+	if opts.Width > 720 {
+		t.Fatalf("expected medium-long width downshift to <=720, got %d", opts.Width)
+	}
+	if opts.MaxColors > 128 {
+		t.Fatalf("expected medium-long max colors downshift to <=128, got %d", opts.MaxColors)
+	}
+	if profile.DurationSec > 2.2 {
+		t.Fatalf("expected medium-long duration cap <=2.2s, got %.2f", profile.DurationSec)
+	}
+	if !profile.LongVideoDownshift {
+		t.Fatalf("expected profile.LongVideoDownshift=true")
+	}
+	if profile.StabilityTier != "medium_long" {
+		t.Fatalf("expected stability tier medium_long, got %s", profile.StabilityTier)
+	}
+}
+
 func TestApplyGIFTimeoutFallbackProfile(t *testing.T) {
 	opts := jobOptions{
 		FPS:   16,
 		Width: 1081,
 	}
-	next, colors, dither, changed := applyGIFTimeoutFallbackProfile(opts, 192, "sierra2_4a", 250)
+	settings := DefaultQualitySettings()
+	next, colors, dither, changed := applyGIFTimeoutFallbackProfile(opts, 192, "sierra2_4a", 250, settings)
 	if !changed {
 		t.Fatalf("expected timeout fallback to change render params")
 	}
@@ -345,26 +382,56 @@ func TestApplyGIFTimeoutFallbackProfile(t *testing.T) {
 	}
 }
 
+func TestApplyGIFLastResortFallbackProfile(t *testing.T) {
+	opts := jobOptions{
+		FPS:   12,
+		Width: 960,
+	}
+	settings := DefaultQualitySettings()
+	next, colors, dither, duration, changed := applyGIFLastResortFallbackProfile(opts, 128, "sierra2_4a", 2.9, settings)
+	if !changed {
+		t.Fatalf("expected last-resort fallback to change render params")
+	}
+	if next.FPS != 6 {
+		t.Fatalf("expected last-resort fps=6, got %d", next.FPS)
+	}
+	if next.Width != 480 {
+		t.Fatalf("expected last-resort width=480, got %d", next.Width)
+	}
+	if colors != 48 {
+		t.Fatalf("expected last-resort max colors=48, got %d", colors)
+	}
+	if dither != "none" {
+		t.Fatalf("expected last-resort dither=none, got %s", dither)
+	}
+	if duration > 1.8 {
+		t.Fatalf("expected last-resort duration <= 1.8s, got %.2f", duration)
+	}
+}
+
 func TestChooseGIFSegmentRenderTimeout(t *testing.T) {
+	settings := DefaultQualitySettings()
 	short := chooseGIFSegmentRenderTimeout(
 		videoProbeMeta{DurationSec: 20, Width: 720, FPS: 30},
 		jobOptions{FPS: 10, Width: 720},
 		highlightCandidate{StartSec: 0, EndSec: 2.4},
 		96,
+		settings,
 	)
 	long := chooseGIFSegmentRenderTimeout(
 		videoProbeMeta{DurationSec: 260, Width: 1280, FPS: 30},
 		jobOptions{FPS: 12, Width: 1080},
 		highlightCandidate{StartSec: 0, EndSec: 2.4},
 		192,
+		settings,
 	)
-	if short < gifRenderTimeoutMin {
+	if short < time.Duration(settings.GIFSegmentTimeoutMinSec)*time.Second {
 		t.Fatalf("expected short timeout >= min, got %s", short)
 	}
 	if long <= short {
 		t.Fatalf("expected long timeout > short timeout, long=%s short=%s", long, short)
 	}
-	if long > gifRenderTimeoutMax {
+	if long > time.Duration(settings.GIFSegmentTimeoutMaxSec)*time.Second {
 		t.Fatalf("expected long timeout <= max, got %s", long)
 	}
 	if long < 60*time.Second {
@@ -385,6 +452,45 @@ func TestTuneAnimatedOptionsForWindow_EnsuresEvenWidthForLive(t *testing.T) {
 	})
 	if opts.Width%2 != 0 {
 		t.Fatalf("expected live width to be even, got %d", opts.Width)
+	}
+}
+
+func TestTuneAnimatedOptionsForWindow_UsesConfigurableGIFAdaptiveTemplate(t *testing.T) {
+	settings := DefaultQualitySettings()
+	settings.GIFMotionLowScoreThreshold = 0.5
+	settings.GIFMotionHighScoreThreshold = 0.85
+	settings.GIFMotionLowFPSDelta = -6
+	settings.GIFAdaptiveFPSMin = 9
+	settings.GIFAdaptiveFPSMax = 11
+	settings.GIFWidthClarityLow = 812
+	settings.GIFColorsClarityLow = 150
+	settings.GIFDurationLowSec = 1.7
+
+	meta := videoProbeMeta{
+		DurationSec: 20,
+		Width:       1200,
+		FPS:         30,
+	}
+	window := highlightCandidate{
+		StartSec:   1,
+		EndSec:     4,
+		Score:      0.4,
+		SceneScore: 0.35,
+		Reason:     "scene_change_peak",
+	}
+
+	opts, profile := tuneAnimatedOptionsForWindow(meta, jobOptions{}, settings, "gif", window)
+	if opts.FPS != 9 {
+		t.Fatalf("expected configurable gif adaptive fps min 9, got %d", opts.FPS)
+	}
+	if opts.Width != 812 {
+		t.Fatalf("expected configurable gif clarity low width 812, got %d", opts.Width)
+	}
+	if opts.MaxColors != 150 {
+		t.Fatalf("expected configurable gif clarity low colors 150, got %d", opts.MaxColors)
+	}
+	if profile.DurationSec != 1.7 {
+		t.Fatalf("expected configurable gif low duration 1.7, got %.2f", profile.DurationSec)
 	}
 }
 
@@ -719,6 +825,77 @@ func TestEstimateFaceQualityHintFromImage(t *testing.T) {
 	}
 	if nonFaceScore > 0.5 {
 		t.Fatalf("expected non-face score <=0.5, got %.3f", nonFaceScore)
+	}
+}
+
+func TestResolveOutputClipWindows_DurationTierCaps(t *testing.T) {
+	candidates := []highlightCandidate{
+		{StartSec: 2, EndSec: 4, Score: 0.95, Reason: "peak_1"},
+		{StartSec: 6, EndSec: 8, Score: 0.93, Reason: "peak_2"},
+		{StartSec: 10, EndSec: 12, Score: 0.90, Reason: "peak_3"},
+		{StartSec: 14, EndSec: 16, Score: 0.88, Reason: "peak_4"},
+		{StartSec: 18, EndSec: 20, Score: 0.85, Reason: "peak_5"},
+		{StartSec: 22, EndSec: 24, Score: 0.82, Reason: "peak_6"},
+	}
+
+	settings := DefaultQualitySettings()
+	settings.GIFTargetSizeKB = 10240
+	settings.GIFCandidateMaxOutputs = 5
+	settings.GIFCandidateLongVideoMaxOutputs = 4
+	settings.GIFCandidateUltraVideoMaxOutputs = 3
+	settings.GIFCandidateConfidenceThreshold = 0
+
+	longMeta := videoProbeMeta{DurationSec: 150, Width: 480, Height: 270}
+	longSelected, longSnapshot := resolveOutputClipWindows(longMeta, jobOptions{}, candidates, settings, 0)
+	if len(longSelected) != 4 {
+		t.Fatalf("expected long tier selected 4 windows, got %d", len(longSelected))
+	}
+	if got := intFromAny(longSnapshot["tier_max_outputs"]); got != 4 {
+		t.Fatalf("expected long tier max outputs=4, got %d", got)
+	}
+	if got := stringFromAny(longSnapshot["duration_tier"]); got != "long" {
+		t.Fatalf("expected duration tier long, got %s", got)
+	}
+
+	ultraMeta := videoProbeMeta{DurationSec: 300, Width: 480, Height: 270}
+	ultraSelected, ultraSnapshot := resolveOutputClipWindows(ultraMeta, jobOptions{}, candidates, settings, 0)
+	if len(ultraSelected) != 3 {
+		t.Fatalf("expected ultra tier selected 3 windows, got %d", len(ultraSelected))
+	}
+	if got := intFromAny(ultraSnapshot["tier_max_outputs"]); got != 3 {
+		t.Fatalf("expected ultra tier max outputs=3, got %d", got)
+	}
+	if got := stringFromAny(ultraSnapshot["duration_tier"]); got != "ultra" {
+		t.Fatalf("expected duration tier ultra, got %s", got)
+	}
+}
+
+func TestResolveOutputClipWindows_PreferredMaxOutputsFromPool(t *testing.T) {
+	candidates := []highlightCandidate{
+		{StartSec: 2, EndSec: 4, Score: 0.95, Reason: "peak_1"},
+		{StartSec: 6, EndSec: 8, Score: 0.93, Reason: "peak_2"},
+		{StartSec: 10, EndSec: 12, Score: 0.90, Reason: "peak_3"},
+		{StartSec: 14, EndSec: 16, Score: 0.88, Reason: "peak_4"},
+		{StartSec: 18, EndSec: 20, Score: 0.85, Reason: "peak_5"},
+		{StartSec: 22, EndSec: 24, Score: 0.82, Reason: "peak_6"},
+	}
+
+	settings := DefaultQualitySettings()
+	settings.GIFTargetSizeKB = 10240
+	settings.GIFCandidateMaxOutputs = 3
+	settings.GIFCandidateConfidenceThreshold = 0
+	settings.GIFCandidateDedupIOUThreshold = 0.45
+
+	meta := videoProbeMeta{DurationSec: 48, Width: 480, Height: 270}
+	selected, snapshot := resolveOutputClipWindows(meta, jobOptions{}, candidates, settings, len(candidates))
+	if len(selected) != 6 {
+		t.Fatalf("expected preferred pool to allow 6 windows, got %d", len(selected))
+	}
+	if got := intFromAny(snapshot["preferred_max_outputs"]); got != 6 {
+		t.Fatalf("expected preferred_max_outputs=6, got %d", got)
+	}
+	if got := intFromAny(snapshot["tier_max_outputs"]); got != 6 {
+		t.Fatalf("expected tier_max_outputs=6, got %d", got)
 	}
 }
 

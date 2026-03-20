@@ -53,6 +53,15 @@ type AdminGIFHealthLoopTuneSummary struct {
 	AvgEffectiveSec      float64 `json:"avg_effective_sec"`
 }
 
+type AdminGIFHealthOptimizerSummary struct {
+	Samples       int64   `json:"samples"`
+	Attempted     int64   `json:"attempted"`
+	Applied       int64   `json:"applied"`
+	AppliedRate   float64 `json:"applied_rate"`
+	AvgSavedRatio float64 `json:"avg_saved_ratio"`
+	AvgSavedBytes float64 `json:"avg_saved_bytes"`
+}
+
 type AdminGIFHealthPathSummary struct {
 	Total              int64   `json:"total"`
 	NewPathPrefixCount int64   `json:"new_path_prefix_count"`
@@ -119,6 +128,7 @@ type AdminGIFHealthReportResponse struct {
 	Jobs            AdminGIFHealthJobsSummary            `json:"jobs"`
 	Outputs         AdminGIFHealthOutputsSummary         `json:"outputs"`
 	LoopTune        AdminGIFHealthLoopTuneSummary        `json:"loop_tune"`
+	Optimizer       AdminGIFHealthOptimizerSummary       `json:"optimizer"`
 	Path            AdminGIFHealthPathSummary            `json:"path"`
 	TopFailures     []AdminGIFHealthFailureReason        `json:"top_failures"`
 	Consistency     AdminGIFHealthConsistencySummary     `json:"consistency"`
@@ -269,6 +279,40 @@ WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
 `, since).Scan(&out.LoopTune).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.db.Raw(`
+SELECT
+  COUNT(*)::bigint AS samples,
+  COUNT(*) FILTER (
+    WHERE COALESCE((metadata->'gif_optimization_v1'->>'attempted')::boolean, FALSE) = TRUE
+  )::bigint AS attempted,
+  COUNT(*) FILTER (
+    WHERE COALESCE((metadata->'gif_optimization_v1'->>'applied')::boolean, FALSE) = TRUE
+  )::bigint AS applied,
+  COALESCE(
+    COUNT(*) FILTER (
+      WHERE COALESCE((metadata->'gif_optimization_v1'->>'applied')::boolean, FALSE) = TRUE
+    )::double precision / NULLIF(COUNT(*), 0)::double precision,
+    0
+  ) AS applied_rate,
+  COALESCE(
+    AVG(NULLIF(metadata->'gif_optimization_v1'->>'saved_ratio', '')::double precision)
+      FILTER (WHERE COALESCE((metadata->'gif_optimization_v1'->>'applied')::boolean, FALSE) = TRUE),
+    0
+  ) AS avg_saved_ratio,
+  COALESCE(
+    AVG(NULLIF(metadata->'gif_optimization_v1'->>'saved_bytes', '')::double precision)
+      FILTER (WHERE COALESCE((metadata->'gif_optimization_v1'->>'applied')::boolean, FALSE) = TRUE),
+    0
+  ) AS avg_saved_bytes
+FROM public.video_image_outputs
+WHERE format = 'gif'
+  AND file_role = 'main'
+  AND created_at >= ?
+`, since).Scan(&out.Optimizer).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

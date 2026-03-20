@@ -15,6 +15,8 @@ type FormatCapability struct {
 type RuntimeCapabilities struct {
 	FFmpegAvailable    bool               `json:"ffmpeg_available"`
 	FFprobeAvailable   bool               `json:"ffprobe_available"`
+	GifsicleAvailable  bool               `json:"gifsicle_available"`
+	GifsiclePath       string             `json:"gifsicle_path,omitempty"`
 	SupportedFormats   []string           `json:"supported_formats"`
 	UnsupportedFormats []string           `json:"unsupported_formats"`
 	Formats            []FormatCapability `json:"formats"`
@@ -27,8 +29,13 @@ func DetectRuntimeCapabilities() RuntimeCapabilities {
 
 	_, ffmpegErr := exec.LookPath("ffmpeg")
 	_, ffprobeErr := exec.LookPath("ffprobe")
+	gifsiclePath, gifsicleErr := exec.LookPath("gifsicle")
 	result.FFmpegAvailable = ffmpegErr == nil
 	result.FFprobeAvailable = ffprobeErr == nil
+	result.GifsicleAvailable = gifsicleErr == nil
+	if gifsicleErr == nil {
+		result.GifsiclePath = strings.TrimSpace(gifsiclePath)
+	}
 
 	add := func(format string, supported bool, reason string) {
 		item := FormatCapability{

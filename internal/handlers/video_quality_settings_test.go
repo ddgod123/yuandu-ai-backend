@@ -156,6 +156,12 @@ func TestQualitySettingsModelRoundTrip_LivePortraitWeight(t *testing.T) {
 	if settings.GIFTargetSizeKB != 2048 || settings.WebPTargetSizeKB != 1536 {
 		t.Fatalf("expected default animated targets 2048/1536, got %d/%d", settings.GIFTargetSizeKB, settings.WebPTargetSizeKB)
 	}
+	if !settings.GIFGifsicleEnabled || settings.GIFGifsicleLevel != 2 {
+		t.Fatalf("expected default gifsicle enabled/level=true/2, got %v/%d", settings.GIFGifsicleEnabled, settings.GIFGifsicleLevel)
+	}
+	if settings.GIFGifsicleSkipBelowKB != 256 || settings.GIFGifsicleMinGainRatio != 0.03 {
+		t.Fatalf("expected default gifsicle skip/min_gain=256/0.03, got %d/%.2f", settings.GIFGifsicleSkipBelowKB, settings.GIFGifsicleMinGainRatio)
+	}
 	if !settings.GIFLoopTuneEnabled {
 		t.Fatalf("expected gif loop tuning enabled by default")
 	}
@@ -195,6 +201,10 @@ func TestQualitySettingsModelRoundTrip_LivePortraitWeight(t *testing.T) {
 
 	settings.LiveCoverPortraitWeight = 0.12
 	settings.GIFTargetSizeKB = 1024
+	settings.GIFGifsicleEnabled = true
+	settings.GIFGifsicleLevel = 3
+	settings.GIFGifsicleSkipBelowKB = 512
+	settings.GIFGifsicleMinGainRatio = 0.08
 	settings.GIFLoopTuneEnabled = false
 	settings.GIFLoopTuneMinEnableSec = 1.1
 	settings.GIFLoopTuneMinImprovement = 0.02
@@ -222,6 +232,12 @@ func TestQualitySettingsModelRoundTrip_LivePortraitWeight(t *testing.T) {
 	}
 	if row.GIFTargetSizeKB != 1024 || row.WebPTargetSizeKB != 896 {
 		t.Fatalf("expected model animated targets 1024/896, got %d/%d", row.GIFTargetSizeKB, row.WebPTargetSizeKB)
+	}
+	if !row.GIFGifsicleEnabled || row.GIFGifsicleLevel != 3 {
+		t.Fatalf("expected model gifsicle enabled/level=true/3, got %v/%d", row.GIFGifsicleEnabled, row.GIFGifsicleLevel)
+	}
+	if row.GIFGifsicleSkipBelowKB != 512 || row.GIFGifsicleMinGainRatio != 0.08 {
+		t.Fatalf("expected model gifsicle skip/min_gain=512/0.08, got %d/%.2f", row.GIFGifsicleSkipBelowKB, row.GIFGifsicleMinGainRatio)
 	}
 	if row.GIFLoopTuneEnabled {
 		t.Fatalf("expected model gif loop tuning disabled")
@@ -339,6 +355,22 @@ func TestValidateVideoQualitySettingRequest(t *testing.T) {
 		req.HighlightWeightReason = 0
 		if err := validateVideoQualitySettingRequest(req); err == nil {
 			t.Fatalf("expected highlight weight sum validation error")
+		}
+	})
+
+	t.Run("invalid gifsicle level", func(t *testing.T) {
+		req := makeValidVideoQualitySettingRequest(t)
+		req.GIFGifsicleLevel = 9
+		if err := validateVideoQualitySettingRequest(req); err == nil {
+			t.Fatalf("expected gifsicle level validation error")
+		}
+	})
+
+	t.Run("invalid gifsicle min gain ratio", func(t *testing.T) {
+		req := makeValidVideoQualitySettingRequest(t)
+		req.GIFGifsicleMinGainRatio = 0.8
+		if err := validateVideoQualitySettingRequest(req); err == nil {
+			t.Fatalf("expected gifsicle min gain validation error")
 		}
 	})
 

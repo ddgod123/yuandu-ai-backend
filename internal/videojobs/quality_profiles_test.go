@@ -46,6 +46,18 @@ func TestNormalizeQualitySettings_DefaultProfiles(t *testing.T) {
 	if settings.GIFTargetSizeKB != 2048 {
 		t.Fatalf("expected default gif target size 2048, got %d", settings.GIFTargetSizeKB)
 	}
+	if !settings.GIFGifsicleEnabled {
+		t.Fatalf("expected gif gifsicle optimization enabled by default")
+	}
+	if settings.GIFGifsicleLevel != 2 {
+		t.Fatalf("expected default gifsicle level 2, got %d", settings.GIFGifsicleLevel)
+	}
+	if settings.GIFGifsicleSkipBelowKB != 256 {
+		t.Fatalf("expected default gifsicle skip_below 256kb, got %d", settings.GIFGifsicleSkipBelowKB)
+	}
+	if settings.GIFGifsicleMinGainRatio != 0.03 {
+		t.Fatalf("expected default gifsicle min gain ratio 0.03, got %.2f", settings.GIFGifsicleMinGainRatio)
+	}
 	if !settings.GIFLoopTuneEnabled {
 		t.Fatalf("expected gif loop tuning enabled by default")
 	}
@@ -63,6 +75,12 @@ func TestNormalizeQualitySettings_DefaultProfiles(t *testing.T) {
 	}
 	if settings.GIFCandidateMaxOutputs != 3 {
 		t.Fatalf("expected default gif candidate max outputs 3, got %d", settings.GIFCandidateMaxOutputs)
+	}
+	if settings.GIFCandidateLongVideoMaxOutputs != 3 {
+		t.Fatalf("expected default gif long video max outputs 3, got %d", settings.GIFCandidateLongVideoMaxOutputs)
+	}
+	if settings.GIFCandidateUltraVideoMaxOutputs != 2 {
+		t.Fatalf("expected default gif ultra video max outputs 2, got %d", settings.GIFCandidateUltraVideoMaxOutputs)
 	}
 	if settings.GIFCandidateConfidenceThreshold != 0.35 {
 		t.Fatalf("expected default gif candidate confidence threshold 0.35, got %.2f", settings.GIFCandidateConfidenceThreshold)
@@ -228,25 +246,43 @@ func TestNormalizeQualitySettings_LiveSceneGuardBounds(t *testing.T) {
 
 func TestNormalizeQualitySettings_StillAndAnimatedBudgetBounds(t *testing.T) {
 	settings := NormalizeQualitySettings(QualitySettings{
-		GIFTargetSizeKB:                 -1,
-		GIFLoopTuneEnabled:              false,
-		GIFLoopTuneMinEnableSec:         -1,
-		GIFLoopTuneMinImprovement:       9,
-		GIFLoopTuneMotionTarget:         -1,
-		GIFLoopTunePreferDuration:       99,
-		GIFCandidateMaxOutputs:          100,
-		GIFCandidateConfidenceThreshold: 9,
-		GIFCandidateDedupIOUThreshold:   -1,
-		WebPTargetSizeKB:                200000,
-		JPGTargetSizeKB:                 -2,
-		PNGTargetSizeKB:                 200000,
-		StillMinBlurScore:               999,
-		StillMinExposureScore:           -1,
-		StillMinWidth:                   -100,
-		StillMinHeight:                  99999,
+		GIFTargetSizeKB:                  -1,
+		GIFGifsicleEnabled:               false,
+		GIFGifsicleLevel:                 99,
+		GIFGifsicleSkipBelowKB:           -9,
+		GIFGifsicleMinGainRatio:          9,
+		GIFLoopTuneEnabled:               false,
+		GIFLoopTuneMinEnableSec:          -1,
+		GIFLoopTuneMinImprovement:        9,
+		GIFLoopTuneMotionTarget:          -1,
+		GIFLoopTunePreferDuration:        99,
+		GIFCandidateMaxOutputs:           100,
+		GIFCandidateLongVideoMaxOutputs:  100,
+		GIFCandidateUltraVideoMaxOutputs: 100,
+		GIFCandidateConfidenceThreshold:  9,
+		GIFCandidateDedupIOUThreshold:    -1,
+		WebPTargetSizeKB:                 200000,
+		JPGTargetSizeKB:                  -2,
+		PNGTargetSizeKB:                  200000,
+		StillMinBlurScore:                999,
+		StillMinExposureScore:            -1,
+		StillMinWidth:                    -100,
+		StillMinHeight:                   99999,
 	})
 	if settings.GIFTargetSizeKB != 2048 {
 		t.Fatalf("expected gif target fallback 2048, got %d", settings.GIFTargetSizeKB)
+	}
+	if settings.GIFGifsicleEnabled {
+		t.Fatalf("expected explicit gifsicle enabled false to remain false")
+	}
+	if settings.GIFGifsicleLevel != 3 {
+		t.Fatalf("expected gifsicle level clamp 3, got %d", settings.GIFGifsicleLevel)
+	}
+	if settings.GIFGifsicleSkipBelowKB != 0 {
+		t.Fatalf("expected gifsicle skip threshold clamp 0, got %d", settings.GIFGifsicleSkipBelowKB)
+	}
+	if settings.GIFGifsicleMinGainRatio != 0.5 {
+		t.Fatalf("expected gifsicle min gain ratio clamp 0.5, got %.2f", settings.GIFGifsicleMinGainRatio)
 	}
 	if settings.WebPTargetSizeKB != 10240 {
 		t.Fatalf("expected webp target clamp 10240, got %d", settings.WebPTargetSizeKB)
@@ -268,6 +304,12 @@ func TestNormalizeQualitySettings_StillAndAnimatedBudgetBounds(t *testing.T) {
 	}
 	if settings.GIFCandidateMaxOutputs != 6 {
 		t.Fatalf("expected gif candidate max outputs clamp 6, got %d", settings.GIFCandidateMaxOutputs)
+	}
+	if settings.GIFCandidateLongVideoMaxOutputs != 6 {
+		t.Fatalf("expected gif long video max outputs clamp 6, got %d", settings.GIFCandidateLongVideoMaxOutputs)
+	}
+	if settings.GIFCandidateUltraVideoMaxOutputs != 6 {
+		t.Fatalf("expected gif ultra video max outputs clamp 6, got %d", settings.GIFCandidateUltraVideoMaxOutputs)
 	}
 	if settings.GIFCandidateConfidenceThreshold != 0.95 {
 		t.Fatalf("expected gif candidate confidence threshold clamp 0.95, got %.2f", settings.GIFCandidateConfidenceThreshold)
@@ -295,6 +337,36 @@ func TestNormalizeQualitySettings_StillAndAnimatedBudgetBounds(t *testing.T) {
 	}
 }
 
+func TestNormalizeQualitySettings_GIFCandidateTierCaps(t *testing.T) {
+	settings := NormalizeQualitySettings(QualitySettings{
+		GIFCandidateMaxOutputs:           4,
+		GIFCandidateLongVideoMaxOutputs:  6,
+		GIFCandidateUltraVideoMaxOutputs: 5,
+		GIFCandidateConfidenceThreshold:  0.35,
+		GIFCandidateDedupIOUThreshold:    0.45,
+	})
+	if settings.GIFCandidateLongVideoMaxOutputs != 4 {
+		t.Fatalf("expected long tier cap <= base cap (4), got %d", settings.GIFCandidateLongVideoMaxOutputs)
+	}
+	if settings.GIFCandidateUltraVideoMaxOutputs != 4 {
+		t.Fatalf("expected ultra tier cap <= long cap (4), got %d", settings.GIFCandidateUltraVideoMaxOutputs)
+	}
+
+	settings = NormalizeQualitySettings(QualitySettings{
+		GIFCandidateMaxOutputs:           2,
+		GIFCandidateLongVideoMaxOutputs:  0,
+		GIFCandidateUltraVideoMaxOutputs: 0,
+		GIFCandidateConfidenceThreshold:  0.35,
+		GIFCandidateDedupIOUThreshold:    0.45,
+	})
+	if settings.GIFCandidateLongVideoMaxOutputs != 2 {
+		t.Fatalf("expected long tier fallback clamped to base(2), got %d", settings.GIFCandidateLongVideoMaxOutputs)
+	}
+	if settings.GIFCandidateUltraVideoMaxOutputs != 2 {
+		t.Fatalf("expected ultra tier fallback clamped to long(2), got %d", settings.GIFCandidateUltraVideoMaxOutputs)
+	}
+}
+
 func TestNormalizeQualitySettings_AIDirectorOperatorFields(t *testing.T) {
 	settings := NormalizeQualitySettings(QualitySettings{
 		AIDirectorOperatorInstruction:        "   keep only emotional peaks   ",
@@ -317,5 +389,26 @@ func TestNormalizeQualitySettings_AIDirectorOperatorFields(t *testing.T) {
 	}
 	if defaults.AIDirectorOperatorInstructionVersion != "v1" {
 		t.Fatalf("expected default version v1, got %q", defaults.AIDirectorOperatorInstructionVersion)
+	}
+}
+
+func TestNormalizeQualitySettings_AIDirectorInputMode(t *testing.T) {
+	settings := NormalizeQualitySettings(QualitySettings{
+		AIDirectorInputMode: " full_video ",
+	})
+	if settings.AIDirectorInputMode != "full_video" {
+		t.Fatalf("expected normalized input mode full_video, got %q", settings.AIDirectorInputMode)
+	}
+
+	settings = NormalizeQualitySettings(QualitySettings{
+		AIDirectorInputMode: "invalid_mode",
+	})
+	if settings.AIDirectorInputMode != "hybrid" {
+		t.Fatalf("expected invalid input mode fallback to hybrid, got %q", settings.AIDirectorInputMode)
+	}
+
+	defaults := NormalizeQualitySettings(QualitySettings{})
+	if defaults.AIDirectorInputMode != "hybrid" {
+		t.Fatalf("expected zero-value settings default ai_director_input_mode=hybrid, got %q", defaults.AIDirectorInputMode)
 	}
 }

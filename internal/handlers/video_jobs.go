@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,6 +48,7 @@ type CreateVideoJobRequest struct {
 	CategoryID       *uint64                   `json:"category_id"`
 	SourceVideoKey   string                    `json:"source_video_key"`
 	OutputFormats    []string                  `json:"output_formats"`
+	GIFPipelineMode  string                    `json:"gif_pipeline_mode,omitempty"`
 	MaxStatic        int                       `json:"max_static"`
 	FrameIntervalSec float64                   `json:"frame_interval_sec"`
 	AutoHighlight    *bool                     `json:"auto_highlight"`
@@ -159,6 +161,8 @@ type VideoJobResultResponse struct {
 type VideoJobCapabilitiesResponse struct {
 	FFmpegAvailable    bool                         `json:"ffmpeg_available"`
 	FFprobeAvailable   bool                         `json:"ffprobe_available"`
+	GifsicleAvailable  bool                         `json:"gifsicle_available"`
+	GifsiclePath       string                       `json:"gifsicle_path,omitempty"`
 	SupportedFormats   []string                     `json:"supported_formats"`
 	UnsupportedFormats []string                     `json:"unsupported_formats"`
 	Formats            []videojobs.FormatCapability `json:"formats"`
@@ -166,6 +170,22 @@ type VideoJobCapabilitiesResponse struct {
 
 type ProbeSourceVideoRequest struct {
 	SourceVideoKey string `json:"source_video_key"`
+}
+
+type ProbeSourceVideoURLRequest struct {
+	SourceURL string `json:"source_url"`
+}
+
+type ProbeSourceVideoURLResponse struct {
+	SourceURL      string `json:"source_url"`
+	NormalizedURL  string `json:"normalized_url"`
+	Provider       string `json:"provider"`
+	ProviderLabel  string `json:"provider_label"`
+	SourceType     string `json:"source_type"`
+	MockOnly       bool   `json:"mock_only"`
+	Supported      bool   `json:"supported"`
+	NeedsIngestion bool   `json:"needs_ingestion"`
+	Message        string `json:"message"`
 }
 
 type ProbeSourceVideoResponse struct {
@@ -302,6 +322,15 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	if req.FrameIntervalSec > 0 {
 		options["frame_interval_sec"] = req.FrameIntervalSec
 	}
+	if mode := strings.ToLower(strings.TrimSpace(req.GIFPipelineMode)); mode != "" {
+		switch mode {
+		case "light", "standard", "hq":
+			options["gif_pipeline_mode"] = mode
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "gif_pipeline_mode must be one of: light, standard, hq"})
+			return
+		}
+	}
 	editOptions, err := normalizeVideoEditOptions(req.EditOptions)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -314,33 +343,54 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	probeMeta, err := h.preflightProbeSourceVideo(c.Request.Context(), sourceKey)
 	if err != nil {
 		detail := describeSourceVideoProbeFailure(err)
-		resp := gin.H{
-			"error":       "invalid_source_video",
-			"message":     detail.Message,
-			"reason_code": detail.Code,
+		if h.cfg.VideoSourceProbeAllowDegraded {
+			options["source_video_probe"] = map[string]interface{}{
+				"duration_sec": 0,
+				"width":        0,
+				"height":       0,
+				"fps":          0,
+				"degraded":     true,
+				"reason_code":  detail.Code,
+				"message":      detail.Message,
+				"hint":         detail.Hint,
+			}
+			options["source_video_probe_degraded_v1"] = map[string]interface{}{
+				"enabled":     true,
+				"reason_code": detail.Code,
+				"message":     detail.Message,
+				"hint":        detail.Hint,
+				"error":       err.Error(),
+			}
+		} else {
+			resp := gin.H{
+				"error":       "invalid_source_video",
+				"message":     detail.Message,
+				"reason_code": detail.Code,
+			}
+			if detail.Hint != "" {
+				resp["hint"] = detail.Hint
+			}
+			if detail.MaxDurationSec > 0 {
+				resp["max_duration_sec"] = detail.MaxDurationSec
+			}
+			c.JSON(http.StatusBadRequest, resp)
+			return
 		}
-		if detail.Hint != "" {
-			resp["hint"] = detail.Hint
+	} else {
+		options["source_video_probe"] = map[string]interface{}{
+			"duration_sec": roundTo1(probeMeta.DurationSec),
+			"width":        probeMeta.Width,
+			"height":       probeMeta.Height,
+			"fps":          roundTo1(probeMeta.FPS),
 		}
-		if detail.MaxDurationSec > 0 {
-			resp["max_duration_sec"] = detail.MaxDurationSec
-		}
-		c.JSON(http.StatusBadRequest, resp)
-		return
-	}
-	options["source_video_probe"] = map[string]interface{}{
-		"duration_sec": roundTo1(probeMeta.DurationSec),
-		"width":        probeMeta.Width,
-		"height":       probeMeta.Height,
-		"fps":          roundTo1(probeMeta.FPS),
-	}
-	recommendation := h.buildQualityTemplateRecommendation(probeMeta, formats)
-	if len(recommendation) > 0 {
-		options["quality_template_recommendation"] = recommendation
-		recommended := extractRecommendedProfilesFromRecommendation(recommendation)
-		if len(recommended) > 0 {
-			options["quality_profile_overrides"] = recommended
-			options["quality_template_applied"] = "auto_recommendation"
+		recommendation := h.buildQualityTemplateRecommendation(probeMeta, formats)
+		if len(recommendation) > 0 {
+			options["quality_template_recommendation"] = recommendation
+			recommended := extractRecommendedProfilesFromRecommendation(recommendation)
+			if len(recommended) > 0 {
+				options["quality_profile_overrides"] = recommended
+				options["quality_template_applied"] = "auto_recommendation"
+			}
 		}
 	}
 	if sourceSizeBytes > 0 {
@@ -468,6 +518,8 @@ func (h *Handler) GetVideoJobCapabilities(c *gin.Context) {
 	c.JSON(http.StatusOK, VideoJobCapabilitiesResponse{
 		FFmpegAvailable:    capabilities.FFmpegAvailable,
 		FFprobeAvailable:   capabilities.FFprobeAvailable,
+		GifsicleAvailable:  capabilities.GifsicleAvailable,
+		GifsiclePath:       capabilities.GifsiclePath,
 		SupportedFormats:   capabilities.SupportedFormats,
 		UnsupportedFormats: capabilities.UnsupportedFormats,
 		Formats:            capabilities.Formats,
@@ -556,6 +608,51 @@ func (h *Handler) ProbeVideoSource(c *gin.Context) {
 		FPS:            roundTo1(meta.FPS),
 		AspectRatio:    aspectRatio,
 		Orientation:    orientation,
+	})
+}
+
+// ProbeSourceVideoURLMock godoc
+// @Summary Probe external video url (mock placeholder)
+// @Tags user
+// @Accept json
+// @Produce json
+// @Param body body ProbeSourceVideoURLRequest true "external source url"
+// @Success 200 {object} ProbeSourceVideoURLResponse
+// @Router /api/video-jobs/source-url-probe [post]
+func (h *Handler) ProbeSourceVideoURLMock(c *gin.Context) {
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req ProbeSourceVideoURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	normalizedURL, provider, providerLabel, sourceType, err := normalizeExternalVideoSourceURL(req.SourceURL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	message := "链接解析成功（Mock占位）。当前阶段暂不支持直接用外链创建任务，请先本地上传视频。"
+	if sourceType == "direct_video_url" {
+		message = "检测到可疑似直链视频地址（Mock占位）。后续将支持自动拉取并入库后创建任务。当前请先本地上传。"
+	}
+
+	c.JSON(http.StatusOK, ProbeSourceVideoURLResponse{
+		SourceURL:      strings.TrimSpace(req.SourceURL),
+		NormalizedURL:  normalizedURL,
+		Provider:       provider,
+		ProviderLabel:  providerLabel,
+		SourceType:     sourceType,
+		MockOnly:       true,
+		Supported:      false,
+		NeedsIngestion: true,
+		Message:        message,
 	})
 }
 
@@ -904,6 +1001,13 @@ func (h *Handler) GetVideoJobResult(c *gin.Context) {
 			reviewByOutputID[*row.OutputID] = status
 		}
 	}
+	jobHasGIFFormat := false
+	for _, raw := range strings.Split(strings.ToLower(strings.TrimSpace(job.OutputFormats)), ",") {
+		if strings.TrimSpace(raw) == "gif" {
+			jobHasGIFFormat = true
+			break
+		}
+	}
 
 	type feedbackSnapshot struct {
 		Action           string
@@ -966,7 +1070,11 @@ func (h *Handler) GetVideoJobResult(c *gin.Context) {
 			reviewRecommendation = normalizeVideoJobReviewStatus(reviewByOutputID[outputID])
 		}
 		if reviewRecommendation == "" {
-			reviewRecommendation = "deliver"
+			if jobHasGIFFormat {
+				reviewRecommendation = "need_manual_review"
+			} else {
+				reviewRecommendation = "deliver"
+			}
 		}
 		if reviewStatusSet != nil {
 			if _, ok := reviewStatusSet[reviewRecommendation]; !ok {
@@ -1110,6 +1218,56 @@ func (h *Handler) normalizeSourceVideoKey(raw string) (string, error) {
 		return "", errors.New("unsupported video format")
 	}
 	return key, nil
+}
+
+func normalizeExternalVideoSourceURL(raw string) (normalizedURL string, provider string, providerLabel string, sourceType string, err error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", "", "", "", errors.New("source_url required")
+	}
+	parsed, parseErr := url.Parse(text)
+	if parseErr != nil || parsed == nil {
+		return "", "", "", "", errors.New("invalid source_url")
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return "", "", "", "", errors.New("source_url must be http/https")
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if host == "" {
+		return "", "", "", "", errors.New("invalid source_url host")
+	}
+
+	parsed.Fragment = ""
+	normalized := strings.TrimSpace(parsed.String())
+	provider, providerLabel = detectExternalVideoProvider(host)
+
+	sourceType = "platform_share_url"
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(parsed.Path)))
+	if _, ok := allowedVideoFileExt[ext]; ok {
+		sourceType = "direct_video_url"
+	}
+	return normalized, provider, providerLabel, sourceType, nil
+}
+
+func detectExternalVideoProvider(host string) (provider string, providerLabel string) {
+	h := strings.ToLower(strings.TrimSpace(host))
+	switch {
+	case strings.Contains(h, "douyin.com"):
+		return "douyin", "抖音"
+	case strings.Contains(h, "kuaishou.com") || strings.Contains(h, "ksapisrv.com"):
+		return "kuaishou", "快手"
+	case strings.Contains(h, "xiaohongshu.com"):
+		return "xiaohongshu", "小红书"
+	case strings.Contains(h, "bilibili.com") || strings.Contains(h, "b23.tv"):
+		return "bilibili", "哔哩哔哩"
+	case strings.Contains(h, "weibo.com"):
+		return "weibo", "微博"
+	case strings.Contains(h, "youtube.com") || strings.Contains(h, "youtu.be"):
+		return "youtube", "YouTube"
+	default:
+		return "generic", "通用链接"
+	}
 }
 
 func buildAspectRatio(width, height int) string {

@@ -673,11 +673,15 @@ func resolveDownloadURL(fileURL string, qiniuClient *storage.QiniuClient, ttlPar
 	if key == "" {
 		return "", 0
 	}
-	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
-		return key, 0
-	}
 	if qiniuClient == nil {
 		return key, 0
+	}
+	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
+		if extracted, ok := extractQiniuObjectKey(key, qiniuClient); ok {
+			key = extracted
+		} else {
+			return key, 0
+		}
 	}
 	if qiniuClient.Private {
 		ttl, _ := strconv.Atoi(strings.TrimSpace(ttlParam))

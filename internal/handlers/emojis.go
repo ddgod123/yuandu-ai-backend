@@ -378,6 +378,17 @@ func extractQiniuObjectKey(raw string, qiniuClient *storage.QiniuClient) (string
 	}
 	domainHost, domainPath, ok := qiniuDomainInfo(qiniuClient)
 	if !ok || !strings.EqualFold(parsedURL.Hostname(), domainHost) {
+		// Legacy compatibility: if an old absolute URL still embeds a storage key
+		// under emoji/, treat it as a Qiniu object key so responses can be rewritten
+		// to the current configured domain.
+		fallback := strings.TrimLeft(parsedURL.EscapedPath(), "/")
+		if decoded, err := url.PathUnescape(fallback); err == nil {
+			fallback = decoded
+		}
+		fallback = strings.TrimSpace(fallback)
+		if strings.HasPrefix(fallback, "emoji/") {
+			return fallback, true
+		}
 		return "", false
 	}
 

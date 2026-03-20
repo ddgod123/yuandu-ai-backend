@@ -59,3 +59,30 @@ SELECT
   ) AS ai_dimension_rate
 FROM ops.video_job_costs
 WHERE updated_at >= NOW() - INTERVAL '24 hours';
+
+-- 5) AI1 输入模式与回退命中（最近 24h）
+SELECT
+  COALESCE(NULLIF(metadata->>'director_input_mode_requested', ''), 'unknown') AS requested_mode,
+  COALESCE(NULLIF(metadata->>'director_input_mode_applied', ''), 'unknown') AS applied_mode,
+  COALESCE(NULLIF(metadata->>'candidate_source', ''), 'unknown') AS candidate_source,
+  COUNT(*) AS calls
+FROM ops.video_job_ai_usage
+WHERE created_at >= NOW() - INTERVAL '24 hours'
+  AND stage = 'director'
+GROUP BY 1,2,3
+ORDER BY calls DESC, requested_mode, applied_mode;
+
+SELECT
+  COUNT(*) AS director_calls,
+  COUNT(*) FILTER (
+    WHERE COALESCE(NULLIF(metadata->>'director_input_mode_applied', ''), '') = 'full_video'
+  ) AS full_video_calls,
+  COUNT(*) FILTER (
+    WHERE COALESCE(NULLIF(metadata->>'director_input_mode_applied', ''), '') = 'frames'
+  ) AS frames_calls,
+  COUNT(*) FILTER (
+    WHERE COALESCE(NULLIF(metadata->>'candidate_source', ''), '') LIKE '%fallback%'
+  ) AS fallback_calls
+FROM ops.video_job_ai_usage
+WHERE created_at >= NOW() - INTERVAL '24 hours'
+  AND stage = 'director';

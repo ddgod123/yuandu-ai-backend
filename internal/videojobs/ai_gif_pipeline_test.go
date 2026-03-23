@@ -91,8 +91,8 @@ func TestResolveAIGIFPlannerTargetTopN(t *testing.T) {
 	}
 
 	shortMeta := videoProbeMeta{DurationSec: 30, Width: 720, Height: 720}
-	if got := resolveAIGIFPlannerTargetTopN(shortMeta, directive, settings); got != 5 {
-		t.Fatalf("expected short target_top_n=5, got %d", got)
+	if got := resolveAIGIFPlannerTargetTopN(shortMeta, directive, settings); got != 3 {
+		t.Fatalf("expected short target_top_n=3 when override disabled, got %d", got)
 	}
 
 	longMeta := videoProbeMeta{DurationSec: 180, Width: 720, Height: 720}
@@ -103,6 +103,19 @@ func TestResolveAIGIFPlannerTargetTopN(t *testing.T) {
 	ultraMeta := videoProbeMeta{DurationSec: 420, Width: 720, Height: 720}
 	if got := resolveAIGIFPlannerTargetTopN(ultraMeta, directive, settings); got != 2 {
 		t.Fatalf("expected ultra tier capped target_top_n=2, got %d", got)
+	}
+
+	settings.AIDirectorConstraintOverrideEnabled = true
+	settings.AIDirectorCountExpandRatio = 1.0
+	settings.AIDirectorCountAbsoluteCap = 10
+	if got := resolveAIGIFPlannerTargetTopN(shortMeta, directive, settings); got != 5 {
+		t.Fatalf("expected short target_top_n=5 when override enabled, got %d", got)
+	}
+	if got := resolveAIGIFPlannerTargetTopN(longMeta, directive, settings); got != 5 {
+		t.Fatalf("expected long target_top_n=5 when override enabled, got %d", got)
+	}
+	if got := resolveAIGIFPlannerTargetTopN(ultraMeta, directive, settings); got != 4 {
+		t.Fatalf("expected ultra target_top_n=4 when override enabled, got %d", got)
 	}
 }
 

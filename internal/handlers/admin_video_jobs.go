@@ -91,30 +91,42 @@ type AdminVideoJobPointHold struct {
 	SettledPoints  int64  `json:"settled_points"`
 }
 
+type AdminVideoJobAuditSummary struct {
+	ProposalCount   int `json:"proposal_count"`
+	DeliverCount    int `json:"deliver_count"`
+	FeedbackCount   int `json:"feedback_count"`
+	RerenderCount   int `json:"rerender_count"`
+	KeepInternalCnt int `json:"keep_internal_count,omitempty"`
+	RejectCount     int `json:"reject_count,omitempty"`
+	ManualCount     int `json:"need_manual_review_count,omitempty"`
+}
+
 type AdminVideoJobListItem struct {
-	ID                 uint64                   `json:"id"`
-	Title              string                   `json:"title"`
-	SourceVideoKey     string                   `json:"source_video_key"`
-	SourceVideoURL     string                   `json:"source_video_url,omitempty"`
-	CategoryID         *uint64                  `json:"category_id,omitempty"`
-	OutputFormats      []string                 `json:"output_formats"`
-	Status             string                   `json:"status"`
-	Stage              string                   `json:"stage"`
-	Progress           int                      `json:"progress"`
-	Priority           string                   `json:"priority"`
-	ErrorMessage       string                   `json:"error_message,omitempty"`
-	ResultCollectionID *uint64                  `json:"result_collection_id,omitempty"`
-	Options            map[string]interface{}   `json:"options,omitempty"`
-	Metrics            map[string]interface{}   `json:"metrics,omitempty"`
-	Cost               *AdminVideoJobCost       `json:"cost,omitempty"`
-	PointHold          *AdminVideoJobPointHold  `json:"point_hold,omitempty"`
-	User               AdminVideoJobUser        `json:"user"`
-	Collection         *AdminVideoJobCollection `json:"collection,omitempty"`
-	QueuedAt           string                   `json:"queued_at,omitempty"`
-	StartedAt          *string                  `json:"started_at,omitempty"`
-	FinishedAt         *string                  `json:"finished_at,omitempty"`
-	CreatedAt          string                   `json:"created_at"`
-	UpdatedAt          string                   `json:"updated_at"`
+	ID                 uint64                     `json:"id"`
+	Title              string                     `json:"title"`
+	SourceVideoKey     string                     `json:"source_video_key"`
+	SourceVideoURL     string                     `json:"source_video_url,omitempty"`
+	CategoryID         *uint64                    `json:"category_id,omitempty"`
+	OutputFormats      []string                   `json:"output_formats"`
+	Status             string                     `json:"status"`
+	Stage              string                     `json:"stage"`
+	Progress           int                        `json:"progress"`
+	Priority           string                     `json:"priority"`
+	AssetDomain        string                     `json:"asset_domain,omitempty"`
+	ErrorMessage       string                     `json:"error_message,omitempty"`
+	ResultCollectionID *uint64                    `json:"result_collection_id,omitempty"`
+	Options            map[string]interface{}     `json:"options,omitempty"`
+	Metrics            map[string]interface{}     `json:"metrics,omitempty"`
+	Cost               *AdminVideoJobCost         `json:"cost,omitempty"`
+	Audit              *AdminVideoJobAuditSummary `json:"audit,omitempty"`
+	PointHold          *AdminVideoJobPointHold    `json:"point_hold,omitempty"`
+	User               AdminVideoJobUser          `json:"user"`
+	Collection         *AdminVideoJobCollection   `json:"collection,omitempty"`
+	QueuedAt           string                     `json:"queued_at,omitempty"`
+	StartedAt          *string                    `json:"started_at,omitempty"`
+	FinishedAt         *string                    `json:"finished_at,omitempty"`
+	CreatedAt          string                     `json:"created_at"`
+	UpdatedAt          string                     `json:"updated_at"`
 }
 
 type AdminVideoJobListResponse struct {
@@ -135,6 +147,7 @@ type AdminVideoJobEventItem struct {
 
 type AdminVideoJobArtifactItem struct {
 	ID         uint64                 `json:"id"`
+	Format     string                 `json:"format,omitempty"`
 	Type       string                 `json:"type"`
 	QiniuKey   string                 `json:"qiniu_key"`
 	URL        string                 `json:"url,omitempty"`
@@ -143,6 +156,8 @@ type AdminVideoJobArtifactItem struct {
 	Width      int                    `json:"width"`
 	Height     int                    `json:"height"`
 	DurationMs int                    `json:"duration_ms"`
+	ProposalID *uint64                `json:"proposal_id,omitempty"`
+	IsPrimary  bool                   `json:"is_primary"`
 	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt  string                 `json:"created_at"`
 }
@@ -162,16 +177,17 @@ type AdminVideoJobGIFCandidateItem struct {
 }
 
 type AdminVideoJobDetailResponse struct {
-	Job                     AdminVideoJobListItem             `json:"job"`
-	Events                  []AdminVideoJobEventItem          `json:"events"`
-	Artifacts               []AdminVideoJobArtifactItem       `json:"artifacts"`
-	GIFCandidates           []AdminVideoJobGIFCandidateItem   `json:"gif_candidates,omitempty"`
-	AIUsages                []AdminVideoJobAIUsageItem        `json:"ai_usages,omitempty"`
-	AIGIFDirectives         []AdminVideoJobAIGIFDirectiveItem `json:"ai_gif_directives,omitempty"`
-	AIGIFProposals          []AdminVideoJobAIGIFProposalItem  `json:"ai_gif_proposals,omitempty"`
-	AIGIFReviews            []AdminVideoJobAIGIFReviewItem    `json:"ai_gif_reviews,omitempty"`
-	AIGIFReviewStatusCounts map[string]int64                  `json:"ai_gif_review_status_counts,omitempty"`
-	AIGIFReviewStatusFilter []string                          `json:"ai_gif_review_status_filter,omitempty"`
+	Job                     AdminVideoJobListItem               `json:"job"`
+	Events                  []AdminVideoJobEventItem            `json:"events"`
+	Artifacts               []AdminVideoJobArtifactItem         `json:"artifacts"`
+	GIFCandidates           []AdminVideoJobGIFCandidateItem     `json:"gif_candidates,omitempty"`
+	AIUsages                []AdminVideoJobAIUsageItem          `json:"ai_usages,omitempty"`
+	AIGIFDirectives         []AdminVideoJobAIGIFDirectiveItem   `json:"ai_gif_directives,omitempty"`
+	AIGIFProposals          []AdminVideoJobAIGIFProposalItem    `json:"ai_gif_proposals,omitempty"`
+	AIGIFReviews            []AdminVideoJobAIGIFReviewItem      `json:"ai_gif_reviews,omitempty"`
+	ProposalChains          []AdminVideoJobGIFProposalChainItem `json:"proposal_chains,omitempty"`
+	AIGIFReviewStatusCounts map[string]int64                    `json:"ai_gif_review_status_counts,omitempty"`
+	AIGIFReviewStatusFilter []string                            `json:"ai_gif_review_status_filter,omitempty"`
 }
 
 type AdminVideoJobAIUsageItem struct {
@@ -257,6 +273,32 @@ type AdminVideoJobAIGIFDirectiveItem struct {
 	PromptVersion      string                 `json:"prompt_version,omitempty"`
 	Metadata           map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt          string                 `json:"created_at"`
+}
+
+type AdminVideoJobGIFProposalChainSummary struct {
+	OutputCount           int            `json:"output_count"`
+	EvaluationCount       int            `json:"evaluation_count"`
+	ReviewCount           int            `json:"review_count"`
+	FeedbackCount         int            `json:"feedback_count"`
+	RerenderCount         int            `json:"rerender_count"`
+	DeliverCount          int            `json:"deliver_count"`
+	KeepInternalCount     int            `json:"keep_internal_count"`
+	RejectCount           int            `json:"reject_count"`
+	NeedManualReviewCount int            `json:"need_manual_review_count"`
+	LatestRecommendation  string         `json:"latest_recommendation,omitempty"`
+	FeedbackActionCounts  map[string]int `json:"feedback_action_counts,omitempty"`
+}
+
+type AdminVideoJobGIFProposalChainItem struct {
+	ChainKey    string                               `json:"chain_key"`
+	ChainType   string                               `json:"chain_type,omitempty"`
+	Proposal    *AdminVideoJobAIGIFProposalItem      `json:"proposal,omitempty"`
+	Outputs     []AdminVideoJobArtifactItem          `json:"outputs,omitempty"`
+	Evaluations []AdminVideoJobGIFEvaluationItem     `json:"evaluations,omitempty"`
+	Reviews     []AdminVideoJobAIGIFReviewItem       `json:"reviews,omitempty"`
+	Feedbacks   []AdminVideoJobGIFFeedbackItem       `json:"feedbacks,omitempty"`
+	Rerenders   []AdminVideoJobGIFRerenderRecord     `json:"rerenders,omitempty"`
+	Summary     AdminVideoJobGIFProposalChainSummary `json:"summary"`
 }
 
 type AdminVideoJobSimpleCount struct {
@@ -576,6 +618,7 @@ type AdminVideoJobSourceProbeQualityStat struct {
 type videoImageFeedbackFilter struct {
 	UserID      uint64
 	Format      string
+	AssetDomain string
 	GuardReason string
 }
 
@@ -1062,31 +1105,68 @@ func (h *Handler) loadVideoJobUserMap(jobs []models.VideoJob) map[uint64]models.
 	return result
 }
 
-func (h *Handler) loadVideoJobCollectionMap(jobs []models.VideoJob) map[uint64]models.Collection {
-	result := map[uint64]models.Collection{}
+func (h *Handler) loadVideoJobCollectionMap(jobs []models.VideoJob) map[string]models.Collection {
+	result := map[string]models.Collection{}
 	if len(jobs) == 0 {
 		return result
 	}
-	ids := make([]uint64, 0, len(jobs))
-	seen := map[uint64]struct{}{}
+	videoIDs := make([]uint64, 0, len(jobs))
+	archiveIDs := make([]uint64, 0, len(jobs))
+	seenVideo := map[uint64]struct{}{}
+	seenArchive := map[uint64]struct{}{}
 	for _, item := range jobs {
 		if item.ResultCollectionID == nil || *item.ResultCollectionID == 0 {
 			continue
 		}
-		if _, ok := seen[*item.ResultCollectionID]; ok {
-			continue
+		domain := normalizeVideoJobAssetDomain(item.AssetDomain)
+		switch domain {
+		case models.VideoJobAssetDomainVideo:
+			if _, ok := seenVideo[*item.ResultCollectionID]; ok {
+				continue
+			}
+			seenVideo[*item.ResultCollectionID] = struct{}{}
+			videoIDs = append(videoIDs, *item.ResultCollectionID)
+		default:
+			if _, ok := seenArchive[*item.ResultCollectionID]; ok {
+				continue
+			}
+			seenArchive[*item.ResultCollectionID] = struct{}{}
+			archiveIDs = append(archiveIDs, *item.ResultCollectionID)
 		}
-		seen[*item.ResultCollectionID] = struct{}{}
-		ids = append(ids, *item.ResultCollectionID)
 	}
-	if len(ids) == 0 {
+	if len(videoIDs) == 0 && len(archiveIDs) == 0 {
 		return result
 	}
 
-	var collections []models.Collection
-	_ = h.db.Select("id", "title", "cover_url", "status").Where("id IN ?", ids).Find(&collections).Error
-	for _, item := range collections {
-		result[item.ID] = item
+	if len(archiveIDs) > 0 {
+		var collections []models.Collection
+		_ = h.db.Select("id", "title", "cover_url", "status", "is_sample").Where("id IN ?", archiveIDs).Find(&collections).Error
+		for _, item := range collections {
+			result[videoJobCollectionMapKey(models.VideoJobAssetDomainArchive, item.ID)] = item
+		}
+	}
+	if len(videoIDs) > 0 {
+		var collections []models.VideoAssetCollection
+		_ = h.db.Select("id", "title", "cover_url", "status").Where("id IN ?", videoIDs).Find(&collections).Error
+		found := map[uint64]struct{}{}
+		for _, item := range collections {
+			result[videoJobCollectionMapKey(models.VideoJobAssetDomainVideo, item.ID)] = convertVideoAssetCollection(item)
+			found[item.ID] = struct{}{}
+		}
+		missed := make([]uint64, 0, len(videoIDs))
+		for _, id := range videoIDs {
+			if _, ok := found[id]; !ok {
+				missed = append(missed, id)
+			}
+		}
+		if len(missed) > 0 {
+			var fallback []models.Collection
+			_ = h.db.Select("id", "title", "cover_url", "status", "is_sample").Where("id IN ?", missed).Find(&fallback).Error
+			for _, item := range fallback {
+				// 保持 key 仍为 video 域，兼容旧任务 domain 丢失导致的读路径漂移。
+				result[videoJobCollectionMapKey(models.VideoJobAssetDomainVideo, item.ID)] = item
+			}
+		}
 	}
 	return result
 }
@@ -1153,12 +1233,104 @@ func (h *Handler) loadVideoJobPointHoldMap(jobs []models.VideoJob) map[uint64]mo
 	return result
 }
 
+func (h *Handler) loadVideoJobAuditSummaryMap(jobs []models.VideoJob) map[uint64]AdminVideoJobAuditSummary {
+	result := map[uint64]AdminVideoJobAuditSummary{}
+	if len(jobs) == 0 {
+		return result
+	}
+	ids := make([]uint64, 0, len(jobs))
+	seen := make(map[uint64]struct{}, len(jobs))
+	for _, item := range jobs {
+		if item.ID == 0 {
+			continue
+		}
+		if _, ok := seen[item.ID]; ok {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		ids = append(ids, item.ID)
+	}
+	if len(ids) == 0 {
+		return result
+	}
+
+	type groupedCountRow struct {
+		JobID uint64
+		Count int64
+	}
+	type reviewGroupedRow struct {
+		JobID       uint64
+		DeliverCnt  int64
+		KeepCnt     int64
+		RejectCnt   int64
+		ManualCnt   int64
+		RerenderCnt int64
+	}
+
+	var proposalRows []groupedCountRow
+	if err := h.db.Model(&models.VideoJobGIFAIProposal{}).
+		Select("job_id, COUNT(*) AS count").
+		Where("job_id IN ?", ids).
+		Group("job_id").
+		Scan(&proposalRows).Error; err == nil {
+		for _, row := range proposalRows {
+			item := result[row.JobID]
+			item.ProposalCount = int(row.Count)
+			result[row.JobID] = item
+		}
+	}
+
+	var reviewRows []reviewGroupedRow
+	reviewQuery := `
+SELECT
+	job_id,
+	COUNT(*) FILTER (WHERE LOWER(COALESCE(NULLIF(TRIM(final_recommendation), ''), '')) = 'deliver') AS deliver_cnt,
+	COUNT(*) FILTER (WHERE LOWER(COALESCE(NULLIF(TRIM(final_recommendation), ''), '')) = 'keep_internal') AS keep_cnt,
+	COUNT(*) FILTER (WHERE LOWER(COALESCE(NULLIF(TRIM(final_recommendation), ''), '')) = 'reject') AS reject_cnt,
+	COUNT(*) FILTER (WHERE LOWER(COALESCE(NULLIF(TRIM(final_recommendation), ''), '')) = 'need_manual_review') AS manual_cnt,
+	COUNT(*) FILTER (
+		WHERE LOWER(COALESCE(NULLIF(TRIM(model), ''), '')) = 'admin_rerender_v1'
+		OR LOWER(COALESCE(NULLIF(TRIM(metadata->>'rerender'), ''), 'false')) IN ('1', 'true', 'yes', 'y')
+	) AS rerender_cnt
+FROM archive.video_job_gif_ai_reviews
+WHERE job_id IN ?
+GROUP BY job_id
+`
+	if err := h.db.Raw(reviewQuery, ids).Scan(&reviewRows).Error; err == nil {
+		for _, row := range reviewRows {
+			item := result[row.JobID]
+			item.DeliverCount = int(row.DeliverCnt)
+			item.KeepInternalCnt = int(row.KeepCnt)
+			item.RejectCount = int(row.RejectCnt)
+			item.ManualCount = int(row.ManualCnt)
+			item.RerenderCount = int(row.RerenderCnt)
+			result[row.JobID] = item
+		}
+	}
+
+	var feedbackRows []groupedCountRow
+	if err := h.db.Model(&models.VideoImageFeedbackPublic{}).
+		Select("job_id, COUNT(*) AS count").
+		Where("job_id IN ?", ids).
+		Group("job_id").
+		Scan(&feedbackRows).Error; err == nil {
+		for _, row := range feedbackRows {
+			item := result[row.JobID]
+			item.FeedbackCount = int(row.Count)
+			result[row.JobID] = item
+		}
+	}
+
+	return result
+}
+
 func (h *Handler) buildAdminVideoJobListItem(
 	job models.VideoJob,
 	userMap map[uint64]models.User,
-	collectionMap map[uint64]models.Collection,
+	collectionMap map[string]models.Collection,
 	costMap map[uint64]models.VideoJobCost,
 	pointHoldMap map[uint64]models.ComputePointHold,
+	auditSummaryMap map[uint64]AdminVideoJobAuditSummary,
 ) AdminVideoJobListItem {
 	user := userMap[job.UserID]
 	userLevel := "free"
@@ -1179,7 +1351,8 @@ func (h *Handler) buildAdminVideoJobListItem(
 
 	var collection *AdminVideoJobCollection
 	if job.ResultCollectionID != nil && *job.ResultCollectionID > 0 {
-		if col, ok := collectionMap[*job.ResultCollectionID]; ok {
+		key := videoJobCollectionMapKey(job.AssetDomain, *job.ResultCollectionID)
+		if col, ok := collectionMap[key]; ok {
 			collection = &AdminVideoJobCollection{
 				ID:       col.ID,
 				Title:    col.Title,
@@ -1223,6 +1396,11 @@ func (h *Handler) buildAdminVideoJobListItem(
 			SettledPoints:  item.SettledPoints,
 		}
 	}
+	var audit *AdminVideoJobAuditSummary
+	if item, ok := auditSummaryMap[job.ID]; ok {
+		tmp := item
+		audit = &tmp
+	}
 
 	return AdminVideoJobListItem{
 		ID:                 job.ID,
@@ -1235,11 +1413,13 @@ func (h *Handler) buildAdminVideoJobListItem(
 		Stage:              job.Stage,
 		Progress:           job.Progress,
 		Priority:           job.Priority,
+		AssetDomain:        normalizeVideoJobAssetDomain(job.AssetDomain),
 		ErrorMessage:       strings.TrimSpace(job.ErrorMessage),
 		ResultCollectionID: job.ResultCollectionID,
 		Options:            parseJSONMap(job.Options),
 		Metrics:            parseJSONMap(job.Metrics),
 		Cost:               cost,
+		Audit:              audit,
 		PointHold:          pointHold,
 		User: AdminVideoJobUser{
 			ID:                 user.ID,
@@ -2771,11 +2951,19 @@ func parseVideoImageFeedbackFilter(c *gin.Context) (*videoImageFeedbackFilter, e
 	if format := normalizeVideoJobFormat(c.Query("format")); format != "" && format != "all" {
 		filter.Format = format
 	}
+	if assetDomain := strings.ToLower(strings.TrimSpace(c.Query("asset_domain"))); assetDomain != "" && assetDomain != "all" {
+		switch assetDomain {
+		case models.VideoJobAssetDomainVideo, models.VideoJobAssetDomainArchive, models.VideoJobAssetDomainAdmin, models.VideoJobAssetDomainUGC:
+			filter.AssetDomain = assetDomain
+		default:
+			return nil, errors.New("invalid asset_domain")
+		}
+	}
 	if guardReason := strings.ToLower(strings.TrimSpace(c.Query("guard_reason"))); guardReason != "" && guardReason != "all" {
 		filter.GuardReason = guardReason
 	}
 
-	if filter.UserID == 0 && filter.Format == "" && filter.GuardReason == "" {
+	if filter.UserID == 0 && filter.Format == "" && filter.AssetDomain == "" && filter.GuardReason == "" {
 		return nil, nil
 	}
 	return &filter, nil
@@ -2795,6 +2983,11 @@ func buildVideoImageFeedbackFilterSQL(filter *videoImageFeedbackFilter) (string,
 	if filter.Format != "" {
 		clauses = append(clauses, buildVideoJobFormatFilterPredicate("j"))
 		args = append(args, filter.Format, filter.Format)
+	}
+	if filter.AssetDomain != "" {
+		// 兼容 public.video_image_jobs 不存在 asset_domain 列的历史结构，避免 SQLSTATE 42703
+		clauses = append(clauses, "LOWER(COALESCE(NULLIF(to_jsonb(j)->>'asset_domain', ''), 'video')) = ?")
+		args = append(args, filter.AssetDomain)
 	}
 	if filter.GuardReason != "" {
 		clauses = append(clauses, `

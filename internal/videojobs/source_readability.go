@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -47,19 +48,25 @@ type sourceURLCandidate struct {
 	raw  string
 }
 
-func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key, outPath string) (map[string]interface{}, error) {
+func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key, outPath string, expectedSizeBytes int64) (map[string]interface{}, error) {
 	startedAt := time.Now()
 	cleanKey := strings.TrimLeft(strings.TrimSpace(key), "/")
 	attempts := make([]map[string]interface{}, 0, 8)
+	expectedSizeBytes = normalizePositiveInt64(expectedSizeBytes)
+	var lastDownloadedSize int64
+	lastSizeMatch := expectedSizeBytes <= 0
 
-	pushAttempt := func(step, kind, target string, started time.Time, success bool, err error) {
+	pushAttempt := func(step, kind, target string, started time.Time, success bool, err error, downloadedSize int64, sizeMatch bool) {
 		row := map[string]interface{}{
-			"step":        strings.TrimSpace(step),
-			"kind":        strings.TrimSpace(kind),
-			"duration_ms": clampDurationMillis(started),
-			"success":     success,
-			"http_status": int64(0),
-			"error":       "",
+			"step":                  strings.TrimSpace(step),
+			"kind":                  strings.TrimSpace(kind),
+			"duration_ms":           clampDurationMillis(started),
+			"success":               success,
+			"http_status":           int64(0),
+			"error":                 "",
+			"downloaded_size_bytes": normalizePositiveInt64(downloadedSize),
+			"expected_size_bytes":   expectedSizeBytes,
+			"size_match":            sizeMatch,
 		}
 		if host := sourceTargetHost(target); host != "" {
 			row["target_host"] = host
@@ -70,23 +77,28 @@ func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key,
 		if err != nil {
 			row["error"] = strings.TrimSpace(err.Error())
 		}
+		lastDownloadedSize = normalizePositiveInt64(downloadedSize)
+		lastSizeMatch = sizeMatch
 		attempts = append(attempts, row)
 	}
 
 	buildDiagnostic := func(success bool, successStep string, reasonCode string, permanent bool, hint string, finalErr error) map[string]interface{} {
 		diag := map[string]interface{}{
-			"source_video_key": strings.TrimSpace(cleanKey),
-			"checked_at":       startedAt.Format(time.RFC3339),
-			"duration_ms":      clampDurationMillis(startedAt),
-			"success":          success,
-			"success_step":     strings.TrimSpace(successStep),
-			"used_fallback":    strings.TrimSpace(successStep) != "" && strings.TrimSpace(successStep) != "qiniu_sdk_get",
-			"reason_code":      strings.TrimSpace(reasonCode),
-			"permanent":        permanent,
-			"hint":             strings.TrimSpace(hint),
-			"attempt_count":    len(attempts),
-			"attempts":         attempts,
-			"error":            "",
+			"source_video_key":      strings.TrimSpace(cleanKey),
+			"checked_at":            startedAt.Format(time.RFC3339),
+			"duration_ms":           clampDurationMillis(startedAt),
+			"success":               success,
+			"success_step":          strings.TrimSpace(successStep),
+			"used_fallback":         strings.TrimSpace(successStep) != "" && strings.TrimSpace(successStep) != "qiniu_sdk_get",
+			"reason_code":           strings.TrimSpace(reasonCode),
+			"permanent":             permanent,
+			"hint":                  strings.TrimSpace(hint),
+			"attempt_count":         len(attempts),
+			"attempts":              attempts,
+			"error":                 "",
+			"downloaded_size_bytes": normalizePositiveInt64(lastDownloadedSize),
+			"expected_size_bytes":   expectedSizeBytes,
+			"size_match":            lastSizeMatch,
 		}
 		if finalErr != nil {
 			diag["error"] = strings.TrimSpace(finalErr.Error())
@@ -101,18 +113,25 @@ func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key,
 			Permanent:  true,
 			Err:        errors.New("empty source video key"),
 		}
-		pushAttempt("source_key_check", "local", cleanKey, startedAt, false, err.Err)
+		pushAttempt("source_key_check", "local", cleanKey, startedAt, false, err.Err, 0, false)
 		return buildDiagnostic(false, "", err.ReasonCode, err.Permanent, err.Hint, err), err
 	}
 
 	// Layer 1: 七牛 SDK 直连读取
 	sdkStarted := time.Now()
+	_ = os.Remove(outPath)
 	sdkErr := p.downloadObjectByBucketManager(ctx, cleanKey, outPath)
 	if sdkErr == nil {
-		pushAttempt("qiniu_sdk_get", "sdk", cleanKey, sdkStarted, true, nil)
-		return buildDiagnostic(true, "qiniu_sdk_get", "ok", false, "", nil), nil
+		downloadedSize, sizeMatch, verifyErr := validateDownloadedSourceFile(outPath, expectedSizeBytes)
+		if verifyErr == nil {
+			pushAttempt("qiniu_sdk_get", "sdk", cleanKey, sdkStarted, true, nil, downloadedSize, sizeMatch)
+			return buildDiagnostic(true, "qiniu_sdk_get", "ok", false, "", nil), nil
+		}
+		sdkErr = verifyErr
+		pushAttempt("qiniu_sdk_get", "sdk", cleanKey, sdkStarted, false, sdkErr, downloadedSize, sizeMatch)
+	} else {
+		pushAttempt("qiniu_sdk_get", "sdk", cleanKey, sdkStarted, false, sdkErr, 0, false)
 	}
-	pushAttempt("qiniu_sdk_get", "sdk", cleanKey, sdkStarted, false, sdkErr)
 
 	// Layer 2/3: URL 读取（签名 URL -> 公共 URL）
 	candidates := make([]sourceURLCandidate, 0, 2)
@@ -123,7 +142,7 @@ func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key,
 			raw:  signed,
 		})
 	} else {
-		pushAttempt("qiniu_signed_url_prepare", "signed_url", cleanKey, time.Now(), false, err)
+		pushAttempt("qiniu_signed_url_prepare", "signed_url", cleanKey, time.Now(), false, err, 0, false)
 	}
 
 	if publicURL, err := p.buildPublicObjectReadURL(cleanKey); err == nil {
@@ -133,7 +152,7 @@ func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key,
 			raw:  publicURL,
 		})
 	} else {
-		pushAttempt("qiniu_public_url_prepare", "public_url", cleanKey, time.Now(), false, err)
+		pushAttempt("qiniu_public_url_prepare", "public_url", cleanKey, time.Now(), false, err, 0, false)
 	}
 
 	used := map[string]struct{}{}
@@ -150,14 +169,21 @@ func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key,
 		}
 		used[dedup] = struct{}{}
 		started := time.Now()
+		_ = os.Remove(outPath)
 		err := p.downloadObject(ctx, u, outPath)
 		if err == nil {
-			pushAttempt(candidate.step, candidate.kind, u, started, true, nil)
-			successStep = candidate.step
-			return buildDiagnostic(true, successStep, "ok", false, "", nil), nil
+			downloadedSize, sizeMatch, verifyErr := validateDownloadedSourceFile(outPath, expectedSizeBytes)
+			if verifyErr == nil {
+				pushAttempt(candidate.step, candidate.kind, u, started, true, nil, downloadedSize, sizeMatch)
+				successStep = candidate.step
+				return buildDiagnostic(true, successStep, "ok", false, "", nil), nil
+			}
+			lastErr = verifyErr
+			pushAttempt(candidate.step, candidate.kind, u, started, false, verifyErr, downloadedSize, sizeMatch)
+			continue
 		}
 		lastErr = err
-		pushAttempt(candidate.step, candidate.kind, u, started, false, err)
+		pushAttempt(candidate.step, candidate.kind, u, started, false, err, 0, false)
 	}
 
 	combinedErr := lastErr
@@ -172,6 +198,29 @@ func (p *Processor) downloadObjectByKeyWithReadability(ctx context.Context, key,
 		Err:        combinedErr,
 	}
 	return buildDiagnostic(false, "", reasonCode, permanent, hint, readErr), readErr
+}
+
+func validateDownloadedSourceFile(path string, expectedSizeBytes int64) (downloadedSize int64, sizeMatch bool, err error) {
+	info, statErr := os.Stat(strings.TrimSpace(path))
+	if statErr != nil {
+		return 0, false, fmt.Errorf("downloaded source stat failed: %w", statErr)
+	}
+	downloadedSize = info.Size()
+	if downloadedSize <= 0 {
+		return 0, false, errors.New("downloaded source size non_positive")
+	}
+	expectedSizeBytes = normalizePositiveInt64(expectedSizeBytes)
+	if expectedSizeBytes > 0 && downloadedSize != expectedSizeBytes {
+		return downloadedSize, false, fmt.Errorf("downloaded source size mismatch: expected=%d got=%d", expectedSizeBytes, downloadedSize)
+	}
+	return downloadedSize, true, nil
+}
+
+func normalizePositiveInt64(v int64) int64 {
+	if v <= 0 {
+		return 0
+	}
+	return v
 }
 
 func (p *Processor) buildSignedObjectReadURL(key string) (string, error) {
@@ -238,6 +287,7 @@ func classifySourceReadabilityFailure(sdkErr error, attempts []map[string]interf
 	hasTimeout := false
 	hasNetwork := false
 	hasURLPrepareFailure := false
+	hasIntegrityMismatch := false
 
 	for _, item := range attempts {
 		step := strings.TrimSpace(strings.ToLower(fmt.Sprint(item["step"])))
@@ -254,9 +304,18 @@ func classifySourceReadabilityFailure(sdkErr error, attempts []map[string]interf
 		if status >= 500 {
 			has5xx = true
 		}
+		downloadedSize := sourceInt64FromAny(item["downloaded_size_bytes"])
+		expectedSize := sourceInt64FromAny(item["expected_size_bytes"])
+		sizeMatchValue := strings.ToLower(strings.TrimSpace(fmt.Sprint(item["size_match"])))
+		if expectedSize > 0 && (downloadedSize != expectedSize || sizeMatchValue == "false") {
+			hasIntegrityMismatch = true
+		}
 		errText := strings.ToLower(strings.TrimSpace(fmt.Sprint(item["error"])))
 		if errText == "" {
 			continue
+		}
+		if strings.Contains(errText, "size mismatch") || strings.Contains(errText, "size non_positive") {
+			hasIntegrityMismatch = true
 		}
 		if strings.Contains(errText, "timeout") || strings.Contains(errText, "deadline exceeded") {
 			hasTimeout = true
@@ -275,6 +334,9 @@ func classifySourceReadabilityFailure(sdkErr error, attempts []map[string]interf
 	}
 	if hasAuth {
 		return "source_video_forbidden", "源视频读取被拒绝，请检查七牛私有读权限、签名域名和 token 配置。", true
+	}
+	if hasIntegrityMismatch {
+		return "source_video_integrity_mismatch", "源视频完整性校验失败（大小不一致/空文件），请稍后重试或重新上传源视频。", false
 	}
 	if has5xx {
 		return "source_video_storage_5xx", "存储服务异常（5xx），建议稍后自动重试。", false

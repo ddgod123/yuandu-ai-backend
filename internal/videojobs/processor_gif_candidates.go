@@ -17,6 +17,7 @@ func (p *Processor) persistGIFHighlightCandidates(
 	ctx context.Context,
 	sourcePath string,
 	meta videoProbeMeta,
+	options jobOptions,
 	jobID uint64,
 	suggestion highlightSuggestion,
 	qualitySettings QualitySettings,
@@ -73,6 +74,7 @@ func (p *Processor) persistGIFHighlightCandidates(
 			ctx,
 			sourcePath,
 			meta,
+			options,
 			candidate,
 			qualitySettings,
 			topScore,
@@ -306,6 +308,7 @@ func (p *Processor) buildGIFCandidateFeatureSnapshot(
 	ctx context.Context,
 	sourcePath string,
 	meta videoProbeMeta,
+	options jobOptions,
 	candidate highlightCandidate,
 	qualitySettings QualitySettings,
 	topScore float64,
@@ -318,6 +321,7 @@ func (p *Processor) buildGIFCandidateFeatureSnapshot(
 	if durationSec < 0 {
 		durationSec = 0
 	}
+	costEstimate := estimateGIFCandidateCost(meta, candidate, options, qualitySettings)
 	confidence := estimateGIFCandidateConfidence(candidate.Score, topScore, scoreSpread, selected)
 	feature := map[string]interface{}{
 		"scene_score":            roundTo(candidate.SceneScore, 4),
@@ -332,7 +336,10 @@ func (p *Processor) buildGIFCandidateFeatureSnapshot(
 		"confidence_score":       roundTo(confidence, 4),
 		"confidence_threshold":   roundTo(qualitySettings.GIFCandidateConfidenceThreshold, 4),
 		"dedup_iou_threshold":    roundTo(qualitySettings.GIFCandidateDedupIOUThreshold, 4),
-		"estimated_size_kb":      roundTo(estimateGIFCandidateSizeKB(meta, candidate, qualitySettings), 2),
+		"estimated_size_kb":      roundTo(costEstimate.PredictedSizeKB, 2),
+		"predicted_render_sec":   roundTo(costEstimate.PredictedRenderSec, 3),
+		"render_cost_units":      roundTo(costEstimate.CostUnits, 3),
+		"cost_model_version":     strings.TrimSpace(costEstimate.ModelVersion),
 		"gif_profile":            strings.TrimSpace(strings.ToLower(qualitySettings.GIFProfile)),
 		"gif_default_fps":        qualitySettings.GIFDefaultFPS,
 		"gif_default_max_colors": qualitySettings.GIFDefaultMaxColors,
@@ -466,32 +473,6 @@ func extractSampleBlurScores(samples []frameQualitySample) []float64 {
 		}
 	}
 	return out
-}
-
-func estimateGIFCandidateSizeKB(meta videoProbeMeta, candidate highlightCandidate, qualitySettings QualitySettings) float64 {
-	width := meta.Width
-	height := meta.Height
-	if width <= 0 || height <= 0 {
-		width = 480
-		height = 270
-	}
-	durationSec := candidate.EndSec - candidate.StartSec
-	if durationSec <= 0 {
-		durationSec = 2.4
-	}
-	fps := qualitySettings.GIFDefaultFPS
-	if fps <= 0 {
-		fps = 12
-	}
-	maxColors := qualitySettings.GIFDefaultMaxColors
-	if maxColors <= 0 {
-		maxColors = 128
-	}
-	pixels := float64(width * height)
-	colorFactor := 0.6 + clampZeroOne(float64(maxColors)/256.0)*0.8
-	frameFactor := float64(fps) / 12.0
-	rawBytes := pixels * durationSec * frameFactor * colorFactor * 0.065
-	return math.Max(32, rawBytes/1024.0)
 }
 
 func candidateWindowPositionRatio(candidate highlightCandidate, totalDurationSec float64) float64 {

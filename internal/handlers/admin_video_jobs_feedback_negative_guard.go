@@ -66,7 +66,7 @@ SELECT
 		WHERE group_name = 'treatment'
 			AND guard_reason_hit = 1
 			AND before_reason <> ''
-			AND (reason_negative_guard ? before_reason)
+			AND jsonb_exists(reason_negative_guard, before_reason)
 			AND after_reason <> ''
 			AND after_reason <> before_reason
 	)::bigint AS blocked_reason_jobs,
@@ -254,7 +254,7 @@ SELECT
 	(
 		(jsonb_typeof(reason_negative_guard) = 'object' AND reason_negative_guard <> '{}'::jsonb)
 		AND before_reason <> ''
-		AND (reason_negative_guard ? before_reason)
+		AND jsonb_exists(reason_negative_guard, before_reason)
 		AND after_reason <> ''
 		AND after_reason <> before_reason
 	) AS blocked_reason,
@@ -285,7 +285,7 @@ WHERE group_name = 'treatment'
 			before_reason <> ''
 			AND after_reason <> ''
 			AND after_reason <> before_reason
-			AND (reason_negative_guard ? before_reason)
+			AND jsonb_exists(reason_negative_guard, before_reason)
 		)
 	)
 ORDER BY blocked_reason DESC, finished_at DESC NULLS LAST, job_id DESC

@@ -69,7 +69,9 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	defer os.RemoveAll(tmpDir)
 
 	sourcePath := filepath.Join(tmpDir, "source.mp4")
-	sourceReadability, err := p.downloadObjectByKeyWithReadability(ctx, job.SourceVideoKey, sourcePath)
+	optionsPayload := parseJSONMap(job.Options)
+	expectedSourceSizeBytes := sourceInt64FromAny(optionsPayload["source_video_size_bytes"])
+	sourceReadability, err := p.downloadObjectByKeyWithReadability(ctx, job.SourceVideoKey, sourcePath, expectedSourceSizeBytes)
 	if err != nil {
 		p.persistSourceReadability(job.ID, job.Metrics, sourceReadability)
 		p.appendJobEvent(job.ID, models.VideoJobStagePreprocessing, "warn", "source video readability failed", sourceReadability)
@@ -200,7 +202,6 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	options := parseJobOptions(job.Options)
 	qualitySettings := p.loadQualitySettings()
 	requestedFormats := normalizeOutputFormats(job.OutputFormats)
-	optionsPayload := parseJSONMap(job.Options)
 	pipelineMode := gifPipelineModeStandard
 	pipelineModeDecision := gifPipelineModeDecision{
 		Mode:          gifPipelineModeStandard,
@@ -473,6 +474,7 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 		if suggestion.Selected == nil {
 			applyLocalHighlightFallback("planner_empty")
 		}
+		plannerPrimary := strings.EqualFold(strings.TrimSpace(suggestion.Strategy), "ai_semantic_planner")
 
 		feedbackMetrics := map[string]interface{}{
 			"enabled": qualitySettings.HighlightFeedbackEnabled,
@@ -495,6 +497,20 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 						"error": profileErr.Error(),
 					})
 					feedbackMetrics["error"] = profileErr.Error()
+				} else if plannerPrimary {
+					feedbackMetrics["advisory_only"] = true
+					feedbackMetrics["applied"] = false
+					feedbackMetrics["reason"] = "ai2_primary_preserved"
+					feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
+					feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
+					feedbackMetrics["avg_signal_weight"] = roundTo(profile.AverageSignalWeight, 2)
+					feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
+					feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
+					feedbackMetrics["preferred_center"] = roundTo(profile.PreferredCenter, 4)
+					feedbackMetrics["preferred_duration"] = roundTo(profile.PreferredDuration, 4)
+					feedbackMetrics["reason_preference"] = profile.ReasonPreference
+					feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
+					feedbackMetrics["scene_preference"] = profile.ScenePreference
 				} else if reranked, applied := applyHighlightFeedbackProfile(suggestion, meta.DurationSec, profile, qualitySettings); applied {
 					beforeSelected := suggestion.Selected
 					beforeCandidates := append([]highlightCandidate{}, suggestion.Candidates...)
@@ -551,7 +567,13 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 				"options": mustJSON(optionsPayload),
 			})
 
-			if p.shouldUseCloudHighlightFallback(suggestion) {
+			if plannerPrimary {
+				metrics["highlight_cloud_fallback"] = map[string]interface{}{
+					"enabled": false,
+					"used":    false,
+					"reason":  "ai2_primary_preserved",
+				}
+			} else if p.shouldUseCloudHighlightFallback(suggestion) {
 				cloudSuggestion, cloudErr := p.requestCloudHighlightFallback(ctx, job.ID, job.UserID, sourcePath, meta, suggestion, qualitySettings)
 				if cloudErr != nil {
 					metrics["highlight_cloud_fallback"] = map[string]interface{}{
@@ -623,7 +645,7 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 			"sub_stage": gifSubStageScoring,
 			"status":    "running",
 		})
-		if err := p.persistGIFHighlightCandidates(ctx, sourcePath, meta, job.ID, *highlightPlan, qualitySettings); err != nil {
+		if err := p.persistGIFHighlightCandidates(ctx, sourcePath, meta, options, job.ID, *highlightPlan, qualitySettings); err != nil {
 			highlightCandidates = append(highlightCandidates, highlightPlan.Candidates...)
 			if len(highlightPlan.All) > 0 {
 				highlightCandidatePool = append(highlightCandidatePool, highlightPlan.All...)
@@ -882,6 +904,7 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	metrics["output_formats_requested"] = normalizeOutputFormats(job.OutputFormats)
 	metrics["output_formats"] = generatedFormats
 	metrics["result_collection_id"] = resultCollectionID
+	metrics["asset_domain"] = models.VideoJobAssetDomainVideo
 	metrics["edit_options"] = jobOptionsMetrics(options, interval)
 	metrics["effective_duration_sec"] = roundTo(effectiveDurationSec, 3)
 	metrics["package_zip_status"] = packageOutcome.Status
@@ -952,68 +975,30 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	}
 	if containsString(generatedFormats, "gif") {
 		judgeMetric := mapFromAny(metrics["gif_ai_judge_v1"])
-		shouldAttemptDeliverFallback := pipelineModeDecision.EnableAI3 && boolFromAny(judgeMetric["applied"])
-		if shouldAttemptDeliverFallback {
-			triggerReason := "judge_no_deliver"
-			fallbackContext := map[string]interface{}{
-				"pipeline_mode": pipelineMode,
-				"ai3_enabled":   pipelineModeDecision.EnableAI3,
-				"ai3_applied":   boolFromAny(judgeMetric["applied"]),
-				"ai3_reason":    stringFromAny(judgeMetric["reason"]),
-				"ai3_error":     stringFromAny(judgeMetric["error"]),
-			}
-			deliverFallback, fallbackErr := p.ensureAIGIFDeliverFallback(job, triggerReason, fallbackContext)
-			if fallbackErr != nil {
-				deliverFallback["error"] = fallbackErr.Error()
-				p.appendJobEvent(job.ID, models.VideoJobStageUploading, "warn", "gif deliver fallback failed", map[string]interface{}{
-					"error": fallbackErr.Error(),
-				})
-			}
-			metrics["gif_deliver_fallback_v1"] = deliverFallback
-			if len(judgeMetric) > 0 {
-				judgeMetric["deliver_fallback_applied"] = boolFromAny(deliverFallback["applied"])
-				judgeMetric["deliver_fallback_reason"] = stringFromAny(deliverFallback["reason"])
-				judgeMetric["deliver_fallback_trigger_reason"] = stringFromAny(deliverFallback["trigger_reason"])
-				if outputID := intFromAny(deliverFallback["selected_output_id"]); outputID > 0 {
-					judgeMetric["deliver_fallback_output_id"] = outputID
-				}
-				metrics["gif_ai_judge_v1"] = judgeMetric
-			}
-			if boolFromAny(deliverFallback["applied"]) {
-				p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback applied", map[string]interface{}{
-					"output_id":               intFromAny(deliverFallback["selected_output_id"]),
-					"reason":                  stringFromAny(deliverFallback["reason"]),
-					"trigger_reason":          stringFromAny(deliverFallback["trigger_reason"]),
-					"previous_recommendation": stringFromAny(deliverFallback["previous_recommendation"]),
-				})
-			}
-		} else {
-			reason := "fallback_blocked_without_ai3_review"
-			switch {
-			case !pipelineModeDecision.EnableAI3:
-				reason = "fallback_blocked_pipeline_mode_" + pipelineMode
-			case !boolFromAny(judgeMetric["applied"]):
-				reason = "fallback_blocked_ai3_unavailable"
-			}
-			deliverFallback := map[string]interface{}{
-				"attempted":      false,
-				"applied":        false,
-				"reason":         reason,
-				"trigger_reason": "not_applicable",
-				"policy":         "require_ai3_review_before_auto_deliver",
-			}
-			metrics["gif_deliver_fallback_v1"] = deliverFallback
-			if len(judgeMetric) > 0 {
-				judgeMetric["deliver_fallback_applied"] = false
-				judgeMetric["deliver_fallback_reason"] = reason
-				judgeMetric["deliver_fallback_trigger_reason"] = "not_applicable"
-				metrics["gif_ai_judge_v1"] = judgeMetric
-			}
-			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback skipped", map[string]interface{}{
-				"reason": reason,
-				"policy": "require_ai3_review_before_auto_deliver",
-			})
+		reason := "disabled_ai3_final_review_authoritative"
+		if !pipelineModeDecision.EnableAI3 {
+			reason = "disabled_pipeline_mode_" + pipelineMode
+		} else if !boolFromAny(judgeMetric["applied"]) {
+			reason = "disabled_ai3_unavailable"
 		}
+		deliverFallback := map[string]interface{}{
+			"attempted":      false,
+			"applied":        false,
+			"reason":         reason,
+			"trigger_reason": "not_applicable",
+			"policy":         "ai3_final_review_authoritative",
+		}
+		metrics["gif_deliver_fallback_v1"] = deliverFallback
+		if len(judgeMetric) > 0 {
+			judgeMetric["deliver_fallback_applied"] = false
+			judgeMetric["deliver_fallback_reason"] = reason
+			judgeMetric["deliver_fallback_trigger_reason"] = "not_applicable"
+			metrics["gif_ai_judge_v1"] = judgeMetric
+		}
+		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback disabled", map[string]interface{}{
+			"reason": reason,
+			"policy": "ai3_final_review_authoritative",
+		})
 	}
 	gifSubStageStatus := map[string]string{
 		gifSubStageBriefing:  strings.ToLower(strings.TrimSpace(stringFromAny(mapFromAny(gifSubStages[gifSubStageBriefing])["status"]))),
@@ -1028,6 +1013,7 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 		"status":               models.VideoJobStatusDone,
 		"stage":                models.VideoJobStageDone,
 		"progress":             100,
+		"asset_domain":         models.VideoJobAssetDomainVideo,
 		"result_collection_id": resultCollectionID,
 		"metrics":              mustJSON(metrics),
 		"error_message":        "",

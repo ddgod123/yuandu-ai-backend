@@ -54,24 +54,23 @@ func (p *Processor) persistJobResults(
 		return 0, 0, uploadedKeys, nil, packageBundleOutcome{}, tx.Error
 	}
 
-	collection := models.Collection{
+	collection := models.VideoAssetCollection{
 		Title:       fallbackTitle(job.Title),
-		Slug:        ensureUniqueSlug(tx, slugify(fallbackTitle(job.Title))),
+		Slug:        ensureUniqueSlugByTable(tx, "video_asset.collections", slugify(fallbackTitle(job.Title))),
 		Description: fmt.Sprintf("由视频任务 #%d 自动生成", job.ID),
 		OwnerID:     job.UserID,
-		CategoryID:  job.CategoryID,
-		Source:      "user_video_mvp",
+		Source:      "video_generated",
+		StorageBucket: func() string {
+			if p != nil && p.qiniu != nil {
+				return strings.TrimSpace(p.qiniu.Bucket)
+			}
+			return ""
+		}(),
 		QiniuPrefix: prefix,
 		FileCount:   0,
 		Visibility:  "private",
 		Status:      "active",
 	}
-	code, err := ensureUniqueDownloadCode(tx)
-	if err != nil {
-		_ = tx.Rollback()
-		return 0, 0, uploadedKeys, nil, packageBundleOutcome{}, err
-	}
-	collection.DownloadCode = code
 
 	if err := tx.Create(&collection).Error; err != nil {
 		_ = tx.Rollback()
@@ -180,7 +179,10 @@ func (p *Processor) persistJobResults(
 
 	if err := tx.Model(&models.VideoJob{}).
 		Where("id = ?", job.ID).
-		Update("result_collection_id", collection.ID).Error; err != nil {
+		Updates(map[string]interface{}{
+			"asset_domain":         models.VideoJobAssetDomainVideo,
+			"result_collection_id": collection.ID,
+		}).Error; err != nil {
 		_ = tx.Rollback()
 		return 0, 0, uploadedKeys, nil, packageOutcome, err
 	}
@@ -201,7 +203,7 @@ func (p *Processor) persistJobResults(
 func (p *Processor) persistStillFrameOutputs(
 	tx *gorm.DB,
 	jobID uint64,
-	collection models.Collection,
+	collection models.VideoAssetCollection,
 	prefix string,
 	framePaths []string,
 	formats []string,
@@ -257,7 +259,7 @@ func (p *Processor) persistStillFrameOutputs(
 			title = fmt.Sprintf("%s-%s-%02d", collection.Title, strings.ToUpper(result.Task.Format), result.Task.FrameIdx)
 		}
 
-		emoji := models.Emoji{
+		emoji := models.VideoAssetEmoji{
 			CollectionID: collection.ID,
 			Title:        title,
 			FileURL:      result.Task.Key,
@@ -269,7 +271,7 @@ func (p *Processor) persistStillFrameOutputs(
 			DisplayOrder: result.Task.Order,
 			Status:       "active",
 		}
-		if err := upsertEmojiByCollectionFile(tx, &emoji); err != nil {
+		if err := upsertVideoAssetEmojiByCollectionFile(tx, &emoji); err != nil {
 			return created, coverKey, err
 		}
 
@@ -407,7 +409,7 @@ func (p *Processor) persistAnimatedOutputs(
 	ctx context.Context,
 	tx *gorm.DB,
 	jobID uint64,
-	collection models.Collection,
+	collection models.VideoAssetCollection,
 	prefix string,
 	sourcePath string,
 	meta videoProbeMeta,
@@ -433,12 +435,20 @@ func (p *Processor) persistAnimatedOutputs(
 	tasks := make([]animatedTask, 0, len(windows)*len(formats))
 	for windowIndex, window := range windows {
 		for _, format := range formats {
-			tasks = append(tasks, animatedTask{
+			task := animatedTask{
 				WindowIndex: windowIndex + 1,
 				Window:      window,
 				Format:      format,
 				Order:       order,
-			})
+			}
+			if strings.EqualFold(format, "gif") {
+				costEstimate := estimateGIFCandidateCost(meta, window, options, qualitySettings)
+				task.PredictedSizeKB = roundTo(costEstimate.PredictedSizeKB, 2)
+				task.PredictedRenderSec = roundTo(costEstimate.PredictedRenderSec, 3)
+				task.RenderCostUnits = roundTo(costEstimate.CostUnits, 3)
+				task.CostModelVersion = strings.TrimSpace(costEstimate.ModelVersion)
+			}
+			tasks = append(tasks, task)
 			order++
 		}
 	}
@@ -471,6 +481,22 @@ func (p *Processor) persistAnimatedOutputs(
 			}
 			continue
 		}
+		if result.InvalidReason != "" {
+			eventMeta := map[string]interface{}{
+				"format":        result.Task.Format,
+				"window_index":  result.Task.WindowIndex,
+				"reason":        result.InvalidReason,
+				"proposal_rank": result.Task.Window.ProposalRank,
+				"proposal_id":   result.Task.Window.ProposalID,
+				"start_sec":     roundTo(result.Task.Window.StartSec, 3),
+				"end_sec":       roundTo(result.Task.Window.EndSec, 3),
+			}
+			if len(result.InvalidMetadata) > 0 {
+				eventMeta["render_debug_v1"] = result.InvalidMetadata
+			}
+			p.appendJobEvent(jobID, models.VideoJobStageRendering, "warn", "skip invalid rendered output", eventMeta)
+			continue
+		}
 		if result.Err != nil {
 			continue
 		}
@@ -479,7 +505,7 @@ func (p *Processor) persistAnimatedOutputs(
 			coverKey = result.ThumbKey
 		}
 
-		emoji := models.Emoji{
+		emoji := models.VideoAssetEmoji{
 			CollectionID: collection.ID,
 			Title:        buildAnimatedEmojiTitle(collection.Title, result.Task.WindowIndex, result.Task.Format),
 			FileURL:      result.FileKey,
@@ -491,7 +517,7 @@ func (p *Processor) persistAnimatedOutputs(
 			DisplayOrder: result.Task.Order,
 			Status:       "active",
 		}
-		if err := upsertEmojiByCollectionFile(tx, &emoji); err != nil {
+		if err := upsertVideoAssetEmojiByCollectionFile(tx, &emoji); err != nil {
 			return created, coverKey, err
 		}
 
@@ -546,7 +572,7 @@ func (p *Processor) persistCollectionOutputZipWithRetry(
 	ctx context.Context,
 	tx *gorm.DB,
 	job models.VideoJob,
-	collection models.Collection,
+	collection models.VideoAssetCollection,
 	prefix string,
 	uploader *qiniustorage.FormUploader,
 	uploadedKeys *[]string,
@@ -626,7 +652,7 @@ func (p *Processor) persistCollectionOutputZip(
 	ctx context.Context,
 	tx *gorm.DB,
 	job models.VideoJob,
-	collection models.Collection,
+	collection models.VideoAssetCollection,
 	prefix string,
 	uploader *qiniustorage.FormUploader,
 	uploadedKeys *[]string,
@@ -636,7 +662,7 @@ func (p *Processor) persistCollectionOutputZip(
 		return "", "", 0, nil
 	}
 
-	var emojis []models.Emoji
+	var emojis []models.VideoAssetEmoji
 	if err := tx.Where("collection_id = ? AND status = ?", collection.ID, "active").
 		Order("display_order ASC, id ASC").
 		Find(&emojis).Error; err != nil {
@@ -653,7 +679,17 @@ func (p *Processor) persistCollectionOutputZip(
 	defer os.RemoveAll(tmpDir)
 
 	entries := make([]zipEntrySource, 0, len(emojis))
+	skippedReasons := map[string]int{}
+	var lastErr error
 	for idx, item := range emojis {
+		if reason := PackageZipEmojiSkipReason(models.Emoji{
+			FileURL:   item.FileURL,
+			SizeBytes: item.SizeBytes,
+		}); reason != "" {
+			skippedReasons[reason]++
+			continue
+		}
+
 		key := strings.TrimLeft(strings.TrimSpace(item.FileURL), "/")
 		if key == "" {
 			continue
@@ -674,7 +710,9 @@ func (p *Processor) persistCollectionOutputZip(
 		localFile := filepath.Join(tmpDir, fmt.Sprintf("%03d.%s", idx+1, ext))
 
 		if err := p.downloadObjectByKey(ctx, key, localFile); err != nil {
-			return "", "", 0, err
+			lastErr = err
+			skippedReasons["download_failed"]++
+			continue
 		}
 		entries = append(entries, zipEntrySource{
 			Name: entryName,
@@ -682,7 +720,16 @@ func (p *Processor) persistCollectionOutputZip(
 		})
 	}
 	if len(entries) == 0 {
-		return "", "", 0, nil
+		if lastErr != nil {
+			return "", "", 0, lastErr
+		}
+		return "", "", 0, errors.New("no eligible outputs to zip")
+	}
+	if len(skippedReasons) > 0 {
+		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "warn", "zip package skipped some outputs", map[string]interface{}{
+			"skipped_reasons": skippedReasons,
+			"added_entries":   len(entries),
+		})
 	}
 
 	zipPath := filepath.Join(tmpDir, fmt.Sprintf("%d_outputs.zip", job.ID))
@@ -722,7 +769,7 @@ func (p *Processor) persistCollectionOutputZip(
 	}
 
 	uploadedAt := time.Now()
-	zipRecord := models.CollectionZip{
+	zipRecord := models.VideoAssetCollectionZip{
 		CollectionID: collection.ID,
 		ZipKey:       packageKey,
 		ZipName:      packageName,
@@ -730,7 +777,7 @@ func (p *Processor) persistCollectionOutputZip(
 		UploadedAt:   &uploadedAt,
 	}
 	if err := tx.Where("collection_id = ? AND zip_key = ?", collection.ID, packageKey).
-		Assign(models.CollectionZip{
+		Assign(models.VideoAssetCollectionZip{
 			ZipName:    packageName,
 			SizeBytes:  zipInfo.Size(),
 			UploadedAt: &uploadedAt,
@@ -752,6 +799,41 @@ func resolvePackageFormatFromGeneratedSet(generatedFormatSet map[string]struct{}
 		}
 	}
 	return "mixed"
+}
+
+func upsertVideoAssetEmojiByCollectionFile(tx *gorm.DB, emoji *models.VideoAssetEmoji) error {
+	if tx == nil || emoji == nil {
+		return errors.New("invalid emoji upsert input")
+	}
+	emoji.FileURL = strings.TrimSpace(emoji.FileURL)
+	if emoji.CollectionID == 0 || emoji.FileURL == "" {
+		return tx.Create(emoji).Error
+	}
+
+	var existing models.VideoAssetEmoji
+	err := tx.Where("collection_id = ? AND file_url = ?", emoji.CollectionID, emoji.FileURL).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(emoji).Error
+		}
+		return err
+	}
+
+	updates := map[string]interface{}{
+		"title":         emoji.Title,
+		"thumb_url":     emoji.ThumbURL,
+		"format":        emoji.Format,
+		"width":         emoji.Width,
+		"height":        emoji.Height,
+		"size_bytes":    emoji.SizeBytes,
+		"display_order": emoji.DisplayOrder,
+		"status":        emoji.Status,
+	}
+	if err := tx.Model(&models.VideoAssetEmoji{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+		return err
+	}
+	emoji.ID = existing.ID
+	return nil
 }
 
 func sanitizeZipEntryComponent(raw string) string {
@@ -782,10 +864,19 @@ func sanitizeZipEntryComponent(raw string) string {
 }
 
 type animatedTask struct {
-	WindowIndex int
-	Window      highlightCandidate
-	Format      string
-	Order       int
+	WindowIndex        int
+	Window             highlightCandidate
+	Format             string
+	Order              int
+	PredictedSizeKB    float64
+	PredictedRenderSec float64
+	RenderCostUnits    float64
+	CostModelVersion   string
+	BundleID           string
+	BundleStartSec     float64
+	BundleEndSec       float64
+	MezzaninePath      string
+	MezzanineBuildMs   int64
 }
 
 type animatedArtifactPayload struct {
@@ -809,6 +900,8 @@ type animatedTaskResult struct {
 	UploadedKeys      []string
 	Artifacts         []animatedArtifactPayload
 	UnsupportedReason string
+	InvalidReason     string
+	InvalidMetadata   map[string]interface{}
 	Err               error
 }
 
@@ -880,6 +973,72 @@ func (p *Processor) processAnimatedTasks(
 	}
 
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
+	bundleConfig := p.resolveGIFBundleRuntimeConfig()
+	mezzaninePaths := make([]string, 0)
+	defer func() {
+		for _, path := range mezzaninePaths {
+			if strings.TrimSpace(path) != "" {
+				_ = os.Remove(path)
+			}
+		}
+	}()
+
+	if bundleConfig.BundleEnabled {
+		bundlePlans := buildGIFRenderBundlePlan(tasks, bundleConfig)
+		if len(bundlePlans) > 0 {
+			mezzanineDir := filepath.Join(outputDir, "gif_mezzanine")
+			for _, plan := range bundlePlans {
+				mezzaninePath := ""
+				mezzanineBuildMs := int64(0)
+				if bundleConfig.MezzanineEnabled && len(plan.TaskIndexes) >= bundleConfig.MezzanineMinWindows {
+					path, elapsedMs, err := buildGIFBundleMezzanine(ctx, sourcePath, mezzanineDir, plan, bundleConfig)
+					if err != nil {
+						if jobID > 0 {
+							p.appendJobEvent(jobID, models.VideoJobStageRendering, "warn", "gif mezzanine build failed", map[string]interface{}{
+								"bundle_id":        plan.BundleID,
+								"window_count":     len(plan.TaskIndexes),
+								"start_sec":        roundTo(plan.StartSec, 3),
+								"end_sec":          roundTo(plan.EndSec, 3),
+								"duration_sec":     roundTo(plan.EndSec-plan.StartSec, 3),
+								"elapsed_ms":       elapsedMs,
+								"error":            err.Error(),
+								"mezzanine_crf":    bundleConfig.MezzanineCRF,
+								"mezzanine_preset": bundleConfig.MezzaninePreset,
+							})
+						}
+					} else {
+						mezzaninePath = path
+						mezzanineBuildMs = elapsedMs
+						mezzaninePaths = append(mezzaninePaths, path)
+						if jobID > 0 {
+							p.appendJobEvent(jobID, models.VideoJobStageRendering, "info", "gif mezzanine build done", map[string]interface{}{
+								"bundle_id":        plan.BundleID,
+								"window_count":     len(plan.TaskIndexes),
+								"start_sec":        roundTo(plan.StartSec, 3),
+								"end_sec":          roundTo(plan.EndSec, 3),
+								"duration_sec":     roundTo(plan.EndSec-plan.StartSec, 3),
+								"elapsed_ms":       elapsedMs,
+								"mezzanine_path":   path,
+								"mezzanine_crf":    bundleConfig.MezzanineCRF,
+								"mezzanine_preset": bundleConfig.MezzaninePreset,
+							})
+						}
+					}
+				}
+				for _, taskIndex := range plan.TaskIndexes {
+					if taskIndex < 0 || taskIndex >= len(tasks) {
+						continue
+					}
+					tasks[taskIndex].BundleID = plan.BundleID
+					tasks[taskIndex].BundleStartSec = plan.StartSec
+					tasks[taskIndex].BundleEndSec = plan.EndSec
+					tasks[taskIndex].MezzaninePath = mezzaninePath
+					tasks[taskIndex].MezzanineBuildMs = mezzanineBuildMs
+				}
+			}
+		}
+	}
+
 	workers := qualitySettings.UploadConcurrency
 	if workers < 1 {
 		workers = 1
@@ -888,17 +1047,27 @@ func (p *Processor) processAnimatedTasks(
 		workers = len(tasks)
 	}
 	workers = resolveGIFRenderWorkerCap(meta, tasks, qualitySettings, workers)
+	maxCostUnits := resolveGIFRenderMaxCostUnits(meta, tasks, qualitySettings, workers)
+	scheduler := newGIFRenderScheduler(workers, maxCostUnits)
+	scheduleItems := buildGIFRenderSchedule(tasks)
 
 	totalTasks := len(tasks)
 	var completedTasks atomic.Int32
 
-	sem := make(chan struct{}, workers)
 	var group errgroup.Group
-	for idx := range tasks {
-		idx := idx
+	for _, item := range scheduleItems {
+		idx := item.TaskIndex
+		costUnits := item.CostUnits
 		group.Go(func() error {
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			release, acquireErr := scheduler.acquire(ctx, costUnits)
+			if acquireErr != nil {
+				results[idx] = animatedTaskResult{
+					Task: tasks[idx],
+					Err:  acquireErr,
+				}
+				return nil
+			}
+			defer release()
 			results[idx] = p.processAnimatedTask(ctx, sourcePath, outputDir, prefix, meta, options, qualitySettings, uploader, tasks[idx])
 			if jobID > 0 && totalTasks > 0 {
 				done := int(completedTasks.Add(1))

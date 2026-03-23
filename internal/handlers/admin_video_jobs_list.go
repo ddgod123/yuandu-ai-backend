@@ -20,10 +20,12 @@ import (
 // @Param user_id query int false "user id"
 // @Param status query string false "job status"
 // @Param format query string false "requested format"
+// @Param asset_domain query string false "asset domain: all|video|archive|admin|ugc"
 // @Param guard_reason query string false "negative guard reason filter"
 // @Param source_read_reason query string false "source readability reason_code filter"
 // @Param reason_code query string false "alias of source_read_reason"
 // @Param stage query string false "job stage"
+// @Param audit_signal query string false "audit signal filter: proposal | deliver | feedback | rerender"
 // @Param quick query string false "quick filter: retrying | failed_24h | guard_hit | guard_blocked | feedback_anomaly | top_pick_conflict | sub_stage_anomaly | sub_stage_briefing_anomaly | sub_stage_planning_anomaly | sub_stage_scoring_anomaly | sub_stage_reviewing_anomaly"
 // @Param is_sample query string false "sample filter: all | 1 | 0"
 // @Param q query string false "title/source search"
@@ -130,6 +132,15 @@ EXISTS (
 	if format := strings.ToLower(strings.TrimSpace(c.Query("format"))); format != "" {
 		query = query.Where(buildVideoJobFormatFilterPredicate("video_jobs"), format, format)
 	}
+	if assetDomain := strings.ToLower(strings.TrimSpace(c.Query("asset_domain"))); assetDomain != "" && assetDomain != "all" {
+		switch assetDomain {
+		case models.VideoJobAssetDomainVideo, models.VideoJobAssetDomainArchive, models.VideoJobAssetDomainAdmin, models.VideoJobAssetDomainUGC:
+			query = query.Where("LOWER(COALESCE(NULLIF(TRIM(asset_domain), ''), 'video')) = ?", assetDomain)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid asset_domain"})
+			return
+		}
+	}
 	if guardReason := strings.ToLower(strings.TrimSpace(c.Query("guard_reason"))); guardReason != "" {
 		query = query.Where(`
 EXISTS (
@@ -158,6 +169,46 @@ OR LOWER(COALESCE(NULLIF(TRIM(options->'source_video_probe'->>'reason_code'), ''
 	if stage := strings.TrimSpace(c.Query("stage")); stage != "" {
 		query = query.Where("stage = ?", stage)
 	}
+	if auditSignal := strings.ToLower(strings.TrimSpace(c.Query("audit_signal"))); auditSignal != "" && auditSignal != "all" {
+		switch auditSignal {
+		case "proposal":
+			query = query.Where(`
+EXISTS (
+	SELECT 1
+	FROM archive.video_job_gif_ai_proposals p
+	WHERE p.job_id = video_jobs.id
+)`)
+		case "deliver":
+			query = query.Where(`
+EXISTS (
+	SELECT 1
+	FROM archive.video_job_gif_ai_reviews r
+	WHERE r.job_id = video_jobs.id
+	  AND LOWER(COALESCE(NULLIF(TRIM(r.final_recommendation), ''), '')) = 'deliver'
+)`)
+		case "feedback":
+			query = query.Where(`
+EXISTS (
+	SELECT 1
+	FROM public.video_image_feedback f
+	WHERE f.job_id = video_jobs.id
+)`)
+		case "rerender":
+			query = query.Where(`
+EXISTS (
+	SELECT 1
+	FROM archive.video_job_gif_ai_reviews r
+	WHERE r.job_id = video_jobs.id
+	  AND (
+		LOWER(COALESCE(NULLIF(TRIM(r.model), ''), '')) = 'admin_rerender_v1'
+		OR LOWER(COALESCE(NULLIF(TRIM(r.metadata->>'rerender'), ''), 'false')) IN ('1', 'true', 'yes', 'y')
+	  )
+)`)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid audit_signal"})
+			return
+		}
+	}
 	sampleRaw := strings.TrimSpace(c.Query("is_sample"))
 	if sampleRaw == "" {
 		sampleRaw = strings.TrimSpace(c.Query("sample"))
@@ -170,7 +221,8 @@ OR LOWER(COALESCE(NULLIF(TRIM(options->'source_video_probe'->>'reason_code'), ''
 	if sampleFilter != nil {
 		if *sampleFilter {
 			query = query.Where(`
-EXISTS (
+LOWER(COALESCE(NULLIF(TRIM(asset_domain), ''), 'video')) <> 'video'
+AND EXISTS (
 	SELECT 1
 	FROM archive.collections c
 	WHERE c.id = video_jobs.result_collection_id
@@ -178,12 +230,14 @@ EXISTS (
 )`)
 		} else {
 			query = query.Where(`
-NOT EXISTS (
+NOT (
+	LOWER(COALESCE(NULLIF(TRIM(asset_domain), ''), 'video')) <> 'video'
+	AND EXISTS (
 	SELECT 1
 	FROM archive.collections c
 	WHERE c.id = video_jobs.result_collection_id
 	  AND c.is_sample = TRUE
-)`)
+))`)
 		}
 	}
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
@@ -209,10 +263,11 @@ NOT EXISTS (
 	collectionMap := h.loadVideoJobCollectionMap(jobs)
 	costMap := h.loadVideoJobCostMap(jobs)
 	pointHoldMap := h.loadVideoJobPointHoldMap(jobs)
+	auditSummaryMap := h.loadVideoJobAuditSummaryMap(jobs)
 
 	items := make([]AdminVideoJobListItem, 0, len(jobs))
 	for _, job := range jobs {
-		items = append(items, h.buildAdminVideoJobListItem(job, userMap, collectionMap, costMap, pointHoldMap))
+		items = append(items, h.buildAdminVideoJobListItem(job, userMap, collectionMap, costMap, pointHoldMap, auditSummaryMap))
 	}
 
 	c.JSON(http.StatusOK, AdminVideoJobListResponse{

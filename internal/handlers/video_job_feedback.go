@@ -383,10 +383,21 @@ func (h *Handler) resolveFeedbackEmojiInCollection(
 	if err := h.db.
 		Select("id", "collection_id", "file_url", "thumb_url", "format", "title").
 		Where("id = ? AND collection_id = ?", emojiID, collectionID).
-		First(&emoji).Error; err != nil {
+		First(&emoji).Error; err == nil {
+		return &emoji, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	return &emoji, nil
+
+	var videoEmoji models.VideoAssetEmoji
+	if err := h.db.
+		Select("id", "collection_id", "file_url", "thumb_url", "format", "title").
+		Where("id = ? AND collection_id = ?", emojiID, collectionID).
+		First(&videoEmoji).Error; err != nil {
+		return nil, err
+	}
+	converted := convertVideoAssetEmoji(videoEmoji)
+	return &converted, nil
 }
 
 func (h *Handler) resolveFeedbackOutputByJobAndObjectKey(

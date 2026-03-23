@@ -173,14 +173,22 @@ func slugify(input string) string {
 }
 
 func ensureUniqueSlug(db *gorm.DB, slug string) string {
+	return ensureUniqueSlugByTable(db, "archive.collections", slug)
+}
+
+func ensureUniqueSlugByTable(db *gorm.DB, tableName string, slug string) string {
 	base := strings.TrimSpace(slug)
 	if base == "" {
 		base = fmt.Sprintf("video-job-%d", time.Now().Unix())
 	}
+	tableName = strings.TrimSpace(tableName)
+	if tableName == "" {
+		tableName = "archive.collections"
+	}
 	candidate := base
 	for i := 0; i < 100; i++ {
 		var count int64
-		_ = db.Model(&models.Collection{}).Where("slug = ?", candidate).Count(&count).Error
+		_ = db.Table(tableName).Where("slug = ?", candidate).Count(&count).Error
 		if count == 0 {
 			return candidate
 		}

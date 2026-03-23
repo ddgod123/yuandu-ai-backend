@@ -72,7 +72,7 @@ func (h *Handler) SubmitVideoJobFeedback(c *gin.Context) {
 
 	var job models.VideoJob
 	if err := h.db.
-		Select("id", "user_id", "status", "result_collection_id", "metrics").
+		Select("id", "user_id", "status", "asset_domain", "result_collection_id", "metrics").
 		Where("id = ? AND user_id = ?", jobID, userID).
 		First(&job).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

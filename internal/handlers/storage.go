@@ -391,6 +391,18 @@ type storageURLCacheValue struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
+func canAccessStorageKey(c *gin.Context, key string) bool {
+	trimmed := strings.TrimLeft(strings.TrimSpace(key), "/")
+	if trimmed == "" {
+		return false
+	}
+	// Non-admin callers are restricted to the emoji namespace.
+	if !isAdminRole(c) && !strings.HasPrefix(trimmed, "emoji/") {
+		return false
+	}
+	return true
+}
+
 const (
 	signedURLCacheSeconds = int64(300) // 5 minutes
 	signedURLCacheSkewSec = int64(20)  // avoid serving near-expiry cache
@@ -514,8 +526,16 @@ func (h *Handler) GetObjectURL(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing key"})
 		return
 	}
+	if !canAccessStorageKey(c, key) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
+		return
+	}
 	privateParam := strings.ToLower(c.DefaultQuery("private", ""))
 	forcePrivate := privateParam == "1" || privateParam == "true" || privateParam == "yes"
+	if forcePrivate && !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "private url requires admin"})
+		return
+	}
 	ttl, _ := strconv.Atoi(c.DefaultQuery("ttl", "0"))
 	resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, ttl, forcePrivate)
 	if err != nil {
@@ -548,6 +568,10 @@ func (h *Handler) GetObjectURLs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "keys required"})
 		return
 	}
+	if req.Private && !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "private url requires admin"})
+		return
+	}
 
 	seen := make(map[string]struct{}, len(req.Keys))
 	keys := make([]string, 0, len(req.Keys))
@@ -555,6 +579,10 @@ func (h *Handler) GetObjectURLs(c *gin.Context) {
 		key := strings.TrimLeft(strings.TrimSpace(raw), "/")
 		if key == "" {
 			continue
+		}
+		if !canAccessStorageKey(c, key) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
+			return
 		}
 		if _, ok := seen[key]; ok {
 			continue

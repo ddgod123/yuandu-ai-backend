@@ -3,10 +3,12 @@ package handlers
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -633,6 +635,85 @@ type AdminBatchUpdateCollectionSampleRequest struct {
 	IsSample      bool     `json:"is_sample"`
 }
 
+type AdminBatchAssignCollectionIPRequest struct {
+	CollectionIDs []uint64 `json:"collection_ids"`
+	IPID          *uint64  `json:"ip_id"`
+}
+
+type AdminCollectionIPStatItem struct {
+	IPID   *uint64 `json:"ip_id,omitempty"`
+	IPName string  `json:"ip_name"`
+	Count  int64   `json:"count"`
+}
+
+type AdminCollectionIPStatsResponse struct {
+	Total int64                       `json:"total"`
+	Items []AdminCollectionIPStatItem `json:"items"`
+}
+
+type AdminCollectionIPAuditLogItem struct {
+	ID              uint64    `json:"id"`
+	AdminID         uint64    `json:"admin_id"`
+	AdminName       string    `json:"admin_name"`
+	CollectionID    uint64    `json:"collection_id"`
+	CollectionTitle string    `json:"collection_title,omitempty"`
+	OldIPID         *uint64   `json:"old_ip_id,omitempty"`
+	OldIPName       string    `json:"old_ip_name,omitempty"`
+	NewIPID         *uint64   `json:"new_ip_id,omitempty"`
+	NewIPName       string    `json:"new_ip_name,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type AdminCollectionIPAuditLogsResponse struct {
+	Total int64                           `json:"total"`
+	Items []AdminCollectionIPAuditLogItem `json:"items"`
+}
+
+type adminCollectionIPBeforeRow struct {
+	ID    uint64  `gorm:"column:id"`
+	Title string  `gorm:"column:title"`
+	IPID  *uint64 `gorm:"column:ip_id"`
+}
+
+func parseJSONUint64Ptr(meta map[string]interface{}, key string) *uint64 {
+	raw, ok := meta[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case float64:
+		if v <= 0 {
+			return nil
+		}
+		iv := uint64(v)
+		return &iv
+	case int64:
+		if v <= 0 {
+			return nil
+		}
+		iv := uint64(v)
+		return &iv
+	case int:
+		if v <= 0 {
+			return nil
+		}
+		iv := uint64(v)
+		return &iv
+	case string:
+		val := strings.TrimSpace(v)
+		if val == "" {
+			return nil
+		}
+		u, err := strconv.ParseUint(val, 10, 64)
+		if err != nil || u == 0 {
+			return nil
+		}
+		return &u
+	default:
+		return nil
+	}
+}
+
 // AdminUpdateCollection godoc
 // @Summary Update collection (admin)
 // @Tags admin
@@ -922,6 +1003,406 @@ func (h *Handler) AdminBatchUpdateCollectionSample(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"updated_count": result.RowsAffected,
 		"is_sample":     req.IsSample,
+	})
+}
+
+// AdminBatchAssignCollectionIP godoc
+// @Summary Batch assign collection ip_id (admin)
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param body body AdminBatchAssignCollectionIPRequest true "batch assign ip"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/admin/collections/batch-assign-ip [post]
+func (h *Handler) AdminBatchAssignCollectionIP(c *gin.Context) {
+	var req AdminBatchAssignCollectionIPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.CollectionIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "collection_ids is required"})
+		return
+	}
+	if len(req.CollectionIDs) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too many collection_ids, max 500"})
+		return
+	}
+
+	idSet := make(map[uint64]struct{}, len(req.CollectionIDs))
+	ids := make([]uint64, 0, len(req.CollectionIDs))
+	for _, id := range req.CollectionIDs {
+		if id == 0 {
+			continue
+		}
+		if _, exists := idSet[id]; exists {
+			continue
+		}
+		idSet[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid collection_ids"})
+		return
+	}
+
+	var beforeRows []adminCollectionIPBeforeRow
+	if err := h.db.Model(&models.Collection{}).
+		Select("id, title, ip_id").
+		Where("id IN ?", ids).
+		Scan(&beforeRows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var applyIPID interface{} = nil
+	var newIPIDPtr *uint64
+	var newIPName string
+	if req.IPID != nil && *req.IPID > 0 {
+		var ip models.IP
+		if err := h.db.First(&ip, *req.IPID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "ip not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		applyIPID = *req.IPID
+		newIPID := *req.IPID
+		newIPIDPtr = &newIPID
+		newIPName = strings.TrimSpace(ip.Name)
+	}
+
+	result := h.db.Model(&models.Collection{}).
+		Where("id IN ?", ids).
+		Update("ip_id", applyIPID)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	adminID, _ := currentUserIDFromContext(c)
+	oldIPIDs := make([]uint64, 0, len(beforeRows))
+	oldIDSet := make(map[uint64]struct{}, len(beforeRows))
+	for _, row := range beforeRows {
+		if row.IPID == nil || *row.IPID == 0 {
+			continue
+		}
+		if _, ok := oldIDSet[*row.IPID]; ok {
+			continue
+		}
+		oldIDSet[*row.IPID] = struct{}{}
+		oldIPIDs = append(oldIPIDs, *row.IPID)
+	}
+	oldIPNameMap := map[uint64]string{}
+	if len(oldIPIDs) > 0 {
+		var oldIPs []models.IP
+		if err := h.db.Model(&models.IP{}).Select("id, name").Where("id IN ?", oldIPIDs).Find(&oldIPs).Error; err == nil {
+			for _, ip := range oldIPs {
+				oldIPNameMap[ip.ID] = strings.TrimSpace(ip.Name)
+			}
+		}
+	}
+
+	auditedCount := 0
+	for _, row := range beforeRows {
+		oldIPID := row.IPID
+		oldID := uint64(0)
+		newID := uint64(0)
+		if oldIPID != nil {
+			oldID = *oldIPID
+		}
+		if newIPIDPtr != nil {
+			newID = *newIPIDPtr
+		}
+		if oldID == newID {
+			continue
+		}
+		oldName := ""
+		if oldIPID != nil && *oldIPID > 0 {
+			oldName = oldIPNameMap[*oldIPID]
+		}
+		h.recordAuditLog(adminID, "collection", row.ID, "admin_assign_collection_ip", map[string]interface{}{
+			"collection_id":    row.ID,
+			"collection_title": strings.TrimSpace(row.Title),
+			"old_ip_id":        oldIPID,
+			"old_ip_name":      oldName,
+			"new_ip_id":        newIPIDPtr,
+			"new_ip_name":      newIPName,
+			"batch_size":       len(ids),
+		})
+		auditedCount++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated_count": result.RowsAffected,
+		"ip_id":         applyIPID,
+		"audited_count": auditedCount,
+	})
+}
+
+// GetAdminCollectionIPStats godoc
+// @Summary Get collection IP stats (admin)
+// @Tags admin
+// @Produce json
+// @Param category_id query string false "category id"
+// @Param category_ids query string false "category ids comma separated"
+// @Param is_featured query string false "1|0|all"
+// @Param is_sample query string false "1|0|all"
+// @Param status query string false "status"
+// @Param visibility query string false "visibility"
+// @Success 200 {object} AdminCollectionIPStatsResponse
+// @Router /api/admin/collections/ip-stats [get]
+func (h *Handler) GetAdminCollectionIPStats(c *gin.Context) {
+	categoryID := strings.TrimSpace(c.Query("category_id"))
+	categoryIDs := strings.TrimSpace(c.Query("category_ids"))
+	featuredRaw := strings.TrimSpace(c.Query("is_featured"))
+	if featuredRaw == "" {
+		featuredRaw = strings.TrimSpace(c.Query("featured"))
+	}
+	featured, ok := parseOptionalBoolParam(featuredRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_featured"})
+		return
+	}
+	sampleRaw := strings.TrimSpace(c.Query("is_sample"))
+	if sampleRaw == "" {
+		sampleRaw = strings.TrimSpace(c.Query("sample"))
+	}
+	sample, ok := parseOptionalBoolParam(sampleRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_sample"})
+		return
+	}
+	status := strings.TrimSpace(c.Query("status"))
+	visibility := strings.TrimSpace(c.Query("visibility"))
+
+	db := h.db.Model(&models.Collection{}).Where("archive.collections.deleted_at IS NULL")
+
+	if categoryIDs != "" {
+		idStrs := strings.Split(categoryIDs, ",")
+		var ids []uint64
+		for _, idStr := range idStrs {
+			id, err := strconv.ParseUint(strings.TrimSpace(idStr), 10, 64)
+			if err == nil && id > 0 {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			db = db.Where("category_id IN ?", ids)
+		}
+	} else if categoryID != "" {
+		if categoryID == "0" {
+			db = db.Where("category_id IS NULL")
+		} else {
+			cid, err := strconv.ParseUint(categoryID, 10, 64)
+			if err != nil || cid == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid category_id"})
+				return
+			}
+			db = db.Where("category_id = ?", cid)
+		}
+	}
+	if featured != nil {
+		db = db.Where("is_featured = ?", *featured)
+	}
+	if sample != nil {
+		db = db.Where("is_sample = ?", *sample)
+	}
+	if status != "" && strings.ToLower(status) != "all" {
+		db = db.Where("status = ?", status)
+	}
+	if visibility != "" && strings.ToLower(visibility) != "all" {
+		db = db.Where("visibility = ?", visibility)
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type statRow struct {
+		IPID  *uint64 `gorm:"column:ip_id"`
+		Count int64   `gorm:"column:count"`
+	}
+	var rows []statRow
+	if err := db.Select("ip_id, COUNT(*) AS count").Group("ip_id").Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ipIDs := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		if row.IPID != nil && *row.IPID > 0 {
+			ipIDs = append(ipIDs, *row.IPID)
+		}
+	}
+
+	ipNameMap := map[uint64]string{}
+	if len(ipIDs) > 0 {
+		var ips []models.IP
+		if err := h.db.Model(&models.IP{}).Where("id IN ?", ipIDs).Find(&ips).Error; err == nil {
+			for _, ip := range ips {
+				ipNameMap[ip.ID] = ip.Name
+			}
+		}
+	}
+
+	items := make([]AdminCollectionIPStatItem, 0, len(rows))
+	for _, row := range rows {
+		item := AdminCollectionIPStatItem{
+			IPID:  row.IPID,
+			Count: row.Count,
+		}
+		if row.IPID == nil || *row.IPID == 0 {
+			item.IPName = "未绑定IP"
+		} else if name := strings.TrimSpace(ipNameMap[*row.IPID]); name != "" {
+			item.IPName = name
+		} else {
+			item.IPName = "未知IP"
+		}
+		items = append(items, item)
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Count != items[j].Count {
+			return items[i].Count > items[j].Count
+		}
+		return items[i].IPName < items[j].IPName
+	})
+
+	c.JSON(http.StatusOK, AdminCollectionIPStatsResponse{
+		Total: total,
+		Items: items,
+	})
+}
+
+// GetAdminCollectionIPAuditLogs godoc
+// @Summary Get collection ip audit logs (admin)
+// @Tags admin
+// @Produce json
+// @Param limit query int false "limit, default 20, max 200"
+// @Param collection_id query int false "collection id"
+// @Success 200 {object} AdminCollectionIPAuditLogsResponse
+// @Router /api/admin/collections/ip-audit-logs [get]
+func (h *Handler) GetAdminCollectionIPAuditLogs(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	collectionID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("collection_id")), 10, 64)
+
+	query := h.db.Model(&models.AuditLog{}).
+		Where("action = ?", "admin_assign_collection_ip")
+	if collectionID > 0 {
+		query = query.Where("target_type = ? AND target_id = ?", "collection", collectionID)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var logs []models.AuditLog
+	if err := query.Order("id DESC").Limit(limit).Find(&logs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	adminIDSet := map[uint64]struct{}{}
+	ipIDSet := map[uint64]struct{}{}
+	for _, log := range logs {
+		if log.AdminID > 0 {
+			adminIDSet[log.AdminID] = struct{}{}
+		}
+		var meta map[string]interface{}
+		if err := json.Unmarshal(log.Meta, &meta); err != nil {
+			continue
+		}
+		if oldIPID := parseJSONUint64Ptr(meta, "old_ip_id"); oldIPID != nil {
+			ipIDSet[*oldIPID] = struct{}{}
+		}
+		if newIPID := parseJSONUint64Ptr(meta, "new_ip_id"); newIPID != nil {
+			ipIDSet[*newIPID] = struct{}{}
+		}
+	}
+
+	adminIDs := make([]uint64, 0, len(adminIDSet))
+	for id := range adminIDSet {
+		adminIDs = append(adminIDs, id)
+	}
+	adminNameMap := map[uint64]string{}
+	if len(adminIDs) > 0 {
+		var users []models.User
+		if err := h.db.Model(&models.User{}).
+			Select("id, display_name, username, phone").
+			Where("id IN ?", adminIDs).
+			Find(&users).Error; err == nil {
+			for _, u := range users {
+				name := strings.TrimSpace(u.DisplayName)
+				if name == "" {
+					name = strings.TrimSpace(u.Username)
+				}
+				if name == "" {
+					name = strings.TrimSpace(u.Phone)
+				}
+				adminNameMap[u.ID] = name
+			}
+		}
+	}
+
+	ipIDs := make([]uint64, 0, len(ipIDSet))
+	for id := range ipIDSet {
+		ipIDs = append(ipIDs, id)
+	}
+	ipNameMap := map[uint64]string{}
+	if len(ipIDs) > 0 {
+		var ips []models.IP
+		if err := h.db.Model(&models.IP{}).Select("id, name").Where("id IN ?", ipIDs).Find(&ips).Error; err == nil {
+			for _, ip := range ips {
+				ipNameMap[ip.ID] = strings.TrimSpace(ip.Name)
+			}
+		}
+	}
+
+	items := make([]AdminCollectionIPAuditLogItem, 0, len(logs))
+	for _, log := range logs {
+		meta := map[string]interface{}{}
+		_ = json.Unmarshal(log.Meta, &meta)
+		oldIPID := parseJSONUint64Ptr(meta, "old_ip_id")
+		newIPID := parseJSONUint64Ptr(meta, "new_ip_id")
+		collectionTitle := strings.TrimSpace(fmt.Sprintf("%v", meta["collection_title"]))
+		if collectionTitle == "<nil>" {
+			collectionTitle = ""
+		}
+		item := AdminCollectionIPAuditLogItem{
+			ID:              log.ID,
+			AdminID:         log.AdminID,
+			AdminName:       adminNameMap[log.AdminID],
+			CollectionID:    log.TargetID,
+			CollectionTitle: collectionTitle,
+			OldIPID:         oldIPID,
+			NewIPID:         newIPID,
+			CreatedAt:       log.CreatedAt,
+		}
+		if oldIPID != nil {
+			item.OldIPName = ipNameMap[*oldIPID]
+		}
+		if newIPID != nil {
+			item.NewIPName = ipNameMap[*newIPID]
+		}
+		items = append(items, item)
+	}
+
+	c.JSON(http.StatusOK, AdminCollectionIPAuditLogsResponse{
+		Total: total,
+		Items: items,
 	})
 }
 

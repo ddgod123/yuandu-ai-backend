@@ -302,14 +302,14 @@ func TestNormalizeQualitySettings_StillAndAnimatedBudgetBounds(t *testing.T) {
 	if settings.GIFLoopTunePreferDuration != 4.0 {
 		t.Fatalf("expected gif loop prefer duration clamp 4.0, got %.2f", settings.GIFLoopTunePreferDuration)
 	}
-	if settings.GIFCandidateMaxOutputs != 6 {
-		t.Fatalf("expected gif candidate max outputs clamp 6, got %d", settings.GIFCandidateMaxOutputs)
+	if settings.GIFCandidateMaxOutputs != maxGIFCandidateOutputs {
+		t.Fatalf("expected gif candidate max outputs clamp %d, got %d", maxGIFCandidateOutputs, settings.GIFCandidateMaxOutputs)
 	}
-	if settings.GIFCandidateLongVideoMaxOutputs != 6 {
-		t.Fatalf("expected gif long video max outputs clamp 6, got %d", settings.GIFCandidateLongVideoMaxOutputs)
+	if settings.GIFCandidateLongVideoMaxOutputs != maxGIFCandidateOutputs {
+		t.Fatalf("expected gif long video max outputs clamp %d, got %d", maxGIFCandidateOutputs, settings.GIFCandidateLongVideoMaxOutputs)
 	}
-	if settings.GIFCandidateUltraVideoMaxOutputs != 6 {
-		t.Fatalf("expected gif ultra video max outputs clamp 6, got %d", settings.GIFCandidateUltraVideoMaxOutputs)
+	if settings.GIFCandidateUltraVideoMaxOutputs != maxGIFCandidateOutputs {
+		t.Fatalf("expected gif ultra video max outputs clamp %d, got %d", maxGIFCandidateOutputs, settings.GIFCandidateUltraVideoMaxOutputs)
 	}
 	if settings.GIFCandidateConfidenceThreshold != 0.95 {
 		t.Fatalf("expected gif candidate confidence threshold clamp 0.95, got %.2f", settings.GIFCandidateConfidenceThreshold)

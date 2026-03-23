@@ -3,8 +3,9 @@ package videojobs
 import "strings"
 
 const (
-	QualityProfileClarity = "clarity"
-	QualityProfileSize    = "size"
+	QualityProfileClarity  = "clarity"
+	QualityProfileSize     = "size"
+	maxGIFCandidateOutputs = 20
 )
 
 type QualitySettings struct {
@@ -165,6 +166,11 @@ type QualitySettings struct {
 	AIDirectorOperatorInstruction        string  `json:"ai_director_operator_instruction"`
 	AIDirectorOperatorInstructionVersion string  `json:"ai_director_operator_instruction_version"`
 	AIDirectorOperatorEnabled            bool    `json:"ai_director_operator_enabled"`
+	AIDirectorConstraintOverrideEnabled  bool    `json:"ai_director_constraint_override_enabled"`
+	AIDirectorCountExpandRatio           float64 `json:"ai_director_count_expand_ratio"`
+	AIDirectorDurationExpandRatio        float64 `json:"ai_director_duration_expand_ratio"`
+	AIDirectorCountAbsoluteCap           int     `json:"ai_director_count_absolute_cap"`
+	AIDirectorDurationAbsoluteCapSec     float64 `json:"ai_director_duration_absolute_cap_sec"`
 }
 
 func DefaultQualitySettings() QualitySettings {
@@ -326,6 +332,11 @@ func DefaultQualitySettings() QualitySettings {
 		AIDirectorOperatorInstruction:        "",
 		AIDirectorOperatorInstructionVersion: "v1",
 		AIDirectorOperatorEnabled:            true,
+		AIDirectorConstraintOverrideEnabled:  false,
+		AIDirectorCountExpandRatio:           0.20,
+		AIDirectorDurationExpandRatio:        0.20,
+		AIDirectorCountAbsoluteCap:           10,
+		AIDirectorDurationAbsoluteCapSec:     6.0,
 	}
 }
 
@@ -487,20 +498,20 @@ func NormalizeQualitySettings(in QualitySettings) QualitySettings {
 		if out.GIFCandidateMaxOutputs <= 0 {
 			out.GIFCandidateMaxOutputs = def.GIFCandidateMaxOutputs
 		}
-		if out.GIFCandidateMaxOutputs > 6 {
-			out.GIFCandidateMaxOutputs = 6
+		if out.GIFCandidateMaxOutputs > maxGIFCandidateOutputs {
+			out.GIFCandidateMaxOutputs = maxGIFCandidateOutputs
 		}
 		if out.GIFCandidateLongVideoMaxOutputs <= 0 {
 			out.GIFCandidateLongVideoMaxOutputs = def.GIFCandidateLongVideoMaxOutputs
 		}
-		if out.GIFCandidateLongVideoMaxOutputs > 6 {
-			out.GIFCandidateLongVideoMaxOutputs = 6
+		if out.GIFCandidateLongVideoMaxOutputs > maxGIFCandidateOutputs {
+			out.GIFCandidateLongVideoMaxOutputs = maxGIFCandidateOutputs
 		}
 		if out.GIFCandidateUltraVideoMaxOutputs <= 0 {
 			out.GIFCandidateUltraVideoMaxOutputs = def.GIFCandidateUltraVideoMaxOutputs
 		}
-		if out.GIFCandidateUltraVideoMaxOutputs > 6 {
-			out.GIFCandidateUltraVideoMaxOutputs = 6
+		if out.GIFCandidateUltraVideoMaxOutputs > maxGIFCandidateOutputs {
+			out.GIFCandidateUltraVideoMaxOutputs = maxGIFCandidateOutputs
 		}
 		if out.GIFCandidateLongVideoMaxOutputs > out.GIFCandidateMaxOutputs {
 			out.GIFCandidateLongVideoMaxOutputs = out.GIFCandidateMaxOutputs
@@ -966,6 +977,27 @@ func NormalizeQualitySettings(in QualitySettings) QualitySettings {
 	if legacyZeroAIDirectorOperator {
 		out.AIDirectorOperatorEnabled = def.AIDirectorOperatorEnabled
 	}
+	if out.AIDirectorCountExpandRatio == 0 && out.AIDirectorDurationExpandRatio == 0 && out.AIDirectorCountAbsoluteCap == 0 && out.AIDirectorDurationAbsoluteCapSec == 0 {
+		out.AIDirectorCountExpandRatio = def.AIDirectorCountExpandRatio
+		out.AIDirectorDurationExpandRatio = def.AIDirectorDurationExpandRatio
+		out.AIDirectorCountAbsoluteCap = def.AIDirectorCountAbsoluteCap
+		out.AIDirectorDurationAbsoluteCapSec = def.AIDirectorDurationAbsoluteCapSec
+	}
+	out.AIDirectorCountExpandRatio = clampFloat(out.AIDirectorCountExpandRatio, 0, 3)
+	out.AIDirectorDurationExpandRatio = clampFloat(out.AIDirectorDurationExpandRatio, 0, 3)
+	if out.AIDirectorCountAbsoluteCap <= 0 {
+		out.AIDirectorCountAbsoluteCap = def.AIDirectorCountAbsoluteCap
+	}
+	if out.AIDirectorCountAbsoluteCap > maxGIFCandidateOutputs {
+		out.AIDirectorCountAbsoluteCap = maxGIFCandidateOutputs
+	}
+	if out.AIDirectorCountAbsoluteCap < out.GIFCandidateMaxOutputs {
+		out.AIDirectorCountAbsoluteCap = out.GIFCandidateMaxOutputs
+	}
+	if out.AIDirectorDurationAbsoluteCapSec <= 0 {
+		out.AIDirectorDurationAbsoluteCapSec = def.AIDirectorDurationAbsoluteCapSec
+	}
+	out.AIDirectorDurationAbsoluteCapSec = clampFloat(out.AIDirectorDurationAbsoluteCapSec, 2.0, 12.0)
 
 	return out
 }

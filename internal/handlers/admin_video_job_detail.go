@@ -43,7 +43,8 @@ func (h *Handler) GetAdminVideoJob(c *gin.Context) {
 	collectionMap := h.loadVideoJobCollectionMap([]models.VideoJob{job})
 	costMap := h.loadVideoJobCostMap([]models.VideoJob{job})
 	pointHoldMap := h.loadVideoJobPointHoldMap([]models.VideoJob{job})
-	jobItem := h.buildAdminVideoJobListItem(job, userMap, collectionMap, costMap, pointHoldMap)
+	auditSummaryMap := h.loadVideoJobAuditSummaryMap([]models.VideoJob{job})
+	jobItem := h.buildAdminVideoJobListItem(job, userMap, collectionMap, costMap, pointHoldMap, auditSummaryMap)
 
 	var events []models.VideoImageEventPublic
 	if err := h.db.Where("job_id = ?", job.ID).Order("id DESC").Limit(200).Find(&events).Error; err != nil {
@@ -71,6 +72,7 @@ func (h *Handler) GetAdminVideoJob(c *gin.Context) {
 	for _, item := range artifacts {
 		respArtifacts = append(respArtifacts, AdminVideoJobArtifactItem{
 			ID:         item.ID,
+			Format:     strings.TrimSpace(item.Format),
 			Type:       item.FileRole,
 			QiniuKey:   item.ObjectKey,
 			URL:        resolvePreviewURL(item.ObjectKey, h.qiniu),
@@ -79,6 +81,8 @@ func (h *Handler) GetAdminVideoJob(c *gin.Context) {
 			Width:      item.Width,
 			Height:     item.Height,
 			DurationMs: item.DurationMs,
+			ProposalID: item.ProposalID,
+			IsPrimary:  item.IsPrimary,
 			Metadata:   parseJSONMap(item.Metadata),
 			CreatedAt:  item.CreatedAt.Format("2006-01-02 15:04:05"),
 		})

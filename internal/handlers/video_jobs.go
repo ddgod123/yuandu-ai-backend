@@ -84,6 +84,7 @@ type VideoJobResponse struct {
 	Stage              string                 `json:"stage"`
 	Progress           int                    `json:"progress"`
 	Priority           string                 `json:"priority"`
+	AssetDomain        string                 `json:"asset_domain,omitempty"`
 	ErrorMessage       string                 `json:"error_message,omitempty"`
 	ResultCollectionID *uint64                `json:"result_collection_id,omitempty"`
 	Options            map[string]interface{} `json:"options,omitempty"`
@@ -411,6 +412,7 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 		Priority:       priority,
 		Options:        toJSON(options),
 		Metrics:        datatypes.JSON([]byte("{}")),
+		AssetDomain:    models.VideoJobAssetDomainVideo,
 	}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&job).Error; err != nil {
@@ -691,7 +693,7 @@ func (h *Handler) ListMyVideoJobs(c *gin.Context) {
 		items = append(items, buildVideoJobResponse(job, h.qiniu))
 	}
 	if includeResultSummary && len(items) > 0 {
-		summaryByCollectionID, err := h.buildVideoJobResultSummary(jobs)
+		summaryByCollectionKey, err := h.buildVideoJobResultSummary(jobs)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -701,7 +703,8 @@ func (h *Handler) ListMyVideoJobs(c *gin.Context) {
 				continue
 			}
 			collectionID := *job.ResultCollectionID
-			summary, ok := summaryByCollectionID[collectionID]
+			collectionKey := videoJobCollectionMapKey(job.AssetDomain, collectionID)
+			summary, ok := summaryByCollectionKey[collectionKey]
 			if !ok {
 				summary = VideoJobResultSummary{
 					CollectionID:  collectionID,
@@ -896,8 +899,8 @@ func (h *Handler) GetVideoJobResult(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", *job.ResultCollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollection(job)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "result collection not found"})
 			return
@@ -918,8 +921,8 @@ func (h *Handler) GetVideoJobResult(c *gin.Context) {
 	}
 	reviewStatusSet := buildVideoJobReviewStatusSet(reviewStatusFilter)
 
-	var emojis []models.Emoji
-	if err := h.db.Where("collection_id = ? AND status = ?", collection.ID, "active").Order("display_order ASC, id ASC").Find(&emojis).Error; err != nil {
+	emojis, err := h.listVideoJobResultEmojisByDomain(collection.ID, job.AssetDomain)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -1122,10 +1125,7 @@ func (h *Handler) GetVideoJobResult(c *gin.Context) {
 	}
 
 	var packageItem *VideoJobResultPackageItem
-	var latestZip models.CollectionZip
-	if err := h.db.Where("collection_id = ?", collection.ID).
-		Order("uploaded_at desc nulls last, id desc").
-		First(&latestZip).Error; err == nil {
+	if latestZip, err := h.loadLatestVideoJobResultZipByDomain(collection.ID, job.AssetDomain); err == nil {
 		packageItem = &VideoJobResultPackageItem{
 			ID:         latestZip.ID,
 			FileKey:    strings.TrimSpace(latestZip.ZipKey),
@@ -1513,6 +1513,7 @@ func buildVideoJobResponse(job models.VideoJob, qiniu *storage.QiniuClient) Vide
 		Stage:              job.Stage,
 		Progress:           job.Progress,
 		Priority:           job.Priority,
+		AssetDomain:        normalizeVideoJobAssetDomain(job.AssetDomain),
 		ErrorMessage:       strings.TrimSpace(job.ErrorMessage),
 		ResultCollectionID: job.ResultCollectionID,
 		Options:            options,
@@ -1551,15 +1552,25 @@ type videoJobEmojiSummaryRow struct {
 	DisplayOrder int    `gorm:"column:display_order"`
 }
 
-type videoJobOutputQualityRow struct {
+type videoJobOutputSummaryRow struct {
+	ID                     uint64  `gorm:"column:id"`
 	JobID                  uint64  `gorm:"column:job_id"`
+	ObjectKey              string  `gorm:"column:object_key"`
+	Format                 string  `gorm:"column:format"`
 	Score                  float64 `gorm:"column:score"`
 	GIFLoopTuneLoopClosure float64 `gorm:"column:gif_loop_tune_loop_closure"`
+}
+
+type videoJobReviewSummaryRow struct {
+	ID                  uint64  `gorm:"column:id"`
+	OutputID            *uint64 `gorm:"column:output_id"`
+	FinalRecommendation string  `gorm:"column:final_recommendation"`
 }
 
 type videoJobResultSummaryAccumulator struct {
 	Summary               VideoJobResultSummary
 	ActiveCnt             int
+	DeliverCnt            int
 	FormatCnt             map[string]int
 	PreviewSet            map[string]struct{}
 	QualityScoreSum       float64
@@ -1582,6 +1593,19 @@ func normalizeVideoJobResultFormat(raw string) string {
 		return "jpg"
 	}
 	return value
+}
+
+func videoJobHasOutputFormat(raw, target string) bool {
+	needle := normalizeVideoJobResultFormat(target)
+	if needle == "" {
+		return false
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if normalizeVideoJobResultFormat(part) == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveVideoJobPackageStatus(job models.VideoJob, fallback string) string {
@@ -1608,124 +1632,260 @@ func resolveVideoJobPackageStatus(job models.VideoJob, fallback string) string {
 	return "processing"
 }
 
-func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[uint64]VideoJobResultSummary, error) {
-	collectionIDs := make([]uint64, 0, len(jobs))
+func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string]VideoJobResultSummary, error) {
+	videoCollectionIDs := make([]uint64, 0, len(jobs))
+	archiveCollectionIDs := make([]uint64, 0, len(jobs))
 	jobIDs := make([]uint64, 0, len(jobs))
-	seen := make(map[uint64]struct{}, len(jobs))
-	jobToCollectionID := make(map[uint64]uint64, len(jobs))
+	seenVideo := make(map[uint64]struct{}, len(jobs))
+	seenArchive := make(map[uint64]struct{}, len(jobs))
+	collectionToJobID := make(map[string]uint64, len(jobs))
+	jobHasGIFFormat := make(map[uint64]bool, len(jobs))
 	for _, job := range jobs {
 		jobIDs = append(jobIDs, job.ID)
+		jobHasGIFFormat[job.ID] = videoJobHasOutputFormat(job.OutputFormats, "gif")
 		if job.ResultCollectionID == nil || *job.ResultCollectionID == 0 {
 			continue
 		}
-		id := *job.ResultCollectionID
-		jobToCollectionID[job.ID] = id
-		if _, ok := seen[id]; ok {
+		collectionID := *job.ResultCollectionID
+		key := videoJobCollectionMapKey(job.AssetDomain, collectionID)
+		if _, exists := collectionToJobID[key]; !exists {
+			collectionToJobID[key] = job.ID
+		}
+		if normalizeVideoJobAssetDomain(job.AssetDomain) == models.VideoJobAssetDomainVideo {
+			if _, ok := seenVideo[collectionID]; ok {
+				continue
+			}
+			seenVideo[collectionID] = struct{}{}
+			videoCollectionIDs = append(videoCollectionIDs, collectionID)
 			continue
 		}
-		seen[id] = struct{}{}
-		collectionIDs = append(collectionIDs, id)
-	}
-	if len(collectionIDs) == 0 {
-		return map[uint64]VideoJobResultSummary{}, nil
-	}
-
-	var collections []videoJobCollectionSummaryRow
-	if err := h.db.Model(&models.Collection{}).
-		Select("id", "title", "file_count", "latest_zip_key").
-		Where("id IN ?", collectionIDs).
-		Find(&collections).Error; err != nil {
-		return nil, err
-	}
-
-	acc := make(map[uint64]*videoJobResultSummaryAccumulator, len(collections))
-	for _, row := range collections {
-		packageStatus := "processing"
-		if strings.TrimSpace(row.LatestZipKey) != "" {
-			packageStatus = "ready"
+		if _, ok := seenArchive[collectionID]; ok {
+			continue
 		}
-		acc[row.ID] = &videoJobResultSummaryAccumulator{
-			Summary: VideoJobResultSummary{
-				CollectionID:    row.ID,
-				CollectionTitle: strings.TrimSpace(row.Title),
-				FileCount:       row.FileCount,
-				PreviewImages:   make([]string, 0, 15),
-				PackageStatus:   packageStatus,
-			},
-			FormatCnt:  map[string]int{},
-			PreviewSet: map[string]struct{}{},
+		seenArchive[collectionID] = struct{}{}
+		archiveCollectionIDs = append(archiveCollectionIDs, collectionID)
+	}
+	if len(videoCollectionIDs) == 0 && len(archiveCollectionIDs) == 0 {
+		return map[string]VideoJobResultSummary{}, nil
+	}
+
+	acc := map[string]*videoJobResultSummaryAccumulator{}
+	if len(archiveCollectionIDs) > 0 {
+		var collections []videoJobCollectionSummaryRow
+		if err := h.db.Model(&models.Collection{}).
+			Select("id", "title", "file_count", "latest_zip_key").
+			Where("id IN ?", archiveCollectionIDs).
+			Find(&collections).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range collections {
+			key := videoJobCollectionMapKey(models.VideoJobAssetDomainArchive, row.ID)
+			packageStatus := "processing"
+			if strings.TrimSpace(row.LatestZipKey) != "" {
+				packageStatus = "ready"
+			}
+			acc[key] = &videoJobResultSummaryAccumulator{
+				Summary: VideoJobResultSummary{
+					CollectionID:    row.ID,
+					CollectionTitle: strings.TrimSpace(row.Title),
+					FileCount:       row.FileCount,
+					PreviewImages:   make([]string, 0, 15),
+					PackageStatus:   packageStatus,
+				},
+				FormatCnt:  map[string]int{},
+				PreviewSet: map[string]struct{}{},
+			}
+		}
+	}
+	if len(videoCollectionIDs) > 0 {
+		var collections []models.VideoAssetCollection
+		if err := h.db.Select("id", "title", "file_count", "latest_zip_key").
+			Where("id IN ?", videoCollectionIDs).
+			Find(&collections).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range collections {
+			key := videoJobCollectionMapKey(models.VideoJobAssetDomainVideo, row.ID)
+			packageStatus := "processing"
+			if strings.TrimSpace(row.LatestZipKey) != "" {
+				packageStatus = "ready"
+			}
+			acc[key] = &videoJobResultSummaryAccumulator{
+				Summary: VideoJobResultSummary{
+					CollectionID:    row.ID,
+					CollectionTitle: strings.TrimSpace(row.Title),
+					FileCount:       row.FileCount,
+					PreviewImages:   make([]string, 0, 15),
+					PackageStatus:   packageStatus,
+				},
+				FormatCnt:  map[string]int{},
+				PreviewSet: map[string]struct{}{},
+			}
 		}
 	}
 	if len(acc) == 0 {
-		return map[uint64]VideoJobResultSummary{}, nil
+		return map[string]VideoJobResultSummary{}, nil
 	}
 
-	var emojiRows []videoJobEmojiSummaryRow
-	if err := h.db.Model(&models.Emoji{}).
-		Select("id", "collection_id", "format", "file_url", "thumb_url", "display_order").
-		Where("collection_id IN ? AND status = ?", collectionIDs, "active").
-		Order("collection_id ASC, display_order ASC, id ASC").
-		Find(&emojiRows).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range emojiRows {
-		item, ok := acc[row.CollectionID]
-		if !ok {
-			continue
-		}
-		item.ActiveCnt++
-		if format := normalizeVideoJobResultFormat(row.Format); format != "" {
-			item.FormatCnt[format]++
-		}
-		if len(item.Summary.PreviewImages) >= 15 {
-			continue
-		}
-		source := strings.TrimSpace(row.ThumbURL)
-		if source == "" {
-			source = strings.TrimSpace(row.FileURL)
-		}
-		previewURL := strings.TrimSpace(resolvePreviewURL(source, h.qiniu))
-		if previewURL == "" {
-			continue
-		}
-		if _, exists := item.PreviewSet[previewURL]; exists {
-			continue
-		}
-		item.PreviewSet[previewURL] = struct{}{}
-		item.Summary.PreviewImages = append(item.Summary.PreviewImages, previewURL)
-	}
-
-	if len(jobIDs) > 0 && len(jobToCollectionID) > 0 {
-		var qualityRows []videoJobOutputQualityRow
-		if err := h.db.Model(&models.VideoImageOutputPublic{}).
-			Select("job_id", "score", "gif_loop_tune_loop_closure").
-			Where("job_id IN ? AND file_role = ? AND format = ?", jobIDs, "main", "gif").
-			Find(&qualityRows).Error; err != nil {
+	emojiRowsByCollectionKey := map[string][]videoJobEmojiSummaryRow{}
+	if len(archiveCollectionIDs) > 0 {
+		var emojiRows []videoJobEmojiSummaryRow
+		if err := h.db.Model(&models.Emoji{}).
+			Select("id", "collection_id", "format", "file_url", "thumb_url", "display_order").
+			Where("collection_id IN ? AND status = ?", archiveCollectionIDs, "active").
+			Order("collection_id ASC, display_order ASC, id ASC").
+			Find(&emojiRows).Error; err != nil {
 			return nil, err
 		}
-		for _, row := range qualityRows {
-			collectionID, ok := jobToCollectionID[row.JobID]
-			if !ok || collectionID == 0 {
-				continue
+		for _, row := range emojiRows {
+			key := videoJobCollectionMapKey(models.VideoJobAssetDomainArchive, row.CollectionID)
+			if item, ok := acc[key]; ok {
+				item.ActiveCnt++
+				emojiRowsByCollectionKey[key] = append(emojiRowsByCollectionKey[key], row)
 			}
-			item, exists := acc[collectionID]
-			if !exists {
-				continue
-			}
-			item.QualityCnt++
-			item.QualityScoreSum += row.Score
-			item.QualityLoopClosureSum += row.GIFLoopTuneLoopClosure
-			if item.QualityCnt == 1 || row.Score > item.Summary.QualityTopScore {
-				item.Summary.QualityTopScore = row.Score
+		}
+	}
+	if len(videoCollectionIDs) > 0 {
+		var emojiRows []videoJobEmojiSummaryRow
+		if err := h.db.Model(&models.VideoAssetEmoji{}).
+			Select("id", "collection_id", "format", "file_url", "thumb_url", "display_order").
+			Where("collection_id IN ? AND status = ?", videoCollectionIDs, "active").
+			Order("collection_id ASC, display_order ASC, id ASC").
+			Find(&emojiRows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range emojiRows {
+			key := videoJobCollectionMapKey(models.VideoJobAssetDomainVideo, row.CollectionID)
+			if item, ok := acc[key]; ok {
+				item.ActiveCnt++
+				emojiRowsByCollectionKey[key] = append(emojiRowsByCollectionKey[key], row)
 			}
 		}
 	}
 
-	out := make(map[uint64]VideoJobResultSummary, len(acc))
-	for collectionID, item := range acc {
-		if item.Summary.FileCount <= 0 {
-			item.Summary.FileCount = item.ActiveCnt
+	outputByJobAndObjectKey := make(map[uint64]map[string]videoJobOutputSummaryRow, len(jobIDs))
+	if len(jobIDs) > 0 {
+		var outputRows []videoJobOutputSummaryRow
+		if err := h.db.Model(&models.VideoImageOutputPublic{}).
+			Select("id", "job_id", "object_key", "format", "score", "gif_loop_tune_loop_closure").
+			Where("job_id IN ? AND file_role = ?", jobIDs, "main").
+			Find(&outputRows).Error; err != nil {
+			return nil, err
 		}
+		for _, row := range outputRows {
+			objectKey := strings.TrimSpace(row.ObjectKey)
+			if objectKey == "" {
+				continue
+			}
+			byObjectKey, exists := outputByJobAndObjectKey[row.JobID]
+			if !exists {
+				byObjectKey = map[string]videoJobOutputSummaryRow{}
+				outputByJobAndObjectKey[row.JobID] = byObjectKey
+			}
+			if _, exists := byObjectKey[objectKey]; !exists {
+				byObjectKey[objectKey] = row
+			}
+		}
+	}
+
+	reviewByOutputID := map[uint64]string{}
+	if len(jobIDs) > 0 {
+		var reviewRows []videoJobReviewSummaryRow
+		if err := h.db.Model(&models.VideoJobGIFAIReview{}).
+			Select("id", "output_id", "final_recommendation").
+			Where("job_id IN ? AND output_id IS NOT NULL", jobIDs).
+			Order("id DESC").
+			Find(&reviewRows).Error; err != nil {
+			msg := strings.ToLower(strings.TrimSpace(err.Error()))
+			if !(strings.Contains(msg, "archive.video_job_gif_ai_reviews") &&
+				(strings.Contains(msg, "does not exist") || strings.Contains(msg, "no such table"))) {
+				return nil, err
+			}
+			reviewRows = nil
+		}
+		for _, row := range reviewRows {
+			if row.OutputID == nil || *row.OutputID == 0 {
+				continue
+			}
+			if _, exists := reviewByOutputID[*row.OutputID]; exists {
+				continue
+			}
+			status := normalizeVideoJobReviewStatus(row.FinalRecommendation)
+			if status == "" {
+				continue
+			}
+			reviewByOutputID[*row.OutputID] = status
+		}
+	}
+
+	for collectionKey, item := range acc {
+		jobID := collectionToJobID[collectionKey]
+		jobOutputs := outputByJobAndObjectKey[jobID]
+		jobIsGIF := jobHasGIFFormat[jobID]
+		for _, row := range emojiRowsByCollectionKey[collectionKey] {
+			outputID := uint64(0)
+			outputFormat := ""
+			outputScore := 0.0
+			outputLoopClosure := 0.0
+			if output, exists := jobOutputs[strings.TrimSpace(row.FileURL)]; exists {
+				outputID = output.ID
+				outputFormat = output.Format
+				outputScore = output.Score
+				outputLoopClosure = output.GIFLoopTuneLoopClosure
+			}
+
+			recommendation := ""
+			if outputID > 0 {
+				recommendation = normalizeVideoJobReviewStatus(reviewByOutputID[outputID])
+			}
+			if recommendation == "" {
+				if jobIsGIF {
+					recommendation = "need_manual_review"
+				} else {
+					recommendation = "deliver"
+				}
+			}
+			if recommendation != "deliver" {
+				continue
+			}
+
+			item.DeliverCnt++
+			format := normalizeVideoJobResultFormat(row.Format)
+			if format == "" {
+				format = normalizeVideoJobResultFormat(outputFormat)
+			}
+			if format != "" {
+				item.FormatCnt[format]++
+			}
+
+			if len(item.Summary.PreviewImages) < 15 {
+				source := strings.TrimSpace(row.ThumbURL)
+				if source == "" {
+					source = strings.TrimSpace(row.FileURL)
+				}
+				previewURL := strings.TrimSpace(resolvePreviewURL(source, h.qiniu))
+				if previewURL != "" {
+					if _, exists := item.PreviewSet[previewURL]; !exists {
+						item.PreviewSet[previewURL] = struct{}{}
+						item.Summary.PreviewImages = append(item.Summary.PreviewImages, previewURL)
+					}
+				}
+			}
+
+			if outputID > 0 && normalizeVideoJobResultFormat(outputFormat) == "gif" {
+				item.QualityCnt++
+				item.QualityScoreSum += outputScore
+				item.QualityLoopClosureSum += outputLoopClosure
+				if item.QualityCnt == 1 || outputScore > item.Summary.QualityTopScore {
+					item.Summary.QualityTopScore = outputScore
+				}
+			}
+		}
+	}
+
+	out := make(map[string]VideoJobResultSummary, len(acc))
+	for collectionKey, item := range acc {
+		item.Summary.FileCount = item.DeliverCnt
 		if len(item.FormatCnt) > 0 {
 			formats := make([]string, 0, len(item.FormatCnt))
 			for format := range item.FormatCnt {
@@ -1742,7 +1902,7 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[uint64
 			item.Summary.QualityAvgScore = item.QualityScoreSum / float64(item.QualityCnt)
 			item.Summary.QualityAvgLoopClosure = item.QualityLoopClosureSum / float64(item.QualityCnt)
 		}
-		out[collectionID] = item.Summary
+		out[collectionKey] = item.Summary
 	}
 
 	return out, nil

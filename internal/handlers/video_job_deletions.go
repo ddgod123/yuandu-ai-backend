@@ -86,8 +86,8 @@ func (h *Handler) DeleteVideoJobCollection(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", *job.ResultCollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollection(job)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 			return
@@ -160,8 +160,8 @@ func (h *Handler) DeleteVideoJobOutput(c *gin.Context) {
 		return
 	}
 
-	var emoji models.Emoji
-	if err := h.db.Where("id = ? AND collection_id = ?", req.EmojiID, *job.ResultCollectionID).First(&emoji).Error; err != nil {
+	emoji, err := h.loadVideoJobEmojiByDomain(job.AssetDomain, req.EmojiID, *job.ResultCollectionID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "emoji not found"})
 			return
@@ -170,8 +170,8 @@ func (h *Handler) DeleteVideoJobOutput(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", emoji.CollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollectionByDomain(emoji.CollectionID, job.AssetDomain)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 			return
@@ -189,7 +189,7 @@ func (h *Handler) DeleteVideoJobOutput(c *gin.Context) {
 		removeZip = *req.RemoveZip
 	}
 
-	res, err := h.hardDeleteEmojiOutput(emoji, collection, []uint64{job.ID}, userID, "user", strings.TrimSpace(req.Reason), removeZip)
+	res, err := h.hardDeleteEmojiOutputWithDomain(emoji, collection, normalizeVideoJobAssetDomain(job.AssetDomain), []uint64{job.ID}, userID, "user", strings.TrimSpace(req.Reason), removeZip)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -222,8 +222,8 @@ func (h *Handler) AdminDeleteVideoJobCollection(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", *job.ResultCollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollection(job)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 			return
@@ -275,8 +275,8 @@ func (h *Handler) AdminDeleteVideoJobOutput(c *gin.Context) {
 		return
 	}
 
-	var emoji models.Emoji
-	if err := h.db.Where("id = ?", req.EmojiID).First(&emoji).Error; err != nil {
+	emoji, err := h.loadVideoJobEmojiByDomain(job.AssetDomain, req.EmojiID, *job.ResultCollectionID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "emoji not found"})
 			return
@@ -289,8 +289,8 @@ func (h *Handler) AdminDeleteVideoJobOutput(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", emoji.CollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollectionByDomain(emoji.CollectionID, job.AssetDomain)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 			return
@@ -304,7 +304,7 @@ func (h *Handler) AdminDeleteVideoJobOutput(c *gin.Context) {
 		removeZip = *req.RemoveZip
 	}
 
-	res, err := h.hardDeleteEmojiOutput(emoji, collection, []uint64{job.ID}, adminID, "admin", strings.TrimSpace(req.Reason), removeZip)
+	res, err := h.hardDeleteEmojiOutputWithDomain(emoji, collection, normalizeVideoJobAssetDomain(job.AssetDomain), []uint64{job.ID}, adminID, "admin", strings.TrimSpace(req.Reason), removeZip)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -317,10 +317,15 @@ func (h *Handler) AdminDeleteVideoJobOutput(c *gin.Context) {
 
 func (h *Handler) hardDeleteCollectionByJob(job models.VideoJob, collection models.Collection, actorID uint64, actorRole, reason string) (collectionDeleteResult, error) {
 	jobIDs := []uint64{job.ID}
-	return h.hardDeleteCollection(collection, jobIDs, actorID, actorRole, reason)
+	return h.hardDeleteCollectionWithDomain(collection, normalizeVideoJobAssetDomain(job.AssetDomain), jobIDs, actorID, actorRole, reason)
 }
 
 func (h *Handler) hardDeleteCollection(collection models.Collection, jobIDs []uint64, actorID uint64, actorRole, reason string) (collectionDeleteResult, error) {
+	return h.hardDeleteCollectionWithDomain(collection, models.VideoJobAssetDomainArchive, jobIDs, actorID, actorRole, reason)
+}
+
+func (h *Handler) hardDeleteCollectionWithDomain(collection models.Collection, assetDomain string, jobIDs []uint64, actorID uint64, actorRole, reason string) (collectionDeleteResult, error) {
+	assetDomain = normalizeVideoJobAssetDomain(assetDomain)
 	result := collectionDeleteResult{CollectionID: collection.ID}
 
 	prefix := normalizeCollectionPrefix(collection.QiniuPrefix)
@@ -330,7 +335,9 @@ func (h *Handler) hardDeleteCollection(collection models.Collection, jobIDs []ui
 
 	if len(jobIDs) == 0 {
 		var ids []uint64
-		if err := h.db.Model(&models.VideoJob{}).Where("result_collection_id = ?", collection.ID).Pluck("id", &ids).Error; err != nil {
+		if err := h.db.Model(&models.VideoJob{}).
+			Where("result_collection_id = ? AND LOWER(COALESCE(NULLIF(TRIM(asset_domain), ''), 'video')) = ?", collection.ID, normalizeVideoJobAssetDomain(assetDomain)).
+			Pluck("id", &ids).Error; err != nil {
 			return result, err
 		}
 		jobIDs = ids
@@ -370,20 +377,38 @@ func (h *Handler) hardDeleteCollection(collection models.Collection, jobIDs []ui
 			}
 		}
 
-		resEmoji := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.Emoji{})
-		if resEmoji.Error != nil {
-			return resEmoji.Error
-		}
-		result.DeletedEmojis = resEmoji.RowsAffected
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			resEmoji := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.VideoAssetEmoji{})
+			if resEmoji.Error != nil {
+				return resEmoji.Error
+			}
+			result.DeletedEmojis = resEmoji.RowsAffected
 
-		resZip := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.CollectionZip{})
-		if resZip.Error != nil {
-			return resZip.Error
-		}
-		result.DeletedZips = resZip.RowsAffected
+			resZip := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.VideoAssetCollectionZip{})
+			if resZip.Error != nil {
+				return resZip.Error
+			}
+			result.DeletedZips = resZip.RowsAffected
 
-		if err := tx.Unscoped().Delete(&models.Collection{}, collection.ID).Error; err != nil {
-			return err
+			if err := tx.Unscoped().Delete(&models.VideoAssetCollection{}, collection.ID).Error; err != nil {
+				return err
+			}
+		} else {
+			resEmoji := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.Emoji{})
+			if resEmoji.Error != nil {
+				return resEmoji.Error
+			}
+			result.DeletedEmojis = resEmoji.RowsAffected
+
+			resZip := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.CollectionZip{})
+			if resZip.Error != nil {
+				return resZip.Error
+			}
+			result.DeletedZips = resZip.RowsAffected
+
+			if err := tx.Unscoped().Delete(&models.Collection{}, collection.ID).Error; err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -408,6 +433,7 @@ func (h *Handler) hardDeleteCollection(collection models.Collection, jobIDs []ui
 		"reason":                 reason,
 		"collection_id":          collection.ID,
 		"collection_title":       collection.Title,
+		"asset_domain":           assetDomain,
 		"qiniu_prefix":           prefix,
 		"job_ids":                jobIDs,
 		"deleted_objects":        result.DeletedObjects,
@@ -428,6 +454,19 @@ func (h *Handler) hardDeleteEmojiOutput(
 	actorRole, reason string,
 	removeZip bool,
 ) (outputDeleteResult, error) {
+	return h.hardDeleteEmojiOutputWithDomain(emoji, collection, models.VideoJobAssetDomainArchive, jobIDs, actorID, actorRole, reason, removeZip)
+}
+
+func (h *Handler) hardDeleteEmojiOutputWithDomain(
+	emoji models.Emoji,
+	collection models.Collection,
+	assetDomain string,
+	jobIDs []uint64,
+	actorID uint64,
+	actorRole, reason string,
+	removeZip bool,
+) (outputDeleteResult, error) {
+	assetDomain = normalizeVideoJobAssetDomain(assetDomain)
 	result := outputDeleteResult{
 		EmojiID:      emoji.ID,
 		CollectionID: collection.ID,
@@ -439,7 +478,7 @@ func (h *Handler) hardDeleteEmojiOutput(
 
 	removedZipKeys := []string{}
 	if removeZip {
-		zipKeys, err := h.collectCollectionZipKeys(collection.ID, collection)
+		zipKeys, err := h.collectCollectionZipKeys(collection.ID, collection, assetDomain)
 		if err != nil {
 			return result, err
 		}
@@ -447,9 +486,16 @@ func (h *Handler) hardDeleteEmojiOutput(
 	}
 
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
-		resEmoji := tx.Unscoped().Delete(&models.Emoji{}, emoji.ID)
-		if resEmoji.Error != nil {
-			return resEmoji.Error
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			resEmoji := tx.Unscoped().Delete(&models.VideoAssetEmoji{}, emoji.ID)
+			if resEmoji.Error != nil {
+				return resEmoji.Error
+			}
+		} else {
+			resEmoji := tx.Unscoped().Delete(&models.Emoji{}, emoji.ID)
+			if resEmoji.Error != nil {
+				return resEmoji.Error
+			}
 		}
 
 		if len(deleteKeys) > 0 {
@@ -469,7 +515,9 @@ func (h *Handler) hardDeleteEmojiOutput(
 		if removeZip {
 			if len(jobIDs) == 0 {
 				var ids []uint64
-				if err := tx.Model(&models.VideoJob{}).Where("result_collection_id = ?", collection.ID).Pluck("id", &ids).Error; err != nil {
+				if err := tx.Model(&models.VideoJob{}).
+					Where("result_collection_id = ? AND LOWER(COALESCE(NULLIF(TRIM(asset_domain), ''), 'video')) = ?", collection.ID, normalizeVideoJobAssetDomain(assetDomain)).
+					Pluck("id", &ids).Error; err != nil {
 					return err
 				}
 				jobIDs = ids
@@ -486,25 +534,47 @@ func (h *Handler) hardDeleteEmojiOutput(
 				}
 			}
 
-			if err := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.CollectionZip{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(map[string]interface{}{
-				"latest_zip_key":  "",
-				"latest_zip_name": "",
-				"latest_zip_size": 0,
-				"latest_zip_at":   nil,
-			}).Error; err != nil {
-				return err
+			if assetDomain == models.VideoJobAssetDomainVideo {
+				if err := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.VideoAssetCollectionZip{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&models.VideoAssetCollection{}).Where("id = ?", collection.ID).Updates(map[string]interface{}{
+					"latest_zip_key":  "",
+					"latest_zip_name": "",
+					"latest_zip_size": 0,
+					"latest_zip_at":   nil,
+				}).Error; err != nil {
+					return err
+				}
+			} else {
+				if err := tx.Unscoped().Where("collection_id = ?", collection.ID).Delete(&models.CollectionZip{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(map[string]interface{}{
+					"latest_zip_key":  "",
+					"latest_zip_name": "",
+					"latest_zip_size": 0,
+					"latest_zip_at":   nil,
+				}).Error; err != nil {
+					return err
+				}
 			}
 			result.ZipRemoved = true
 		}
 
 		var remaining int64
-		if err := tx.Model(&models.Emoji{}).
-			Where("collection_id = ? AND status = ?", collection.ID, "active").
-			Count(&remaining).Error; err != nil {
-			return err
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			if err := tx.Model(&models.VideoAssetEmoji{}).
+				Where("collection_id = ? AND status = ?", collection.ID, "active").
+				Count(&remaining).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Model(&models.Emoji{}).
+				Where("collection_id = ? AND status = ?", collection.ID, "active").
+				Count(&remaining).Error; err != nil {
+				return err
+			}
 		}
 		result.RemainingCount = remaining
 
@@ -513,7 +583,16 @@ func (h *Handler) hardDeleteEmojiOutput(
 		}
 		if strings.TrimSpace(collection.CoverURL) == fileKey || strings.TrimSpace(collection.CoverURL) == thumbKey {
 			var nextEmoji models.Emoji
-			err := tx.Where("collection_id = ? AND status = ?", collection.ID, "active").Order("display_order ASC, id ASC").First(&nextEmoji).Error
+			var err error
+			if assetDomain == models.VideoJobAssetDomainVideo {
+				var nextVideoEmoji models.VideoAssetEmoji
+				err = tx.Where("collection_id = ? AND status = ?", collection.ID, "active").Order("display_order ASC, id ASC").First(&nextVideoEmoji).Error
+				if err == nil {
+					nextEmoji = convertVideoAssetEmoji(nextVideoEmoji)
+				}
+			} else {
+				err = tx.Where("collection_id = ? AND status = ?", collection.ID, "active").Order("display_order ASC, id ASC").First(&nextEmoji).Error
+			}
 			if err == nil {
 				updates["cover_url"] = nextEmoji.FileURL
 			} else if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -523,8 +602,14 @@ func (h *Handler) hardDeleteEmojiOutput(
 			}
 		}
 
-		if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(updates).Error; err != nil {
-			return err
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			if err := tx.Model(&models.VideoAssetCollection{}).Where("id = ?", collection.ID).Updates(updates).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(updates).Error; err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -552,6 +637,7 @@ func (h *Handler) hardDeleteEmojiOutput(
 		"actor_role":           actorRole,
 		"reason":               reason,
 		"collection_id":        collection.ID,
+		"asset_domain":         assetDomain,
 		"emoji_id":             emoji.ID,
 		"file_key":             fileKey,
 		"thumb_key":            thumbKey,
@@ -596,19 +682,33 @@ func (h *Handler) deleteQiniuKeysStrict(keys []string) (int, error) {
 	return deleted, nil
 }
 
-func (h *Handler) collectCollectionZipKeys(collectionID uint64, collection models.Collection) ([]string, error) {
+func (h *Handler) collectCollectionZipKeys(collectionID uint64, collection models.Collection, assetDomain string) ([]string, error) {
+	assetDomain = normalizeVideoJobAssetDomain(assetDomain)
 	keys := []string{}
 	if strings.TrimSpace(collection.LatestZipKey) != "" {
 		keys = append(keys, strings.TrimLeft(strings.TrimSpace(collection.LatestZipKey), "/"))
 	}
-	var rows []models.CollectionZip
-	if err := h.db.Select("zip_key").Where("collection_id = ?", collectionID).Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		key := strings.TrimLeft(strings.TrimSpace(row.ZipKey), "/")
-		if key != "" {
-			keys = append(keys, key)
+	if assetDomain == models.VideoJobAssetDomainVideo {
+		var rows []models.VideoAssetCollectionZip
+		if err := h.db.Select("zip_key").Where("collection_id = ?", collectionID).Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			key := strings.TrimLeft(strings.TrimSpace(row.ZipKey), "/")
+			if key != "" {
+				keys = append(keys, key)
+			}
+		}
+	} else {
+		var rows []models.CollectionZip
+		if err := h.db.Select("zip_key").Where("collection_id = ?", collectionID).Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			key := strings.TrimLeft(strings.TrimSpace(row.ZipKey), "/")
+			if key != "" {
+				keys = append(keys, key)
+			}
 		}
 	}
 	return uniqueKeys(keys), nil

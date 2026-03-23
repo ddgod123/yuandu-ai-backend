@@ -36,12 +36,19 @@ type Config struct {
 	MinIOBucket    string
 	MinIOUseSSL    bool
 
-	AsynqRedisAddr     string
-	AsynqRedisPassword string
-	AsynqRedisDB       int
-	WorkerStartCommand string
-	WorkerStartTimeout int
-	GIFSICLEBin        string
+	AsynqRedisAddr         string
+	AsynqRedisPassword     string
+	AsynqRedisDB           int
+	WorkerStartCommand     string
+	WorkerStartTimeout     int
+	GIFSICLEBin            string
+	GIFBundleEnabled       bool
+	GIFMezzanineEnabled    bool
+	GIFBundleMergeGapMS    int
+	GIFBundleMaxSpanSec    int
+	GIFMezzanineMinWindows int
+	GIFMezzanineCRF        int
+	GIFMezzaninePreset     string
 	// Enable legacy feedback_v1 fallback/mirror path.
 	// Default false: strict output_id/candidate_id learning only.
 	EnableLegacyFeedbackFallback bool
@@ -212,6 +219,14 @@ func Load() Config {
 	cfg.WorkerStartCommand = getEnv("WORKER_START_COMMAND", "")
 	cfg.WorkerStartTimeout = getEnvAsInt("WORKER_START_TIMEOUT_SECONDS", 20)
 	cfg.GIFSICLEBin = getEnv("GIFSICLE_BIN", "")
+	devDefault := strings.ToLower(strings.TrimSpace(cfg.Env)) != "prod"
+	cfg.GIFBundleEnabled = getEnvAsBool("GIF_BUNDLE_ENABLED", devDefault)
+	cfg.GIFMezzanineEnabled = getEnvAsBool("GIF_MEZZANINE_ENABLED", devDefault)
+	cfg.GIFBundleMergeGapMS = getEnvAsInt("GIF_BUNDLE_MERGE_GAP_MS", 800)
+	cfg.GIFBundleMaxSpanSec = getEnvAsInt("GIF_BUNDLE_MAX_SPAN_SEC", 12)
+	cfg.GIFMezzanineMinWindows = getEnvAsInt("GIF_MEZZANINE_MIN_WINDOWS", 2)
+	cfg.GIFMezzanineCRF = getEnvAsInt("GIF_MEZZANINE_CRF", 18)
+	cfg.GIFMezzaninePreset = strings.TrimSpace(getEnv("GIF_MEZZANINE_PRESET", "veryfast"))
 	cfg.EnableLegacyFeedbackFallback = getEnvAsBool("ENABLE_LEGACY_FEEDBACK_FALLBACK", false)
 
 	cfg.QiniuAccessKey = getEnv("QINIU_ACCESS_KEY", "")

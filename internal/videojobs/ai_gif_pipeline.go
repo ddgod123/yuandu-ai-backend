@@ -818,6 +818,124 @@ func validateAIGIFDirectiveContract(directive gifAIDirectiveProfile) error {
 	return nil
 }
 
+func resolveAIDirectorSourceAspectRatio(width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	a, b := width, height
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", width/a, height/a)
+}
+
+func resolveAIDirectorSourceOrientation(width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	if width == height {
+		return "square"
+	}
+	if width > height {
+		return "landscape"
+	}
+	return "portrait"
+}
+
+func resolveAIDirectorOptimizationTarget(profile string) string {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "clarity":
+		return "clarity_first"
+	case "size":
+		return "size_first"
+	case "balanced":
+		return "balanced"
+	default:
+		return "balanced"
+	}
+}
+
+func resolveAIDirectorCostSensitivity(targetSizeKB int) string {
+	switch {
+	case targetSizeKB <= 0:
+		return "medium"
+	case targetSizeKB <= 1024:
+		return "high"
+	case targetSizeKB <= 2048:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func resolveAIDirectorTaskConstraints(meta videoProbeMeta, qualitySettings QualitySettings) map[string]interface{} {
+	qualitySettings = NormalizeQualitySettings(qualitySettings)
+	decision := resolveAIGIFPlannerTargetTopNDecision(meta, nil, qualitySettings)
+	targetMax := decision.AllowedTopN
+	if targetMax <= 0 {
+		targetMax = 3
+	}
+	targetMin := decision.BaseTopN - 2
+	if targetMin < 1 {
+		targetMin = 1
+	}
+	if targetMin > targetMax {
+		targetMin = targetMax
+	}
+	targetDuration := chooseHighlightDuration(meta.DurationSec)
+	durationMin := roundTo(clampFloat(targetDuration*0.7, 0.8, 4.0), 3)
+	durationMax := roundTo(clampFloat(targetDuration*1.35, durationMin+0.4, 6.0), 3)
+	if qualitySettings.AIDirectorConstraintOverrideEnabled && qualitySettings.AIDirectorDurationExpandRatio > 0 {
+		durationMax = roundTo(durationMax*(1.0+qualitySettings.AIDirectorDurationExpandRatio), 3)
+	}
+	durationCap := qualitySettings.AIDirectorDurationAbsoluteCapSec
+	if durationCap <= 0 {
+		durationCap = NormalizeQualitySettings(qualitySettings).AIDirectorDurationAbsoluteCapSec
+	}
+	durationMax = roundTo(clampFloat(durationMax, durationMin+0.4, clampFloat(durationCap, durationMin+0.4, 12.0)), 3)
+	if durationMax <= durationMin {
+		durationMax = roundTo(durationMin+0.8, 3)
+	}
+	return map[string]interface{}{
+		"target_count_min": targetMin,
+		"target_count_max": targetMax,
+		"duration_sec_min": durationMin,
+		"duration_sec_max": durationMax,
+	}
+}
+
+func resolveAIDirectorRiskHints(meta videoProbeMeta) []string {
+	hints := make([]string, 0, 4)
+	appendHint := func(value string) {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "" {
+			return
+		}
+		if !containsString(hints, value) {
+			hints = append(hints, value)
+		}
+	}
+	if meta.FPS > 0 && meta.FPS < 15 {
+		appendHint("low_fps")
+	}
+	if meta.DurationSec >= 180 {
+		appendHint("long_video")
+	}
+	if meta.Width > 0 && meta.Height > 0 {
+		longSide := meta.Width
+		if meta.Height > longSide {
+			longSide = meta.Height
+		}
+		if longSide > 0 && longSide < 480 {
+			appendHint("low_resolution")
+		}
+	}
+	return hints
+}
+
 func (p *Processor) requestAIGIFPromptDirective(
 	ctx context.Context,
 	job models.VideoJob,
@@ -976,8 +1094,48 @@ func (p *Processor) requestAIGIFPromptDirective(
 		}
 	}
 
-	buildDirectorPayload := func() map[string]interface{} {
-		payload := map[string]interface{}{
+	buildDirectorPayloads := func() (map[string]interface{}, map[string]interface{}) {
+		frameRefs := make([]map[string]interface{}, 0, len(frameManifest))
+		for _, item := range frameManifest {
+			row := map[string]interface{}{
+				"index":         item["index"],
+				"timestamp_sec": item["timestamp_sec"],
+			}
+			frameRefs = append(frameRefs, row)
+		}
+		task := map[string]interface{}{
+			"asset_goal":           "gif_highlight",
+			"business_scene":       "social_spread",
+			"delivery_goal":        "standalone_shareable",
+			"optimization_target":  resolveAIDirectorOptimizationTarget(qualitySettings.GIFProfile),
+			"cost_sensitivity":     resolveAIDirectorCostSensitivity(qualitySettings.GIFTargetSizeKB),
+			"hard_constraints":     resolveAIDirectorTaskConstraints(meta, qualitySettings),
+			"operator_instruction": map[string]interface{}{"enabled": operatorEnabled, "version": operatorVersion},
+		}
+		source := map[string]interface{}{
+			"title":        strings.TrimSpace(job.Title),
+			"duration_sec": roundTo(meta.DurationSec, 3),
+			"width":        meta.Width,
+			"height":       meta.Height,
+			"fps":          roundTo(meta.FPS, 3),
+			"aspect_ratio": resolveAIDirectorSourceAspectRatio(meta.Width, meta.Height),
+			"orientation":  resolveAIDirectorSourceOrientation(meta.Width, meta.Height),
+			"input_mode":   directorInputModeApplied,
+		}
+		if len(frameRefs) > 0 {
+			source["frame_refs"] = frameRefs
+		}
+		modelPayload := map[string]interface{}{
+			"schema_version": "ai1_input_v2",
+			"task":           task,
+			"source":         source,
+			"risk_hints":     resolveAIDirectorRiskHints(meta),
+		}
+		if sourceVideoURL != "" && strings.EqualFold(directorInputModeApplied, "full_video") {
+			source["video_source_kind"] = "full_video_url_attached_in_content_part"
+		}
+
+		debugPayload := map[string]interface{}{
 			"job_id":                      job.ID,
 			"title":                       strings.TrimSpace(job.Title),
 			"duration_sec":                roundTo(meta.DurationSec, 3),
@@ -1003,13 +1161,13 @@ func (p *Processor) requestAIGIFPromptDirective(
 			},
 		}
 		if sourceVideoURL != "" {
-			payload["source_video_url"] = sourceVideoURL
+			debugPayload["source_video_url"] = sourceVideoURL
 		}
-		return payload
+		return modelPayload, debugPayload
 	}
 
-	buildDirectorUserParts := func(payload map[string]interface{}) ([]openAICompatContentPart, []byte) {
-		userBytes, _ := json.Marshal(payload)
+	buildDirectorUserParts := func(modelPayload map[string]interface{}) ([]openAICompatContentPart, []byte) {
+		userBytes, _ := json.Marshal(modelPayload)
 		parts := make([]openAICompatContentPart, 0, len(frameSamples)+2)
 		parts = append(parts, openAICompatContentPart{
 			Type: "text",
@@ -1038,8 +1196,8 @@ func (p *Processor) requestAIGIFPromptDirective(
 		return parts, userBytes
 	}
 
-	payload := buildDirectorPayload()
-	userParts, userBytes := buildDirectorUserParts(payload)
+	modelPayload, debugPayload := buildDirectorPayloads()
+	userParts, userBytes := buildDirectorUserParts(modelPayload)
 
 	systemPrompt := strings.TrimSpace(fixedPromptCore)
 	if operatorEnabled && strings.TrimSpace(operatorInstructionRendered) != "" {
@@ -1057,6 +1215,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 	info["director_input_mode_requested"] = directorInputModeRequested
 	info["director_input_mode_applied"] = directorInputModeApplied
 	info["director_input_source"] = directorInputSource
+	info["director_model_payload_schema_version"] = stringFromAny(modelPayload["schema_version"])
 	info["source_video_url_available"] = sourceVideoURL != ""
 	info["source_video_url_error"] = sourceVideoURLError
 
@@ -1066,7 +1225,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 			FallbackUsed:        fallbackUsed,
 			BriefVersion:        resolveAIDirectiveBriefVersion(operatorVersion, cfg.PromptVersion),
 			ModelVersion:        resolveAIDirectiveModelVersion(cfg.Model, raw),
-			InputContext:        payload,
+			InputContext:        modelPayload,
 			OperatorEnabled:     operatorEnabled,
 			OperatorInstruction: operatorInstructionRendered,
 			OperatorVersion:     operatorVersion,
@@ -1074,8 +1233,15 @@ func (p *Processor) requestAIGIFPromptDirective(
 		}
 	}
 
-	callAndRecordDirector := func(attempt int, payload map[string]interface{}, payloadBytes []byte, parts []openAICompatContentPart) (string, cloudHighlightUsage, map[string]interface{}, int64, error) {
+	callAndRecordDirector := func(
+		attempt int,
+		modelPayload map[string]interface{},
+		debugPayload map[string]interface{},
+		modelPayloadBytes []byte,
+		parts []openAICompatContentPart,
+	) (string, cloudHighlightUsage, map[string]interface{}, int64, error) {
 		modelText, usage, rawResp, durationMs, err := p.callOpenAICompatJSONChatWithUserParts(ctx, cfg, systemPrompt, parts)
+		debugPayloadBytes, _ := json.Marshal(debugPayload)
 		status := "ok"
 		errText := ""
 		if err != nil {
@@ -1119,25 +1285,30 @@ func (p *Processor) requestAIGIFPromptDirective(
 				"operator_instruction_render_mode":  operatorInstructionRenderMode,
 				"operator_instruction_source":       operatorSource,
 				"operator_instruction_schema":       operatorInstructionSchema,
-				"director_input_payload_v1":         payload,
-				"director_input_payload_bytes":      len(payloadBytes),
+				"director_payload_schema_version":   stringFromAny(modelPayload["schema_version"]),
+				"director_model_payload_v2":         modelPayload,
+				"director_model_payload_bytes":      len(modelPayloadBytes),
+				"director_debug_context_v1":         debugPayload,
+				"director_debug_context_bytes":      len(debugPayloadBytes),
+				"director_input_payload_v1":         debugPayload,
+				"director_input_payload_bytes":      len(debugPayloadBytes),
 			},
 		})
 		return modelText, usage, rawResp, durationMs, err
 	}
 
-	modelText, _, rawResp, _, err := callAndRecordDirector(1, payload, userBytes, userParts)
+	modelText, _, rawResp, _, err := callAndRecordDirector(1, modelPayload, debugPayload, userBytes, userParts)
 	if err != nil && directorInputModeRequested == "hybrid" && sourceVideoURL != "" && strings.EqualFold(directorInputModeApplied, "full_video") {
 		loadFrameSamples()
 		if len(frameSamples) > 0 {
 			directorInputModeApplied = "frames"
 			directorInputSource = "hybrid_retry_frame_manifest"
 			sourceVideoURL = ""
-			payload = buildDirectorPayload()
-			userParts, userBytes = buildDirectorUserParts(payload)
+			modelPayload, debugPayload = buildDirectorPayloads()
+			userParts, userBytes = buildDirectorUserParts(modelPayload)
 			info["hybrid_retry"] = "video_input_error_fallback_to_frames"
 			info["hybrid_first_error"] = err.Error()
-			modelText, _, rawResp, _, err = callAndRecordDirector(2, payload, userBytes, userParts)
+			modelText, _, rawResp, _, err = callAndRecordDirector(2, modelPayload, debugPayload, userBytes, userParts)
 		}
 	}
 	info["frame_count"] = len(frameSamples)
@@ -1448,7 +1619,8 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 	}
 
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
-	targetTopN := resolveAIGIFPlannerTargetTopN(meta, directive, qualitySettings)
+	topNDecision := resolveAIGIFPlannerTargetTopNDecision(meta, directive, qualitySettings)
+	targetTopN := topNDecision.AppliedTopN
 	frameSamples, frameErr := sampleAIDirectorFrames(ctx, sourcePath, meta, 8)
 	frameManifest := make([]map[string]interface{}, 0, len(frameSamples))
 	for _, item := range frameSamples {
@@ -1470,6 +1642,17 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 		"target_window_sec": roundTo(chooseHighlightDuration(meta.DurationSec), 3),
 		"frame_count":       len(frameManifest),
 		"frame_manifest":    frameManifest,
+		"hard_constraint_policy": map[string]interface{}{
+			"base_top_n":         topNDecision.BaseTopN,
+			"ai_suggested_top_n": topNDecision.AISuggestedTopN,
+			"allowed_top_n":      topNDecision.AllowedTopN,
+			"applied_top_n":      topNDecision.AppliedTopN,
+			"override_enabled":   topNDecision.OverrideEnabled,
+			"expand_ratio":       roundTo(topNDecision.ExpandRatio, 4),
+			"absolute_cap":       topNDecision.AbsoluteCap,
+			"clamp_reason":       topNDecision.ClampReason,
+			"duration_tier":      topNDecision.DurationTier,
+		},
 	}
 	if directive != nil {
 		payload["director"] = directive
@@ -1533,12 +1716,21 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 		RequestStatus:     status,
 		RequestError:      errText,
 		Metadata: map[string]interface{}{
-			"prompt_version":          cfg.PromptVersion,
-			"prompt_template_version": promptVersion,
-			"prompt_template_source":  promptSource,
-			"target_top_n":            targetTopN,
-			"candidate_source":        "frame_manifest",
-			"frame_count":             len(frameSamples),
+			"prompt_version":                cfg.PromptVersion,
+			"prompt_template_version":       promptVersion,
+			"prompt_template_source":        promptSource,
+			"target_top_n":                  targetTopN,
+			"target_top_n_base":             topNDecision.BaseTopN,
+			"target_top_n_ai_suggested":     topNDecision.AISuggestedTopN,
+			"target_top_n_allowed":          topNDecision.AllowedTopN,
+			"target_top_n_applied":          topNDecision.AppliedTopN,
+			"target_top_n_override_enabled": topNDecision.OverrideEnabled,
+			"target_top_n_expand_ratio":     roundTo(topNDecision.ExpandRatio, 4),
+			"target_top_n_absolute_cap":     topNDecision.AbsoluteCap,
+			"target_top_n_clamp_reason":     topNDecision.ClampReason,
+			"target_top_n_duration_tier":    topNDecision.DurationTier,
+			"candidate_source":              "frame_manifest",
+			"frame_count":                   len(frameSamples),
 			"frame_sampling_error": func() string {
 				if frameErr != nil {
 					return frameErr.Error()
@@ -1580,13 +1772,9 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 			ProposalRank: item.ProposalRank,
 		})
 	}
-	selected := pickNonOverlapCandidates(candidates, targetTopN, qualitySettings.GIFCandidateDedupIOUThreshold)
-	selected = applyGIFCandidateConfidenceThreshold(selected, candidates, qualitySettings.GIFCandidateConfidenceThreshold)
+	selected := selectAIGIFPlannerExecutionCandidates(candidates, targetTopN)
 	if len(selected) == 0 {
 		selected = candidates
-	}
-	if len(selected) > targetTopN {
-		selected = selected[:targetTopN]
 	}
 	suggestion := highlightSuggestion{
 		Version:    "ai_planner_v1",
@@ -1628,6 +1816,16 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 	info["selected_start_sec"] = suggestion.Selected.StartSec
 	info["selected_end_sec"] = suggestion.Selected.EndSec
 	info["selected_score"] = suggestion.Selected.Score
+	info["target_top_n_base"] = topNDecision.BaseTopN
+	info["target_top_n_ai_suggested"] = topNDecision.AISuggestedTopN
+	info["target_top_n_allowed"] = topNDecision.AllowedTopN
+	info["target_top_n_applied"] = topNDecision.AppliedTopN
+	info["selection_policy"] = "ai2_rank_order_primary"
+	info["target_top_n_override_enabled"] = topNDecision.OverrideEnabled
+	info["target_top_n_expand_ratio"] = roundTo(topNDecision.ExpandRatio, 4)
+	info["target_top_n_absolute_cap"] = topNDecision.AbsoluteCap
+	info["target_top_n_clamp_reason"] = topNDecision.ClampReason
+	info["target_top_n_duration_tier"] = topNDecision.DurationTier
 	info["frame_count"] = len(frameSamples)
 	if frameErr != nil {
 		info["frame_sampling_error"] = frameErr.Error()
@@ -1641,52 +1839,134 @@ func resolveAIGIFPlannerTargetTopN(
 	directive *gifAIDirectiveProfile,
 	qualitySettings QualitySettings,
 ) int {
+	return resolveAIGIFPlannerTargetTopNDecision(meta, directive, qualitySettings).AppliedTopN
+}
+
+type aiGIFPlannerTopNDecision struct {
+	BaseTopN        int
+	AISuggestedTopN int
+	AllowedTopN     int
+	AppliedTopN     int
+	OverrideEnabled bool
+	ExpandRatio     float64
+	AbsoluteCap     int
+	ClampReason     string
+	DurationTier    string
+}
+
+func resolveAIGIFPlannerTargetTopNDecision(
+	meta videoProbeMeta,
+	directive *gifAIDirectiveProfile,
+	qualitySettings QualitySettings,
+) aiGIFPlannerTopNDecision {
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
 	_, longVideoThresholdSec, ultraVideoThresholdSec := resolveGIFDurationTierThresholds(qualitySettings)
-	target := qualitySettings.GIFCandidateMaxOutputs
-	if target <= 0 {
-		target = defaultHighlightTopN
+	baseTarget := qualitySettings.GIFCandidateMaxOutputs
+	if baseTarget <= 0 {
+		baseTarget = defaultHighlightTopN
 	}
-
-	if directive != nil {
-		clipMax := directive.ClipCountMax
-		if clipMax > 0 && clipMax > target {
-			target = clipMax
-		}
-		clipMin := directive.ClipCountMin
-		if clipMin > 0 && target < clipMin {
-			target = clipMin
-		}
+	if baseTarget < 1 {
+		baseTarget = 1
 	}
-
-	if target < 1 {
-		target = 1
+	if baseTarget > maxGIFCandidateOutputs {
+		baseTarget = maxGIFCandidateOutputs
 	}
-	if target > 6 {
-		target = 6
-	}
-
+	durationTier := "normal"
 	if meta.DurationSec >= ultraVideoThresholdSec {
+		durationTier = "ultra"
 		ultraCap := qualitySettings.GIFCandidateUltraVideoMaxOutputs
 		if ultraCap <= 0 {
 			ultraCap = qualitySettings.GIFCandidateLongVideoMaxOutputs
 		}
-		if ultraCap > 0 && target > ultraCap {
-			target = ultraCap
+		if ultraCap > 0 && baseTarget > ultraCap {
+			baseTarget = ultraCap
 		}
 	} else if meta.DurationSec >= longVideoThresholdSec {
+		durationTier = "long"
 		longCap := qualitySettings.GIFCandidateLongVideoMaxOutputs
-		if longCap > 0 && target > longCap {
-			target = longCap
+		if longCap > 0 && baseTarget > longCap {
+			baseTarget = longCap
 		}
 	}
-	if target < 1 {
-		target = 1
+	if baseTarget < 1 {
+		baseTarget = 1
 	}
-	if target > 6 {
-		target = 6
+	if baseTarget > maxGIFCandidateOutputs {
+		baseTarget = maxGIFCandidateOutputs
 	}
-	return target
+
+	aiSuggested := baseTarget
+	if directive != nil {
+		if directive.ClipCountMax > 0 {
+			aiSuggested = directive.ClipCountMax
+		}
+		if directive.ClipCountMin > 0 && aiSuggested < directive.ClipCountMin {
+			aiSuggested = directive.ClipCountMin
+		}
+	}
+	if aiSuggested < 1 {
+		aiSuggested = 1
+	}
+	if aiSuggested > maxGIFCandidateOutputs {
+		aiSuggested = maxGIFCandidateOutputs
+	}
+
+	decision := aiGIFPlannerTopNDecision{
+		BaseTopN:        baseTarget,
+		AISuggestedTopN: aiSuggested,
+		AllowedTopN:     baseTarget,
+		AppliedTopN:     baseTarget,
+		OverrideEnabled: qualitySettings.AIDirectorConstraintOverrideEnabled,
+		ExpandRatio:     qualitySettings.AIDirectorCountExpandRatio,
+		AbsoluteCap:     qualitySettings.AIDirectorCountAbsoluteCap,
+		DurationTier:    durationTier,
+	}
+	if decision.AbsoluteCap <= 0 {
+		decision.AbsoluteCap = baseTarget
+	}
+	if decision.AbsoluteCap > maxGIFCandidateOutputs {
+		decision.AbsoluteCap = maxGIFCandidateOutputs
+	}
+	if decision.AbsoluteCap < baseTarget {
+		decision.AbsoluteCap = baseTarget
+	}
+
+	if decision.OverrideEnabled {
+		expanded := int(float64(baseTarget)*(1.0+decision.ExpandRatio) + 0.5)
+		if expanded < baseTarget {
+			expanded = baseTarget
+		}
+		if expanded > decision.AbsoluteCap {
+			expanded = decision.AbsoluteCap
+		}
+		if expanded > maxGIFCandidateOutputs {
+			expanded = maxGIFCandidateOutputs
+		}
+		if expanded < 1 {
+			expanded = 1
+		}
+		decision.AllowedTopN = expanded
+	} else {
+		decision.AllowedTopN = baseTarget
+	}
+
+	decision.AppliedTopN = aiSuggested
+	if decision.AppliedTopN > decision.AllowedTopN {
+		decision.AppliedTopN = decision.AllowedTopN
+		if decision.OverrideEnabled {
+			decision.ClampReason = "exceeds_policy_allowed_top_n"
+		} else {
+			decision.ClampReason = "override_disabled"
+		}
+	}
+	if decision.AppliedTopN < 1 {
+		decision.AppliedTopN = 1
+	}
+	if decision.AppliedTopN > maxGIFCandidateOutputs {
+		decision.AppliedTopN = maxGIFCandidateOutputs
+	}
+
+	return decision
 }
 
 func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float64) []gifAIPlannerProposal {
@@ -1736,6 +2016,20 @@ func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float
 		dedup = append(dedup, item)
 	}
 	return dedup
+}
+
+func selectAIGIFPlannerExecutionCandidates(candidates []highlightCandidate, targetTopN int) []highlightCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if targetTopN <= 0 || targetTopN >= len(candidates) {
+		return append([]highlightCandidate{}, candidates...)
+	}
+	selected := make([]highlightCandidate, 0, targetTopN)
+	for idx := 0; idx < len(candidates) && len(selected) < targetTopN; idx++ {
+		selected = append(selected, candidates[idx])
+	}
+	return selected
 }
 
 func (p *Processor) persistAIGIFProposals(

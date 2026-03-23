@@ -69,17 +69,98 @@ func renderGIFOutput(
 	timeoutFallbackApplied := false
 	emergencyFallbackApplied := false
 	lastResortFallbackApplied := false
+	accurateSeekFallbackApplied := false
+	segmentTranscodeFallbackApplied := false
+	aggressiveFallbackTimeoutCap := meta.DurationSec < qualitySettings.GIFDurationTierLongSec && startSec < 45
+
+	applyTimeoutFallback := func() bool {
+		if timeoutFallbackApplied {
+			return false
+		}
+		nextOptions, nextColors, nextDither, changed := applyGIFTimeoutFallbackProfile(gifOptions, maxColors, ditherMode, meta.DurationSec, qualitySettings)
+		if !changed {
+			return false
+		}
+		gifOptions = nextOptions
+		maxColors = nextColors
+		ditherMode = nextDither
+		timeoutFallbackApplied = true
+		segmentTimeout = chooseGIFSegmentRenderTimeout(meta, gifOptions, highlightCandidate{
+			StartSec: startSec,
+			EndSec:   startSec + durationSec,
+		}, maxColors, qualitySettings)
+		if aggressiveFallbackTimeoutCap && segmentTimeout > segmentTimeoutFallbackCap {
+			segmentTimeout = segmentTimeoutFallbackCap
+		}
+		return true
+	}
+	applyEmergencyFallback := func() bool {
+		if emergencyFallbackApplied {
+			return false
+		}
+		nextOptions, nextColors, nextDither, nextDuration, changed := applyGIFEmergencyFallbackProfile(gifOptions, maxColors, ditherMode, durationSec, qualitySettings)
+		if !changed {
+			return false
+		}
+		gifOptions = nextOptions
+		maxColors = nextColors
+		ditherMode = nextDither
+		durationSec = nextDuration
+		emergencyFallbackApplied = true
+		segmentTimeout = chooseGIFSegmentRenderTimeout(meta, gifOptions, highlightCandidate{
+			StartSec: startSec,
+			EndSec:   startSec + durationSec,
+		}, maxColors, qualitySettings)
+		if aggressiveFallbackTimeoutCap && segmentTimeout > segmentTimeoutEmergencyCap {
+			segmentTimeout = segmentTimeoutEmergencyCap
+		}
+		return true
+	}
+	applyLastResortFallback := func() bool {
+		if lastResortFallbackApplied {
+			return false
+		}
+		nextOptions, nextColors, nextDither, nextDuration, changed := applyGIFLastResortFallbackProfile(gifOptions, maxColors, ditherMode, durationSec, qualitySettings)
+		if !changed {
+			return false
+		}
+		gifOptions = nextOptions
+		maxColors = nextColors
+		ditherMode = nextDither
+		durationSec = nextDuration
+		lastResortFallbackApplied = true
+		segmentTimeout = chooseGIFSegmentRenderTimeout(meta, gifOptions, highlightCandidate{
+			StartSec: startSec,
+			EndSec:   startSec + durationSec,
+		}, maxColors, qualitySettings)
+		if aggressiveFallbackTimeoutCap && segmentTimeout > segmentTimeoutLastResortCap {
+			segmentTimeout = segmentTimeoutLastResortCap
+		}
+		return true
+	}
 
 	for attempt := 0; attempt < retryMaxAttempts; attempt++ {
+		if removeErr := os.Remove(outputPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			return fmt.Errorf("prepare gif output path failed: %w", removeErr)
+		}
+
 		args := []string{
 			"-hide_banner",
 			"-loglevel", "error",
 			"-y",
 		}
-		if startSec > 0 {
-			args = append(args, "-ss", formatFFmpegNumber(startSec))
+		if accurateSeekFallbackApplied {
+			args = append(args, "-i", sourcePath)
+			if startSec > 0 {
+				args = append(args, "-ss", formatFFmpegNumber(startSec))
+			}
+			args = append(args, "-t", formatFFmpegNumber(durationSec))
+		} else {
+			if startSec > 0 {
+				args = append(args, "-ss", formatFFmpegNumber(startSec))
+			}
+			args = append(args, "-i", sourcePath, "-t", formatFFmpegNumber(durationSec))
 		}
-		args = append(args, "-i", sourcePath, "-t", formatFFmpegNumber(durationSec))
 		baseFilters := buildAnimatedFilters(meta, gifOptions, "gif")
 		var complex string
 		if len(baseFilters) > 0 {
@@ -106,58 +187,14 @@ func renderGIFOutput(
 		out, err, timedOut := runFFmpegWithTimeout(ctx, segmentTimeout, args)
 		if err != nil {
 			if timedOut {
-				if !timeoutFallbackApplied {
-					nextOptions, nextColors, nextDither, changed := applyGIFTimeoutFallbackProfile(gifOptions, maxColors, ditherMode, meta.DurationSec, qualitySettings)
-					if changed {
-						gifOptions = nextOptions
-						maxColors = nextColors
-						ditherMode = nextDither
-						timeoutFallbackApplied = true
-						segmentTimeout = chooseGIFSegmentRenderTimeout(meta, gifOptions, highlightCandidate{
-							StartSec: startSec,
-							EndSec:   startSec + durationSec,
-						}, maxColors, qualitySettings)
-						if segmentTimeout > segmentTimeoutFallbackCap {
-							segmentTimeout = segmentTimeoutFallbackCap
-						}
-						continue
-					}
+				if applyTimeoutFallback() {
+					continue
 				}
-				if !emergencyFallbackApplied {
-					nextOptions, nextColors, nextDither, nextDuration, changed := applyGIFEmergencyFallbackProfile(gifOptions, maxColors, ditherMode, durationSec, qualitySettings)
-					if changed {
-						gifOptions = nextOptions
-						maxColors = nextColors
-						ditherMode = nextDither
-						durationSec = nextDuration
-						emergencyFallbackApplied = true
-						segmentTimeout = chooseGIFSegmentRenderTimeout(meta, gifOptions, highlightCandidate{
-							StartSec: startSec,
-							EndSec:   startSec + durationSec,
-						}, maxColors, qualitySettings)
-						if segmentTimeout > segmentTimeoutEmergencyCap {
-							segmentTimeout = segmentTimeoutEmergencyCap
-						}
-						continue
-					}
+				if applyEmergencyFallback() {
+					continue
 				}
-				if !lastResortFallbackApplied {
-					nextOptions, nextColors, nextDither, nextDuration, changed := applyGIFLastResortFallbackProfile(gifOptions, maxColors, ditherMode, durationSec, qualitySettings)
-					if changed {
-						gifOptions = nextOptions
-						maxColors = nextColors
-						ditherMode = nextDither
-						durationSec = nextDuration
-						lastResortFallbackApplied = true
-						segmentTimeout = chooseGIFSegmentRenderTimeout(meta, gifOptions, highlightCandidate{
-							StartSec: startSec,
-							EndSec:   startSec + durationSec,
-						}, maxColors, qualitySettings)
-						if segmentTimeout > segmentTimeoutLastResortCap {
-							segmentTimeout = segmentTimeoutLastResortCap
-						}
-						continue
-					}
+				if applyLastResortFallback() {
+					continue
 				}
 				return permanentError{err: fmt.Errorf(
 					"ffmpeg gif render timeout after %s (attempt=%d): %s",
@@ -168,11 +205,47 @@ func renderGIFOutput(
 			}
 			return fmt.Errorf("ffmpeg gif render failed: %w: %s", err, strings.TrimSpace(string(out)))
 		}
+
+		info, statErr := os.Stat(outputPath)
+		if statErr != nil || info.Size() <= 0 {
+			if !accurateSeekFallbackApplied {
+				accurateSeekFallbackApplied = true
+				continue
+			}
+			if applyTimeoutFallback() {
+				continue
+			}
+			if applyEmergencyFallback() {
+				continue
+			}
+			if applyLastResortFallback() {
+				continue
+			}
+			if !segmentTranscodeFallbackApplied {
+				segmentTranscodeFallbackApplied = true
+				if fallbackErr := renderGIFViaSegmentTranscodeFallback(
+					ctx,
+					sourcePath,
+					outputPath,
+					startSec,
+					durationSec,
+					meta,
+					gifOptions,
+					maxColors,
+					ditherMode,
+					qualitySettings,
+				); fallbackErr == nil {
+					break
+				}
+			}
+			// Keep the old behavior: allow upper layer to mark this clip invalid and continue partial delivery.
+			return nil
+		}
+
 		if targetBytes <= 0 {
 			break
 		}
-		info, statErr := os.Stat(outputPath)
-		if statErr == nil && info.Size() <= targetBytes {
+		if info.Size() <= targetBytes {
 			break
 		}
 		changed := false
@@ -215,6 +288,160 @@ func renderGIFOutput(
 		}
 	}
 	return nil
+}
+
+func renderGIFViaSegmentTranscodeFallback(
+	ctx context.Context,
+	sourcePath string,
+	outputPath string,
+	startSec float64,
+	durationSec float64,
+	meta videoProbeMeta,
+	options jobOptions,
+	maxColors int,
+	ditherMode string,
+	qualitySettings QualitySettings,
+) error {
+	if durationSec <= 0 {
+		return errors.New("invalid fallback gif clip window")
+	}
+	qualitySettings = NormalizeQualitySettings(qualitySettings)
+	segmentPath := outputPath + ".segment_fallback.mp4"
+	_ = os.Remove(segmentPath)
+	defer func() {
+		_ = os.Remove(segmentPath)
+	}()
+
+	segmentTimeout := chooseGIFSegmentTranscodeFallbackTimeout(meta, durationSec, startSec, qualitySettings)
+	segmentArgs := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-y",
+		"-i", sourcePath,
+	}
+	if startSec > 0 {
+		segmentArgs = append(segmentArgs, "-ss", formatFFmpegNumber(startSec))
+	}
+	segmentArgs = append(segmentArgs,
+		"-t", formatFFmpegNumber(durationSec),
+		"-an",
+		"-c:v", "libx264",
+		"-preset", "ultrafast",
+		"-crf", "30",
+		"-pix_fmt", "yuv420p",
+		"-movflags", "+faststart",
+		segmentPath,
+	)
+	out, err, timedOut := runFFmpegWithTimeout(ctx, segmentTimeout, segmentArgs)
+	if err != nil {
+		if timedOut {
+			return fmt.Errorf("segment transcode fallback timeout: %s", strings.TrimSpace(string(out)))
+		}
+		return fmt.Errorf("segment transcode fallback failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	segmentInfo, segmentStatErr := os.Stat(segmentPath)
+	if segmentStatErr != nil || segmentInfo.Size() <= 0 {
+		return errors.New("segment transcode fallback produced empty segment")
+	}
+
+	fallbackOptions := options
+	if fallbackOptions.FPS <= 0 || fallbackOptions.FPS > qualitySettings.GIFTimeoutLastResortFPSCap {
+		fallbackOptions.FPS = qualitySettings.GIFTimeoutLastResortFPSCap
+	}
+	if fallbackOptions.FPS <= 0 {
+		fallbackOptions.FPS = 8
+	}
+	if fallbackOptions.Width <= 0 || fallbackOptions.Width > qualitySettings.GIFTimeoutLastResortWidthCap {
+		fallbackOptions.Width = qualitySettings.GIFTimeoutLastResortWidthCap
+	}
+	if fallbackOptions.Width <= 0 {
+		fallbackOptions.Width = 480
+	}
+	if fallbackOptions.Width%2 != 0 {
+		fallbackOptions.Width--
+	}
+	if fallbackOptions.Width < qualitySettings.GIFTimeoutLastResortMinWidth {
+		fallbackOptions.Width = qualitySettings.GIFTimeoutLastResortMinWidth
+	}
+	if maxColors <= 0 || maxColors > qualitySettings.GIFTimeoutLastResortColorsCap {
+		maxColors = qualitySettings.GIFTimeoutLastResortColorsCap
+	}
+	if maxColors <= 0 {
+		maxColors = 64
+	}
+	ditherMode = "none"
+
+	baseFilters := buildAnimatedFilters(meta, fallbackOptions, "gif")
+	var complex string
+	if len(baseFilters) > 0 {
+		complex = fmt.Sprintf(
+			"[0:v]%s,split[v0][v1];[v0]palettegen=stats_mode=diff:max_colors=%d[p];[v1][p]paletteuse=dither=%s:diff_mode=rectangle[v]",
+			strings.Join(baseFilters, ","),
+			maxColors,
+			ditherMode,
+		)
+	} else {
+		complex = fmt.Sprintf(
+			"[0:v]split[v0][v1];[v0]palettegen=stats_mode=diff:max_colors=%d[p];[v1][p]paletteuse=dither=%s:diff_mode=rectangle[v]",
+			maxColors,
+			ditherMode,
+		)
+	}
+	renderTimeout := chooseGIFSegmentRenderTimeout(meta, fallbackOptions, highlightCandidate{
+		StartSec: 0,
+		EndSec:   durationSec,
+	}, maxColors, qualitySettings)
+	renderArgs := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-y",
+		"-i", segmentPath,
+		"-t", formatFFmpegNumber(durationSec),
+		"-filter_complex", complex,
+		"-map", "[v]",
+		"-an",
+		"-loop", "0",
+		outputPath,
+	}
+	renderOut, renderErr, renderTimedOut := runFFmpegWithTimeout(ctx, renderTimeout, renderArgs)
+	if renderErr != nil {
+		if renderTimedOut {
+			return fmt.Errorf("segment fallback gif render timeout: %s", strings.TrimSpace(string(renderOut)))
+		}
+		return fmt.Errorf("segment fallback gif render failed: %w: %s", renderErr, strings.TrimSpace(string(renderOut)))
+	}
+	info, statErr := os.Stat(outputPath)
+	if statErr != nil || info.Size() <= 0 {
+		return errors.New("segment fallback gif render produced empty output")
+	}
+	return nil
+}
+
+func chooseGIFSegmentTranscodeFallbackTimeout(
+	meta videoProbeMeta,
+	durationSec float64,
+	startSec float64,
+	qualitySettings QualitySettings,
+) time.Duration {
+	qualitySettings = NormalizeQualitySettings(qualitySettings)
+	timeoutSec := 80.0 + durationSec*12.0
+	if startSec > 0 {
+		timeoutSec += math.Min(startSec*1.2, 240.0)
+	}
+	if meta.DurationSec >= qualitySettings.GIFDurationTierLongSec {
+		timeoutSec += 60
+	}
+	if meta.DurationSec >= qualitySettings.GIFDurationTierUltraSec {
+		timeoutSec += 40
+	}
+	timeout := time.Duration(math.Round(timeoutSec)) * time.Second
+	if timeout < 120*time.Second {
+		timeout = 120 * time.Second
+	}
+	if timeout > 480*time.Second {
+		timeout = 480 * time.Second
+	}
+	return timeout
 }
 
 func resolveGIFRenderRetryMaxAttempts(meta videoProbeMeta, qualitySettings QualitySettings) int {

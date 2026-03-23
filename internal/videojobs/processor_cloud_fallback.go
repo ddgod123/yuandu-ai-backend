@@ -99,8 +99,8 @@ func (p *Processor) requestCloudHighlightFallback(
 	if topN <= 0 {
 		topN = defaultHighlightTopN
 	}
-	if topN > 6 {
-		topN = 6
+	if topN > maxGIFCandidateOutputs {
+		topN = maxGIFCandidateOutputs
 	}
 
 	scenePoints, err := detectScenePoints(ctx, sourcePath, cfg.Threshold)

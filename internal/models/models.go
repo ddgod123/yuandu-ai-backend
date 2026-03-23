@@ -8,26 +8,28 @@ import (
 )
 
 type User struct {
-	ID                    uint64         `gorm:"primaryKey;autoIncrement"`
-	Phone                 string         `gorm:"size:32;uniqueIndex"`
-	Email                 string         `gorm:"size:255;uniqueIndex"`
-	Username              string         `gorm:"size:64;uniqueIndex"`
-	PasswordHash          string         `gorm:"size:255"`
-	DisplayName           string         `gorm:"size:64"`
-	AvatarURL             string         `gorm:"size:512"`
-	Bio                   string         `gorm:"type:text"`
-	Role                  string         `gorm:"size:32;index"`
-	Status                string         `gorm:"size:32;index"`
-	SubscriptionStatus    string         `gorm:"size:32;index"`
-	SubscriptionPlan      string         `gorm:"size:32"`
-	SubscriptionStartedAt *time.Time     `gorm:"index"`
-	SubscriptionExpiresAt *time.Time     `gorm:"index"`
-	IsAdmin               bool           `gorm:"default:false"`
-	LastLoginAt           *time.Time     `gorm:"index"`
-	LastLoginIP           string         `gorm:"size:64"`
-	CreatedAt             time.Time      `gorm:"autoCreateTime"`
-	UpdatedAt             time.Time      `gorm:"autoUpdateTime"`
-	DeletedAt             gorm.DeletedAt `gorm:"index"`
+	ID                    uint64     `gorm:"primaryKey;autoIncrement"`
+	Phone                 string     `gorm:"size:32;uniqueIndex"`
+	Email                 string     `gorm:"size:255;uniqueIndex"`
+	Username              string     `gorm:"size:64;uniqueIndex"`
+	PasswordHash          string     `gorm:"size:255"`
+	DisplayName           string     `gorm:"size:64"`
+	AvatarURL             string     `gorm:"size:512"`
+	Bio                   string     `gorm:"type:text"`
+	Role                  string     `gorm:"size:32;index"`
+	Status                string     `gorm:"size:32;index"`
+	SubscriptionStatus    string     `gorm:"size:32;index"`
+	SubscriptionPlan      string     `gorm:"size:32"`
+	SubscriptionStartedAt *time.Time `gorm:"index"`
+	SubscriptionExpiresAt *time.Time `gorm:"index"`
+	// Legacy virtual field kept for API compatibility.
+	// DB does not have user.users.is_admin; admin state is derived from role.
+	IsAdmin     bool           `gorm:"-:all"`
+	LastLoginAt *time.Time     `gorm:"index"`
+	LastLoginIP string         `gorm:"size:64"`
+	CreatedAt   time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt   gorm.DeletedAt `gorm:"index"`
 }
 
 func (User) TableName() string {
@@ -68,6 +70,33 @@ func (Collection) TableName() string {
 	return "archive.collections"
 }
 
+// VideoAssetCollection is the isolated collection table for video-generated outputs.
+type VideoAssetCollection struct {
+	ID            uint64 `gorm:"primaryKey;autoIncrement"`
+	Title         string `gorm:"size:255;index"`
+	Slug          string `gorm:"size:128;index"`
+	Description   string `gorm:"type:text"`
+	CoverURL      string `gorm:"size:512"`
+	OwnerID       uint64 `gorm:"index"`
+	Source        string `gorm:"size:64;index"`
+	StorageBucket string `gorm:"column:storage_bucket;size:128"`
+	QiniuPrefix   string `gorm:"size:512;index"`
+	FileCount     int    `gorm:"index"`
+	LatestZipKey  string `gorm:"size:512"`
+	LatestZipName string `gorm:"size:255"`
+	LatestZipSize int64
+	LatestZipAt   *time.Time     `gorm:"index"`
+	Visibility    string         `gorm:"size:32;index"`
+	Status        string         `gorm:"size:32;index"`
+	CreatedAt     time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
+}
+
+func (VideoAssetCollection) TableName() string {
+	return "video_asset.collections"
+}
+
 type CollectionZip struct {
 	ID           uint64     `gorm:"primaryKey;autoIncrement"`
 	CollectionID uint64     `gorm:"index"`
@@ -81,6 +110,21 @@ type CollectionZip struct {
 
 func (CollectionZip) TableName() string {
 	return "archive.collection_zips"
+}
+
+type VideoAssetCollectionZip struct {
+	ID           uint64     `gorm:"primaryKey;autoIncrement"`
+	CollectionID uint64     `gorm:"index"`
+	ZipKey       string     `gorm:"column:zip_key;size:512;index"`
+	ZipHash      string     `gorm:"column:zip_hash;size:128;index"`
+	ZipName      string     `gorm:"column:zip_name;size:255"`
+	SizeBytes    int64      `gorm:"column:size_bytes"`
+	UploadedAt   *time.Time `gorm:"column:uploaded_at;index"`
+	CreatedAt    time.Time  `gorm:"autoCreateTime"`
+}
+
+func (VideoAssetCollectionZip) TableName() string {
+	return "video_asset.collection_zips"
 }
 
 type CollectionDownload struct {
@@ -165,6 +209,27 @@ type Emoji struct {
 
 func (Emoji) TableName() string {
 	return "archive.emojis"
+}
+
+type VideoAssetEmoji struct {
+	ID           uint64 `gorm:"primaryKey;autoIncrement"`
+	CollectionID uint64 `gorm:"index"`
+	Title        string `gorm:"size:255;index"`
+	FileURL      string `gorm:"size:512"`
+	ThumbURL     string `gorm:"size:512"`
+	Format       string `gorm:"size:32"`
+	Width        int    `gorm:"index"`
+	Height       int    `gorm:"index"`
+	SizeBytes    int64
+	DisplayOrder int            `gorm:"index"`
+	Status       string         `gorm:"size:32;index"`
+	CreatedAt    time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt    gorm.DeletedAt `gorm:"index"`
+}
+
+func (VideoAssetEmoji) TableName() string {
+	return "video_asset.emojis"
 }
 
 type Tag struct {
@@ -437,6 +502,82 @@ type RedeemCodeRedemption struct {
 
 func (RedeemCodeRedemption) TableName() string {
 	return "ops.redeem_code_redemptions"
+}
+
+type CollectionDownloadCode struct {
+	ID                   uint64     `gorm:"primaryKey;autoIncrement"`
+	CodeHash             string     `gorm:"column:code_hash;size:128;uniqueIndex"`
+	CodePlain            string     `gorm:"column:code_plain;size:64"`
+	CodeMask             string     `gorm:"column:code_mask;size:64;index"`
+	BatchNo              string     `gorm:"column:batch_no;size:64;index"`
+	CollectionID         uint64     `gorm:"column:collection_id;index"`
+	GrantedDownloadTimes int        `gorm:"column:granted_download_times"`
+	MaxRedeemUsers       int        `gorm:"column:max_redeem_users"`
+	UsedRedeemUsers      int        `gorm:"column:used_redeem_users;index"`
+	Status               string     `gorm:"column:status;size:32;index"`
+	StartsAt             *time.Time `gorm:"column:starts_at;index"`
+	EndsAt               *time.Time `gorm:"column:ends_at;index"`
+	CreatedBy            *uint64    `gorm:"column:created_by;index"`
+	Note                 string     `gorm:"column:note;type:text"`
+	CreatedAt            time.Time  `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt            time.Time  `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (CollectionDownloadCode) TableName() string {
+	return "ops.collection_download_codes"
+}
+
+type CollectionDownloadEntitlement struct {
+	ID                     uint64     `gorm:"primaryKey;autoIncrement"`
+	UserID                 uint64     `gorm:"column:user_id;index"`
+	CollectionID           uint64     `gorm:"column:collection_id;index"`
+	CodeID                 *uint64    `gorm:"column:code_id;index"`
+	GrantedDownloadTimes   int        `gorm:"column:granted_download_times"`
+	UsedDownloadTimes      int        `gorm:"column:used_download_times"`
+	RemainingDownloadTimes int        `gorm:"column:remaining_download_times;index"`
+	Status                 string     `gorm:"column:status;size:32;index"`
+	ExpiresAt              *time.Time `gorm:"column:expires_at;index"`
+	LastConsumedAt         *time.Time `gorm:"column:last_consumed_at;index"`
+	CreatedAt              time.Time  `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt              time.Time  `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (CollectionDownloadEntitlement) TableName() string {
+	return "ops.collection_download_entitlements"
+}
+
+type CollectionDownloadRedemption struct {
+	ID                   uint64     `gorm:"primaryKey;autoIncrement"`
+	CodeID               uint64     `gorm:"column:code_id;index"`
+	UserID               uint64     `gorm:"column:user_id;index"`
+	CollectionID         uint64     `gorm:"column:collection_id;index"`
+	GrantedDownloadTimes int        `gorm:"column:granted_download_times"`
+	ExpiresAt            *time.Time `gorm:"column:expires_at;index"`
+	IP                   string     `gorm:"column:ip;size:64"`
+	UserAgent            string     `gorm:"column:user_agent;size:255"`
+	CreatedAt            time.Time  `gorm:"column:created_at;autoCreateTime"`
+}
+
+func (CollectionDownloadRedemption) TableName() string {
+	return "ops.collection_download_redemptions"
+}
+
+type CollectionDownloadConsumption struct {
+	ID            uint64    `gorm:"primaryKey;autoIncrement"`
+	EntitlementID uint64    `gorm:"column:entitlement_id;index"`
+	UserID        uint64    `gorm:"column:user_id;index"`
+	CollectionID  uint64    `gorm:"column:collection_id;index"`
+	CodeID        *uint64   `gorm:"column:code_id;index"`
+	DownloadMode  string    `gorm:"column:download_mode;size:32;index"`
+	ConsumedTimes int       `gorm:"column:consumed_times"`
+	IP            string    `gorm:"column:ip;size:64"`
+	UserAgent     string    `gorm:"column:user_agent;size:255"`
+	RequestID     string    `gorm:"column:request_id;size:128;index"`
+	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime;index"`
+}
+
+func (CollectionDownloadConsumption) TableName() string {
+	return "action.collection_download_consumptions"
 }
 
 type RiskBlacklist struct {

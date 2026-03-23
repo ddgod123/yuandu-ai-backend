@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -32,14 +34,15 @@ type AdminVideoJobGIFEvaluationItem struct {
 }
 
 type AdminVideoJobGIFFeedbackItem struct {
-	ID        uint64                 `json:"id"`
-	OutputID  *uint64                `json:"output_id,omitempty"`
-	UserID    uint64                 `json:"user_id"`
-	Action    string                 `json:"action"`
-	Weight    float64                `json:"weight"`
-	SceneTag  string                 `json:"scene_tag,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt string                 `json:"created_at"`
+	ID         uint64                 `json:"id"`
+	OutputID   *uint64                `json:"output_id,omitempty"`
+	ProposalID *uint64                `json:"proposal_id,omitempty"`
+	UserID     uint64                 `json:"user_id"`
+	Action     string                 `json:"action"`
+	Weight     float64                `json:"weight"`
+	SceneTag   string                 `json:"scene_tag,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt  string                 `json:"created_at"`
 }
 
 type AdminVideoJobGIFRerenderRecord struct {
@@ -79,19 +82,20 @@ type AdminVideoJobGIFAuditChainSummary struct {
 }
 
 type AdminVideoJobGIFAuditChainResponse struct {
-	Job             AdminVideoJobListItem             `json:"job"`
-	Summary         AdminVideoJobGIFAuditChainSummary `json:"summary"`
-	Events          []AdminVideoJobEventItem          `json:"events,omitempty"`
-	Outputs         []AdminVideoJobArtifactItem       `json:"outputs,omitempty"`
-	GIFCandidates   []AdminVideoJobGIFCandidateItem   `json:"gif_candidates,omitempty"`
-	AIUsages        []AdminVideoJobAIUsageItem        `json:"ai_usages,omitempty"`
-	AIGIFDirectives []AdminVideoJobAIGIFDirectiveItem `json:"ai_gif_directives,omitempty"`
-	AIGIFProposals  []AdminVideoJobAIGIFProposalItem  `json:"ai_gif_proposals,omitempty"`
-	AIGIFReviews    []AdminVideoJobAIGIFReviewItem    `json:"ai_gif_reviews,omitempty"`
-	Evaluations     []AdminVideoJobGIFEvaluationItem  `json:"gif_evaluations,omitempty"`
-	Feedbacks       []AdminVideoJobGIFFeedbackItem    `json:"feedbacks,omitempty"`
-	Rerenders       []AdminVideoJobGIFRerenderRecord  `json:"rerenders,omitempty"`
-	ReviewFilter    []string                          `json:"review_status_filter,omitempty"`
+	Job             AdminVideoJobListItem               `json:"job"`
+	Summary         AdminVideoJobGIFAuditChainSummary   `json:"summary"`
+	Events          []AdminVideoJobEventItem            `json:"events,omitempty"`
+	Outputs         []AdminVideoJobArtifactItem         `json:"outputs,omitempty"`
+	GIFCandidates   []AdminVideoJobGIFCandidateItem     `json:"gif_candidates,omitempty"`
+	AIUsages        []AdminVideoJobAIUsageItem          `json:"ai_usages,omitempty"`
+	AIGIFDirectives []AdminVideoJobAIGIFDirectiveItem   `json:"ai_gif_directives,omitempty"`
+	AIGIFProposals  []AdminVideoJobAIGIFProposalItem    `json:"ai_gif_proposals,omitempty"`
+	AIGIFReviews    []AdminVideoJobAIGIFReviewItem      `json:"ai_gif_reviews,omitempty"`
+	Evaluations     []AdminVideoJobGIFEvaluationItem    `json:"gif_evaluations,omitempty"`
+	ProposalChains  []AdminVideoJobGIFProposalChainItem `json:"proposal_chains,omitempty"`
+	Feedbacks       []AdminVideoJobGIFFeedbackItem      `json:"feedbacks,omitempty"`
+	Rerenders       []AdminVideoJobGIFRerenderRecord    `json:"rerenders,omitempty"`
+	ReviewFilter    []string                            `json:"review_status_filter,omitempty"`
 }
 
 // GetAdminVideoJobGIFAuditChain godoc
@@ -125,7 +129,8 @@ func (h *Handler) GetAdminVideoJobGIFAuditChain(c *gin.Context) {
 	collectionMap := h.loadVideoJobCollectionMap([]models.VideoJob{job})
 	costMap := h.loadVideoJobCostMap([]models.VideoJob{job})
 	pointHoldMap := h.loadVideoJobPointHoldMap([]models.VideoJob{job})
-	jobItem := h.buildAdminVideoJobListItem(job, userMap, collectionMap, costMap, pointHoldMap)
+	auditSummaryMap := h.loadVideoJobAuditSummaryMap([]models.VideoJob{job})
+	jobItem := h.buildAdminVideoJobListItem(job, userMap, collectionMap, costMap, pointHoldMap, auditSummaryMap)
 
 	events, err := h.loadAdminVideoJobAuditEvents(job.ID, 600)
 	if err != nil {
@@ -167,12 +172,13 @@ func (h *Handler) GetAdminVideoJobGIFAuditChain(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	feedbacks, err := h.loadAdminVideoJobAuditFeedbacks(job.ID, 600)
+	feedbacks, err := h.loadAdminVideoJobAuditFeedbacks(job.ID, outputByID, proposalByID, 600)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	rerenders := h.buildAdminVideoJobAuditRerenderRecords(reviews, outputByID)
+	proposalChains := h.buildAdminVideoJobAuditProposalChains(proposals, outputs, evaluations, reviews, feedbacks, rerenders)
 
 	metrics := parseJSONMap(job.Metrics)
 	policyVersion := strings.TrimSpace(stringFromAny(metrics["pipeline_policy_version"]))
@@ -195,6 +201,7 @@ func (h *Handler) GetAdminVideoJobGIFAuditChain(c *gin.Context) {
 		AIGIFProposals:  proposals,
 		AIGIFReviews:    reviews,
 		Evaluations:     evaluations,
+		ProposalChains:  proposalChains,
 		Feedbacks:       feedbacks,
 		Rerenders:       rerenders,
 		ReviewFilter:    reviewStatusFilter,
@@ -271,6 +278,7 @@ func (h *Handler) loadAdminVideoJobAuditOutputs(jobID uint64, limit int) ([]Admi
 		byID[item.ID] = item
 		out = append(out, AdminVideoJobArtifactItem{
 			ID:         item.ID,
+			Format:     strings.TrimSpace(item.Format),
 			Type:       strings.TrimSpace(item.FileRole),
 			QiniuKey:   strings.TrimSpace(item.ObjectKey),
 			URL:        resolvePreviewURL(item.ObjectKey, h.qiniu),
@@ -279,6 +287,8 @@ func (h *Handler) loadAdminVideoJobAuditOutputs(jobID uint64, limit int) ([]Admi
 			Width:      item.Width,
 			Height:     item.Height,
 			DurationMs: item.DurationMs,
+			ProposalID: item.ProposalID,
+			IsPrimary:  item.IsPrimary,
 			Metadata:   parseJSONMap(item.Metadata),
 			CreatedAt:  item.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
@@ -604,7 +614,12 @@ func (h *Handler) loadAdminVideoJobAuditEvaluations(
 	return out, nil
 }
 
-func (h *Handler) loadAdminVideoJobAuditFeedbacks(jobID uint64, limit int) ([]AdminVideoJobGIFFeedbackItem, error) {
+func (h *Handler) loadAdminVideoJobAuditFeedbacks(
+	jobID uint64,
+	outputByID map[uint64]models.VideoImageOutputPublic,
+	proposalByID map[uint64]models.VideoJobGIFAIProposal,
+	limit int,
+) ([]AdminVideoJobGIFFeedbackItem, error) {
 	if limit <= 0 {
 		limit = 300
 	}
@@ -621,15 +636,41 @@ func (h *Handler) loadAdminVideoJobAuditFeedbacks(jobID uint64, limit int) ([]Ad
 	}
 	out := make([]AdminVideoJobGIFFeedbackItem, 0, len(rows))
 	for _, item := range rows {
+		var proposalID *uint64
+		if item.OutputID != nil && *item.OutputID > 0 {
+			if output, ok := outputByID[*item.OutputID]; ok && output.ProposalID != nil && *output.ProposalID > 0 {
+				id := *output.ProposalID
+				proposalID = &id
+			}
+		}
+		meta := parseJSONMap(item.Metadata)
+		if proposalID == nil {
+			if raw := parseUint64FromAny(meta["proposal_id"]); raw > 0 {
+				id := raw
+				proposalID = &id
+			}
+		}
+		if proposalID == nil && len(proposalByID) > 0 {
+			if rank := intFromAny(meta["proposal_rank"]); rank > 0 {
+				for _, proposal := range proposalByID {
+					if proposal.ProposalRank == rank {
+						id := proposal.ID
+						proposalID = &id
+						break
+					}
+				}
+			}
+		}
 		out = append(out, AdminVideoJobGIFFeedbackItem{
-			ID:        item.ID,
-			OutputID:  item.OutputID,
-			UserID:    item.UserID,
-			Action:    strings.TrimSpace(strings.ToLower(item.Action)),
-			Weight:    item.Weight,
-			SceneTag:  strings.TrimSpace(strings.ToLower(item.SceneTag)),
-			Metadata:  parseJSONMap(item.Metadata),
-			CreatedAt: item.CreatedAt.Format("2006-01-02 15:04:05"),
+			ID:         item.ID,
+			OutputID:   item.OutputID,
+			ProposalID: proposalID,
+			UserID:     item.UserID,
+			Action:     strings.TrimSpace(strings.ToLower(item.Action)),
+			Weight:     item.Weight,
+			SceneTag:   strings.TrimSpace(strings.ToLower(item.SceneTag)),
+			Metadata:   meta,
+			CreatedAt:  item.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 	return out, nil
@@ -673,6 +714,316 @@ func (h *Handler) buildAdminVideoJobAuditRerenderRecords(
 		out = append(out, record)
 	}
 	return out
+}
+
+func (h *Handler) buildAdminVideoJobAuditProposalChains(
+	proposals []AdminVideoJobAIGIFProposalItem,
+	outputs []AdminVideoJobArtifactItem,
+	evaluations []AdminVideoJobGIFEvaluationItem,
+	reviews []AdminVideoJobAIGIFReviewItem,
+	feedbacks []AdminVideoJobGIFFeedbackItem,
+	rerenders []AdminVideoJobGIFRerenderRecord,
+) []AdminVideoJobGIFProposalChainItem {
+	type chainBucket struct {
+		item         AdminVideoJobGIFProposalChainItem
+		sortRank     int
+		sortID       uint64
+		outputSeen   map[uint64]struct{}
+		evalSeen     map[uint64]struct{}
+		reviewSeen   map[uint64]struct{}
+		feedbackSeen map[uint64]struct{}
+		rerenderSeen map[uint64]struct{}
+	}
+
+	ensureBucket := func(
+		buckets map[string]*chainBucket,
+		order *[]string,
+		key string,
+		chainType string,
+		sortRank int,
+		sortID uint64,
+	) *chainBucket {
+		if existing, ok := buckets[key]; ok {
+			if existing.item.ChainType == "" && chainType != "" {
+				existing.item.ChainType = chainType
+			}
+			if sortRank > 0 && (existing.sortRank <= 0 || sortRank < existing.sortRank) {
+				existing.sortRank = sortRank
+			}
+			if sortID > 0 && (existing.sortID == 0 || sortID < existing.sortID) {
+				existing.sortID = sortID
+			}
+			return existing
+		}
+		bucket := &chainBucket{
+			item: AdminVideoJobGIFProposalChainItem{
+				ChainKey:  key,
+				ChainType: chainType,
+			},
+			sortRank:     sortRank,
+			sortID:       sortID,
+			outputSeen:   make(map[uint64]struct{}),
+			evalSeen:     make(map[uint64]struct{}),
+			reviewSeen:   make(map[uint64]struct{}),
+			feedbackSeen: make(map[uint64]struct{}),
+			rerenderSeen: make(map[uint64]struct{}),
+		}
+		buckets[key] = bucket
+		*order = append(*order, key)
+		return bucket
+	}
+
+	buckets := make(map[string]*chainBucket, len(proposals)+len(outputs))
+	order := make([]string, 0, len(proposals)+len(outputs))
+	outputChainKeyByID := make(map[uint64]string, len(outputs))
+
+	for _, proposal := range proposals {
+		key := fmt.Sprintf("proposal:%d", proposal.ID)
+		bucket := ensureBucket(buckets, &order, key, "proposal", proposal.ProposalRank, proposal.ID)
+		proposalCopy := proposal
+		bucket.item.Proposal = &proposalCopy
+	}
+
+	for _, output := range outputs {
+		if !isAdminVideoJobGIFMainOutput(output) {
+			continue
+		}
+		proposalID := resolveAdminVideoJobArtifactProposalID(output)
+		var key string
+		var sortRank int
+		if proposalID > 0 {
+			key = fmt.Sprintf("proposal:%d", proposalID)
+			if existing := findAdminVideoJobProposalRank(proposals, proposalID); existing > 0 {
+				sortRank = existing
+			}
+		} else {
+			key = fmt.Sprintf("output:%d", output.ID)
+		}
+		bucket := ensureBucket(buckets, &order, key, "output_only", sortRank, output.ID)
+		if _, ok := bucket.outputSeen[output.ID]; !ok {
+			bucket.item.Outputs = append(bucket.item.Outputs, output)
+			bucket.outputSeen[output.ID] = struct{}{}
+		}
+		outputChainKeyByID[output.ID] = key
+	}
+
+	for _, evaluation := range evaluations {
+		key, sortRank, sortID := resolveAdminVideoJobProposalChainIdentity(
+			evaluation.OutputID,
+			evaluation.ProposalID,
+			evaluation.ID,
+			outputChainKeyByID,
+			proposals,
+			"evaluation",
+		)
+		bucket := ensureBucket(buckets, &order, key, "evaluation_only", sortRank, sortID)
+		if _, ok := bucket.evalSeen[evaluation.ID]; !ok {
+			bucket.item.Evaluations = append(bucket.item.Evaluations, evaluation)
+			bucket.evalSeen[evaluation.ID] = struct{}{}
+		}
+	}
+
+	for _, review := range reviews {
+		key, sortRank, sortID := resolveAdminVideoJobProposalChainIdentity(
+			review.OutputID,
+			review.ProposalID,
+			review.ID,
+			outputChainKeyByID,
+			proposals,
+			"review",
+		)
+		bucket := ensureBucket(buckets, &order, key, "review_only", sortRank, sortID)
+		if _, ok := bucket.reviewSeen[review.ID]; !ok {
+			bucket.item.Reviews = append(bucket.item.Reviews, review)
+			bucket.reviewSeen[review.ID] = struct{}{}
+		}
+	}
+
+	for _, feedback := range feedbacks {
+		key, sortRank, sortID := resolveAdminVideoJobProposalChainIdentity(
+			feedback.OutputID,
+			feedback.ProposalID,
+			feedback.ID,
+			outputChainKeyByID,
+			proposals,
+			"feedback",
+		)
+		bucket := ensureBucket(buckets, &order, key, "feedback_only", sortRank, sortID)
+		if _, ok := bucket.feedbackSeen[feedback.ID]; !ok {
+			bucket.item.Feedbacks = append(bucket.item.Feedbacks, feedback)
+			bucket.feedbackSeen[feedback.ID] = struct{}{}
+		}
+	}
+
+	for _, rerender := range rerenders {
+		key, sortRank, sortID := resolveAdminVideoJobProposalChainIdentity(
+			rerender.OutputID,
+			rerender.ProposalID,
+			rerender.ReviewID,
+			outputChainKeyByID,
+			proposals,
+			"rerender",
+		)
+		bucket := ensureBucket(buckets, &order, key, "rerender_only", sortRank, sortID)
+		if _, ok := bucket.rerenderSeen[rerender.ReviewID]; !ok {
+			bucket.item.Rerenders = append(bucket.item.Rerenders, rerender)
+			bucket.rerenderSeen[rerender.ReviewID] = struct{}{}
+		}
+	}
+
+	sort.SliceStable(order, func(i, j int) bool {
+		left := buckets[order[i]]
+		right := buckets[order[j]]
+		switch {
+		case left.sortRank > 0 && right.sortRank > 0 && left.sortRank != right.sortRank:
+			return left.sortRank < right.sortRank
+		case left.sortRank > 0 && right.sortRank <= 0:
+			return true
+		case left.sortRank <= 0 && right.sortRank > 0:
+			return false
+		case left.sortID > 0 && right.sortID > 0 && left.sortID != right.sortID:
+			return left.sortID < right.sortID
+		default:
+			return left.item.ChainKey < right.item.ChainKey
+		}
+	})
+
+	out := make([]AdminVideoJobGIFProposalChainItem, 0, len(order))
+	for _, key := range order {
+		bucket := buckets[key]
+		sort.SliceStable(bucket.item.Outputs, func(i, j int) bool {
+			if bucket.item.Outputs[i].ProposalID != nil && bucket.item.Outputs[j].ProposalID != nil &&
+				*bucket.item.Outputs[i].ProposalID != *bucket.item.Outputs[j].ProposalID {
+				return *bucket.item.Outputs[i].ProposalID < *bucket.item.Outputs[j].ProposalID
+			}
+			return bucket.item.Outputs[i].ID < bucket.item.Outputs[j].ID
+		})
+		sort.SliceStable(bucket.item.Evaluations, func(i, j int) bool {
+			if bucket.item.Evaluations[i].OutputID != nil && bucket.item.Evaluations[j].OutputID != nil &&
+				*bucket.item.Evaluations[i].OutputID != *bucket.item.Evaluations[j].OutputID {
+				return *bucket.item.Evaluations[i].OutputID < *bucket.item.Evaluations[j].OutputID
+			}
+			return bucket.item.Evaluations[i].ID < bucket.item.Evaluations[j].ID
+		})
+		sort.SliceStable(bucket.item.Reviews, func(i, j int) bool {
+			if bucket.item.Reviews[i].OutputID != nil && bucket.item.Reviews[j].OutputID != nil &&
+				*bucket.item.Reviews[i].OutputID != *bucket.item.Reviews[j].OutputID {
+				return *bucket.item.Reviews[i].OutputID < *bucket.item.Reviews[j].OutputID
+			}
+			return bucket.item.Reviews[i].ID < bucket.item.Reviews[j].ID
+		})
+		sort.SliceStable(bucket.item.Feedbacks, func(i, j int) bool {
+			if bucket.item.Feedbacks[i].OutputID != nil && bucket.item.Feedbacks[j].OutputID != nil &&
+				*bucket.item.Feedbacks[i].OutputID != *bucket.item.Feedbacks[j].OutputID {
+				return *bucket.item.Feedbacks[i].OutputID < *bucket.item.Feedbacks[j].OutputID
+			}
+			return bucket.item.Feedbacks[i].ID < bucket.item.Feedbacks[j].ID
+		})
+		sort.SliceStable(bucket.item.Rerenders, func(i, j int) bool {
+			if bucket.item.Rerenders[i].OutputID != nil && bucket.item.Rerenders[j].OutputID != nil &&
+				*bucket.item.Rerenders[i].OutputID != *bucket.item.Rerenders[j].OutputID {
+				return *bucket.item.Rerenders[i].OutputID < *bucket.item.Rerenders[j].OutputID
+			}
+			return bucket.item.Rerenders[i].ReviewID < bucket.item.Rerenders[j].ReviewID
+		})
+
+		summary := AdminVideoJobGIFProposalChainSummary{
+			OutputCount:          len(bucket.item.Outputs),
+			EvaluationCount:      len(bucket.item.Evaluations),
+			ReviewCount:          len(bucket.item.Reviews),
+			FeedbackCount:        len(bucket.item.Feedbacks),
+			RerenderCount:        len(bucket.item.Rerenders),
+			FeedbackActionCounts: make(map[string]int),
+		}
+		for _, review := range bucket.item.Reviews {
+			switch normalizeVideoJobReviewStatus(review.FinalRecommendation) {
+			case "deliver":
+				summary.DeliverCount++
+			case "keep_internal":
+				summary.KeepInternalCount++
+			case "reject":
+				summary.RejectCount++
+			case "need_manual_review":
+				summary.NeedManualReviewCount++
+			}
+		}
+		if len(bucket.item.Reviews) > 0 {
+			summary.LatestRecommendation = strings.TrimSpace(bucket.item.Reviews[len(bucket.item.Reviews)-1].FinalRecommendation)
+		}
+		for _, feedback := range bucket.item.Feedbacks {
+			action := strings.TrimSpace(strings.ToLower(feedback.Action))
+			if action == "" {
+				action = "unknown"
+			}
+			summary.FeedbackActionCounts[action]++
+		}
+		if len(summary.FeedbackActionCounts) == 0 {
+			summary.FeedbackActionCounts = nil
+		}
+		bucket.item.Summary = summary
+		out = append(out, bucket.item)
+	}
+	return out
+}
+
+func isAdminVideoJobGIFMainOutput(item AdminVideoJobArtifactItem) bool {
+	if strings.TrimSpace(strings.ToLower(item.Type)) != "main" {
+		return false
+	}
+	if strings.TrimSpace(strings.ToLower(item.Format)) == "gif" {
+		return true
+	}
+	if strings.Contains(strings.TrimSpace(strings.ToLower(item.MimeType)), "gif") {
+		return true
+	}
+	if strings.Contains(strings.TrimSpace(strings.ToLower(item.QiniuKey)), "/outputs/gif/") {
+		return true
+	}
+	if format := strings.TrimSpace(strings.ToLower(stringFromAny(item.Metadata["format"]))); format == "gif" {
+		return true
+	}
+	return false
+}
+
+func resolveAdminVideoJobArtifactProposalID(item AdminVideoJobArtifactItem) uint64 {
+	if item.ProposalID != nil && *item.ProposalID > 0 {
+		return *item.ProposalID
+	}
+	if raw := parseUint64FromAny(item.Metadata["proposal_id"]); raw > 0 {
+		return raw
+	}
+	return 0
+}
+
+func findAdminVideoJobProposalRank(items []AdminVideoJobAIGIFProposalItem, proposalID uint64) int {
+	if proposalID == 0 {
+		return 0
+	}
+	for _, item := range items {
+		if item.ID == proposalID {
+			return item.ProposalRank
+		}
+	}
+	return 0
+}
+
+func resolveAdminVideoJobProposalChainIdentity(
+	outputID *uint64,
+	proposalID *uint64,
+	fallbackID uint64,
+	outputChainKeyByID map[uint64]string,
+	proposals []AdminVideoJobAIGIFProposalItem,
+	fallbackPrefix string,
+) (key string, sortRank int, sortID uint64) {
+	if outputID != nil && *outputID > 0 {
+		if existing, ok := outputChainKeyByID[*outputID]; ok && existing != "" {
+			return existing, 0, *outputID
+		}
+	}
+	if proposalID != nil && *proposalID > 0 {
+		return fmt.Sprintf("proposal:%d", *proposalID), findAdminVideoJobProposalRank(proposals, *proposalID), *proposalID
+	}
+	return fmt.Sprintf("%s:%d", fallbackPrefix, fallbackID), 0, fallbackID
 }
 
 func parseBoolFromAny(raw interface{}) bool {

@@ -15,6 +15,13 @@ const (
 )
 
 const (
+	VideoJobAssetDomainArchive = "archive"
+	VideoJobAssetDomainVideo   = "video"
+	VideoJobAssetDomainUGC     = "ugc"
+	VideoJobAssetDomainAdmin   = "admin"
+)
+
+const (
 	VideoJobStageQueued        = "queued"
 	VideoJobStagePreprocessing = "preprocessing"
 	VideoJobStageAnalyzing     = "analyzing"
@@ -41,6 +48,7 @@ type VideoJob struct {
 	Options            datatypes.JSON `gorm:"column:options;type:jsonb"`
 	Metrics            datatypes.JSON `gorm:"column:metrics;type:jsonb"`
 	ErrorMessage       string         `gorm:"column:error_message;type:text"`
+	AssetDomain        string         `gorm:"column:asset_domain;size:32;index"`
 	ResultCollectionID *uint64        `gorm:"column:result_collection_id;index"`
 	QueuedAt           time.Time      `gorm:"column:queued_at;autoCreateTime"`
 	StartedAt          *time.Time     `gorm:"column:started_at;index"`
@@ -582,6 +590,11 @@ type VideoQualitySetting struct {
 	AIDirectorOperatorInstruction                     string    `gorm:"column:ai_director_operator_instruction;type:text"`
 	AIDirectorOperatorInstructionVersion              string    `gorm:"column:ai_director_operator_instruction_version;size:64"`
 	AIDirectorOperatorEnabled                         bool      `gorm:"column:ai_director_operator_enabled"`
+	AIDirectorConstraintOverrideEnabled               bool      `gorm:"column:ai_director_constraint_override_enabled"`
+	AIDirectorCountExpandRatio                        float64   `gorm:"column:ai_director_count_expand_ratio"`
+	AIDirectorDurationExpandRatio                     float64   `gorm:"column:ai_director_duration_expand_ratio"`
+	AIDirectorCountAbsoluteCap                        int       `gorm:"column:ai_director_count_absolute_cap"`
+	AIDirectorDurationAbsoluteCapSec                  float64   `gorm:"column:ai_director_duration_absolute_cap_sec"`
 	CreatedAt                                         time.Time `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt                                         time.Time `gorm:"column:updated_at;autoUpdateTime"`
 }

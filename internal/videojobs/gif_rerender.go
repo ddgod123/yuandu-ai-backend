@@ -107,7 +107,7 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 
 	var job models.VideoJob
 	if err := p.db.
-		Select("id", "user_id", "title", "source_video_key", "status", "stage", "output_formats", "options", "metrics", "result_collection_id").
+		Select("id", "user_id", "title", "source_video_key", "status", "stage", "output_formats", "options", "metrics", "asset_domain", "result_collection_id").
 		Where("id = ?", req.JobID).
 		First(&job).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -153,14 +153,39 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 		return nil, newGIFRerenderError(GIFRerenderErrorInvalidInput, "proposal window invalid", nil)
 	}
 
+	assetDomain := strings.ToLower(strings.TrimSpace(job.AssetDomain))
+	if assetDomain == "" {
+		assetDomain = models.VideoJobAssetDomainVideo
+	}
 	var collection models.Collection
-	if err := p.db.Select("id", "title", "qiniu_prefix", "cover_url", "latest_zip_key", "latest_zip_name", "latest_zip_size").
-		Where("id = ?", *job.ResultCollectionID).
-		First(&collection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, newGIFRerenderError(GIFRerenderErrorCollectionMiss, "collection not found", err)
+	if assetDomain == models.VideoJobAssetDomainVideo {
+		var videoCollection models.VideoAssetCollection
+		if err := p.db.Select("id", "title", "qiniu_prefix", "cover_url", "latest_zip_key", "latest_zip_name", "latest_zip_size").
+			Where("id = ?", *job.ResultCollectionID).
+			First(&videoCollection).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, newGIFRerenderError(GIFRerenderErrorCollectionMiss, "collection not found", err)
+			}
+			return nil, newGIFRerenderError(GIFRerenderErrorPersistFailed, "load collection failed", err)
 		}
-		return nil, newGIFRerenderError(GIFRerenderErrorPersistFailed, "load collection failed", err)
+		collection = models.Collection{
+			ID:            videoCollection.ID,
+			Title:         videoCollection.Title,
+			QiniuPrefix:   videoCollection.QiniuPrefix,
+			CoverURL:      videoCollection.CoverURL,
+			LatestZipKey:  videoCollection.LatestZipKey,
+			LatestZipName: videoCollection.LatestZipName,
+			LatestZipSize: videoCollection.LatestZipSize,
+		}
+	} else {
+		if err := p.db.Select("id", "title", "qiniu_prefix", "cover_url", "latest_zip_key", "latest_zip_name", "latest_zip_size").
+			Where("id = ?", *job.ResultCollectionID).
+			First(&collection).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, newGIFRerenderError(GIFRerenderErrorCollectionMiss, "collection not found", err)
+			}
+			return nil, newGIFRerenderError(GIFRerenderErrorPersistFailed, "load collection failed", err)
+		}
 	}
 
 	if !req.Force {
@@ -319,27 +344,46 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 	metricsJSON := mustJSON(updatedMetrics)
 
 	txErr := p.db.Transaction(func(tx *gorm.DB) error {
-		displayOrder, err := nextEmojiDisplayOrder(tx, collection.ID)
+		displayOrder, err := nextEmojiDisplayOrder(tx, collection.ID, assetDomain)
 		if err != nil {
 			return err
 		}
 
-		emoji := models.Emoji{
-			CollectionID: collection.ID,
-			Title:        buildAnimatedEmojiTitle(collection.Title, windowIndex, "gif"),
-			FileURL:      rendered.FileKey,
-			ThumbURL:     rendered.ThumbKey,
-			Format:       "gif",
-			Width:        rendered.Width,
-			Height:       rendered.Height,
-			SizeBytes:    rendered.SizeBytes,
-			DisplayOrder: displayOrder,
-			Status:       "active",
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			emoji := models.VideoAssetEmoji{
+				CollectionID: collection.ID,
+				Title:        buildAnimatedEmojiTitle(collection.Title, windowIndex, "gif"),
+				FileURL:      rendered.FileKey,
+				ThumbURL:     rendered.ThumbKey,
+				Format:       "gif",
+				Width:        rendered.Width,
+				Height:       rendered.Height,
+				SizeBytes:    rendered.SizeBytes,
+				DisplayOrder: displayOrder,
+				Status:       "active",
+			}
+			if err := upsertVideoAssetEmojiByCollectionFile(tx, &emoji); err != nil {
+				return err
+			}
+			result.EmojiID = emoji.ID
+		} else {
+			emoji := models.Emoji{
+				CollectionID: collection.ID,
+				Title:        buildAnimatedEmojiTitle(collection.Title, windowIndex, "gif"),
+				FileURL:      rendered.FileKey,
+				ThumbURL:     rendered.ThumbKey,
+				Format:       "gif",
+				Width:        rendered.Width,
+				Height:       rendered.Height,
+				SizeBytes:    rendered.SizeBytes,
+				DisplayOrder: displayOrder,
+				Status:       "active",
+			}
+			if err := upsertEmojiByCollectionFile(tx, &emoji); err != nil {
+				return err
+			}
+			result.EmojiID = emoji.ID
 		}
-		if err := upsertEmojiByCollectionFile(tx, &emoji); err != nil {
-			return err
-		}
-		result.EmojiID = emoji.ID
 		result.DisplayOrder = displayOrder
 
 		artifactID := uint64(0)
@@ -412,10 +456,18 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 		}
 
 		var activeCount int64
-		if err := tx.Model(&models.Emoji{}).
-			Where("collection_id = ? AND status = ?", collection.ID, "active").
-			Count(&activeCount).Error; err != nil {
-			return err
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			if err := tx.Model(&models.VideoAssetEmoji{}).
+				Where("collection_id = ? AND status = ?", collection.ID, "active").
+				Count(&activeCount).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Model(&models.Emoji{}).
+				Where("collection_id = ? AND status = ?", collection.ID, "active").
+				Count(&activeCount).Error; err != nil {
+				return err
+			}
 		}
 
 		collectionUpdates := map[string]interface{}{
@@ -428,12 +480,20 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 		if strings.TrimSpace(collection.CoverURL) == "" {
 			collectionUpdates["cover_url"] = rendered.ThumbKey
 		}
-		if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(collectionUpdates).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Where("collection_id = ?", collection.ID).Delete(&models.CollectionZip{}).Error; err != nil {
-			return err
+		if assetDomain == models.VideoJobAssetDomainVideo {
+			if err := tx.Model(&models.VideoAssetCollection{}).Where("id = ?", collection.ID).Updates(collectionUpdates).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("collection_id = ?", collection.ID).Delete(&models.VideoAssetCollectionZip{}).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(collectionUpdates).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("collection_id = ?", collection.ID).Delete(&models.CollectionZip{}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Where("job_id = ? AND type = ?", job.ID, "package").Delete(&models.VideoJobArtifact{}).Error; err != nil {
 			return err
@@ -581,7 +641,7 @@ func (p *Processor) loadJobEstimatedCost(jobID uint64) float64 {
 	return roundTo(row.EstimatedCost, 6)
 }
 
-func nextEmojiDisplayOrder(tx *gorm.DB, collectionID uint64) (int, error) {
+func nextEmojiDisplayOrder(tx *gorm.DB, collectionID uint64, assetDomain string) (int, error) {
 	if tx == nil || collectionID == 0 {
 		return 1, nil
 	}
@@ -589,11 +649,20 @@ func nextEmojiDisplayOrder(tx *gorm.DB, collectionID uint64) (int, error) {
 		MaxOrder int `gorm:"column:max_order"`
 	}
 	var row orderRow
-	if err := tx.Model(&models.Emoji{}).
-		Select("COALESCE(MAX(display_order), 0) AS max_order").
-		Where("collection_id = ? AND status = ?", collectionID, "active").
-		Scan(&row).Error; err != nil {
-		return 0, err
+	if strings.ToLower(strings.TrimSpace(assetDomain)) == models.VideoJobAssetDomainVideo {
+		if err := tx.Model(&models.VideoAssetEmoji{}).
+			Select("COALESCE(MAX(display_order), 0) AS max_order").
+			Where("collection_id = ? AND status = ?", collectionID, "active").
+			Scan(&row).Error; err != nil {
+			return 0, err
+		}
+	} else {
+		if err := tx.Model(&models.Emoji{}).
+			Select("COALESCE(MAX(display_order), 0) AS max_order").
+			Where("collection_id = ? AND status = ?", collectionID, "active").
+			Scan(&row).Error; err != nil {
+			return 0, err
+		}
 	}
 	next := row.MaxOrder + 1
 	if next < 1 {

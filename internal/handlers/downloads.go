@@ -127,7 +127,7 @@ func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
 // @Success 200 {object} DownloadURLResponse
 // @Router /api/collections/{id}/download-zip [get]
 func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
-	user, ok := h.requireActiveSubscriber(c)
+	user, ok := h.requireActiveUser(c)
 	if !ok {
 		return
 	}
@@ -153,6 +153,11 @@ func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
 		return
 	}
 	if !ensureCollectionVisibleForRequester(c, collection) {
+		return
+	}
+	accessDecision := h.resolveCollectionDownloadAccess(user, collection.ID, time.Now())
+	if !accessDecision.Allowed {
+		writeCollectionDownloadAccessDenied(c, accessDecision)
 		return
 	}
 
@@ -220,6 +225,17 @@ func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "download url unavailable"})
 		return
 	}
+	if user != nil && !accessDecision.IsSubscriber {
+		if err := h.consumeCollectionDownloadEntitlement(c, user.ID, collection.ID, "zip"); err != nil {
+			writeCollectionDownloadAccessDenied(c, collectionDownloadAccessDecision{
+				Allowed:            false,
+				IsSubscriber:       false,
+				SubscriptionStatus: accessDecision.SubscriptionStatus,
+				DenyError:          err,
+			})
+			return
+		}
+	}
 	downloadName := normalizeDownloadFileName(collection.Title, name, ".zip")
 	if userID, ok := currentUserIDFromContext(c); ok && userID > 0 {
 		if ticketURL, ticketExp, err := h.issueDownloadTicket(c, key, downloadName, userID); err == nil {
@@ -274,7 +290,8 @@ func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
 // @Success 200 {object} CollectionZipListResponse
 // @Router /api/collections/{id}/zips [get]
 func (h *Handler) GetCollectionZipList(c *gin.Context) {
-	if _, ok := h.requireActiveSubscriber(c); !ok {
+	user, ok := h.requireActiveUser(c)
+	if !ok {
 		return
 	}
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -293,6 +310,11 @@ func (h *Handler) GetCollectionZipList(c *gin.Context) {
 		return
 	}
 	if !ensureCollectionVisibleForRequester(c, collection) {
+		return
+	}
+	accessDecision := h.resolveCollectionDownloadAccess(user, collection.ID, time.Now())
+	if !accessDecision.Allowed {
+		writeCollectionDownloadAccessDenied(c, accessDecision)
 		return
 	}
 
@@ -326,7 +348,7 @@ func (h *Handler) GetCollectionZipList(c *gin.Context) {
 // @Param id path int true "collection id"
 // @Router /api/collections/{id}/download-zip-all [get]
 func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
-	user, ok := h.requireActiveSubscriber(c)
+	user, ok := h.requireActiveUser(c)
 	if !ok {
 		return
 	}
@@ -354,6 +376,11 @@ func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
 	if !ensureCollectionVisibleForRequester(c, collection) {
 		return
 	}
+	accessDecision := h.resolveCollectionDownloadAccess(user, collection.ID, time.Now())
+	if !accessDecision.Allowed {
+		writeCollectionDownloadAccessDenied(c, accessDecision)
+		return
+	}
 
 	zips, err := loadCollectionZips(h.db, h.qiniu, collection)
 	if err != nil {
@@ -363,6 +390,17 @@ func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
 	if len(zips) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "zip not found"})
 		return
+	}
+	if user != nil && !accessDecision.IsSubscriber {
+		if err := h.consumeCollectionDownloadEntitlement(c, user.ID, collection.ID, "zip_all"); err != nil {
+			writeCollectionDownloadAccessDenied(c, collectionDownloadAccessDecision{
+				Allowed:            false,
+				IsSubscriber:       false,
+				SubscriptionStatus: accessDecision.SubscriptionStatus,
+				DenyError:          err,
+			})
+			return
+		}
 	}
 
 	filename := normalizeDownloadFileName(collection.Title, fmt.Sprintf("collection-%d-all", collection.ID), ".zip")

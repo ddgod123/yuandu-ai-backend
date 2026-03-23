@@ -401,6 +401,11 @@ func (p *Processor) loadQualitySettings() QualitySettings {
 		AIDirectorOperatorInstruction:        row.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion: row.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:            row.AIDirectorOperatorEnabled,
+		AIDirectorConstraintOverrideEnabled:  row.AIDirectorConstraintOverrideEnabled,
+		AIDirectorCountExpandRatio:           row.AIDirectorCountExpandRatio,
+		AIDirectorDurationExpandRatio:        row.AIDirectorDurationExpandRatio,
+		AIDirectorCountAbsoluteCap:           row.AIDirectorCountAbsoluteCap,
+		AIDirectorDurationAbsoluteCapSec:     row.AIDirectorDurationAbsoluteCapSec,
 	})
 }
 
@@ -459,20 +464,40 @@ func (p *Processor) recoverCompletedJobFromExistingResult(job *models.VideoJob) 
 		return false, nil
 	}
 
-	var collection models.Collection
-	if err := p.db.Select("id").Where("id = ?", *job.ResultCollectionID).First(&collection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-
 	generatedFormats := make([]string, 0, 4)
-	if err := p.db.Model(&models.Emoji{}).
-		Where("collection_id = ? AND status = ?", collection.ID, "active").
-		Distinct("format").
-		Pluck("format", &generatedFormats).Error; err != nil {
-		return false, err
+	collectionID := *job.ResultCollectionID
+	assetDomain := strings.ToLower(strings.TrimSpace(job.AssetDomain))
+	if assetDomain == "" {
+		assetDomain = models.VideoJobAssetDomainVideo
+	}
+	if assetDomain == models.VideoJobAssetDomainVideo {
+		var collection models.VideoAssetCollection
+		if err := p.db.Select("id").Where("id = ?", collectionID).First(&collection).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
+		if err := p.db.Model(&models.VideoAssetEmoji{}).
+			Where("collection_id = ? AND status = ?", collection.ID, "active").
+			Distinct("format").
+			Pluck("format", &generatedFormats).Error; err != nil {
+			return false, err
+		}
+	} else {
+		var collection models.Collection
+		if err := p.db.Select("id").Where("id = ?", collectionID).First(&collection).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
+		if err := p.db.Model(&models.Emoji{}).
+			Where("collection_id = ? AND status = ?", collection.ID, "active").
+			Distinct("format").
+			Pluck("format", &generatedFormats).Error; err != nil {
+			return false, err
+		}
 	}
 	generatedFormats = normalizeFormatSlice(generatedFormats)
 	if len(generatedFormats) == 0 {
@@ -480,7 +505,8 @@ func (p *Processor) recoverCompletedJobFromExistingResult(job *models.VideoJob) 
 	}
 
 	metrics := parseJSONMap(job.Metrics)
-	metrics["result_collection_id"] = collection.ID
+	metrics["result_collection_id"] = collectionID
+	metrics["asset_domain"] = assetDomain
 	metrics["output_formats_requested"] = normalizeOutputFormats(job.OutputFormats)
 	metrics["output_formats"] = generatedFormats
 
@@ -505,7 +531,8 @@ func (p *Processor) recoverCompletedJobFromExistingResult(job *models.VideoJob) 
 	_ = SyncPublicVideoImageJobUpdates(p.db, job.ID, updates)
 
 	p.appendJobEvent(job.ID, models.VideoJobStageDone, "warn", "job recovered from existing result collection", map[string]interface{}{
-		"collection_id": collection.ID,
+		"collection_id": collectionID,
+		"asset_domain":  assetDomain,
 		"formats":       generatedFormats,
 	})
 	p.syncJobCost(job.ID)
@@ -1894,26 +1921,12 @@ func (p *Processor) downloadObjectByKey(ctx context.Context, key, outPath string
 		return errors.New("empty object key")
 	}
 
-	var sdkErr error
-	if p.qiniu != nil {
-		sdkErr = p.downloadObjectByBucketManager(ctx, cleanKey, outPath)
-		if sdkErr == nil {
-			return nil
-		}
-	}
-
 	sourceURL, err := p.buildObjectReadURL(cleanKey)
 	if err != nil {
-		if sdkErr != nil {
-			return fmt.Errorf("download object failed (sdk=%v, url=%w)", sdkErr, err)
-		}
 		return err
 	}
 	if err := p.downloadObject(ctx, sourceURL, outPath); err != nil {
-		if sdkErr != nil {
-			return fmt.Errorf("download object failed (sdk=%v, http=%w)", sdkErr, err)
-		}
-		return err
+		return fmt.Errorf("download object failed (http=%w)", err)
 	}
 	return nil
 }
@@ -2186,6 +2199,14 @@ func (p *Processor) cleanupSourceVideo(jobID uint64, reason string) {
 	if p == nil || p.db == nil || p.qiniu == nil || jobID == 0 {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			p.appendJobEvent(jobID, models.VideoJobStageUploading, "warn", "source video cleanup panic recovered", map[string]interface{}{
+				"reason": strings.TrimSpace(reason),
+				"panic":  fmt.Sprintf("%v", r),
+			})
+		}
+	}()
 
 	var job models.VideoJob
 	if err := p.db.Select("id", "source_video_key", "metrics").Where("id = ?", jobID).First(&job).Error; err != nil {
@@ -2302,8 +2323,8 @@ func (p *Processor) loadCloudHighlightFallbackConfig() cloudHighlightFallbackCon
 	}
 	if raw := strings.TrimSpace(os.Getenv("VIDEO_HIGHLIGHT_CLOUD_FALLBACK_TOP_N")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			if n > 6 {
-				n = 6
+			if n > maxGIFCandidateOutputs {
+				n = maxGIFCandidateOutputs
 			}
 			cfg.TopN = n
 		}
@@ -2493,8 +2514,8 @@ func selectHighlightCandidatesForExtraction(candidates []highlightCandidate, max
 	if maxWindows <= 0 {
 		maxWindows = defaultHighlightTopN
 	}
-	if maxWindows > 6 {
-		maxWindows = 6
+	if maxWindows > maxGIFCandidateOutputs {
+		maxWindows = maxGIFCandidateOutputs
 	}
 	if maxWindows > len(candidates) {
 		maxWindows = len(candidates)

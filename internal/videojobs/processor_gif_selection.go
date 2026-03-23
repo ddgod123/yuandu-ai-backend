@@ -15,8 +15,8 @@ func resolveOutputClipWindows(
 	if baseMaxOutputs <= 0 {
 		baseMaxOutputs = defaultHighlightTopN
 	}
-	if baseMaxOutputs > 6 {
-		baseMaxOutputs = 6
+	if baseMaxOutputs > maxGIFCandidateOutputs {
+		baseMaxOutputs = maxGIFCandidateOutputs
 	}
 	if baseMaxOutputs < 1 {
 		baseMaxOutputs = 1
@@ -29,8 +29,8 @@ func resolveOutputClipWindows(
 	if longTierMaxOutputs <= 0 {
 		longTierMaxOutputs = baseMaxOutputs
 	}
-	if longTierMaxOutputs > 6 {
-		longTierMaxOutputs = 6
+	if longTierMaxOutputs > maxGIFCandidateOutputs {
+		longTierMaxOutputs = maxGIFCandidateOutputs
 	}
 	if longTierMaxOutputs > baseMaxOutputs {
 		longTierMaxOutputs = baseMaxOutputs
@@ -42,8 +42,8 @@ func resolveOutputClipWindows(
 	if ultraTierMaxOutputs <= 0 {
 		ultraTierMaxOutputs = min(longTierMaxOutputs, DefaultQualitySettings().GIFCandidateUltraVideoMaxOutputs)
 	}
-	if ultraTierMaxOutputs > 6 {
-		ultraTierMaxOutputs = 6
+	if ultraTierMaxOutputs > maxGIFCandidateOutputs {
+		ultraTierMaxOutputs = maxGIFCandidateOutputs
 	}
 	if ultraTierMaxOutputs > longTierMaxOutputs {
 		ultraTierMaxOutputs = longTierMaxOutputs
@@ -95,6 +95,7 @@ func resolveOutputClipWindows(
 
 	fallbackApplied := false
 	fallbackReason := ""
+	plannerDriven := isPlannerDrivenGIFCandidatePool(pool)
 	if len(pool) == 0 {
 		windows := resolveOutputClipWindowsFallbackSingle(meta, options)
 		if len(windows) > 0 {
@@ -121,33 +122,38 @@ func resolveOutputClipWindows(
 			"dropped_output_limit":      0,
 			"fallback_applied":          fallbackApplied,
 			"fallback_reason":           fallbackReason,
+			"planner_driven":            plannerDriven,
+			"selection_policy":          resolveGIFRenderSelectionPolicy(plannerDriven),
 		}
-	}
-
-	topScore := pool[0].Score
-	minScore := pool[0].Score
-	for _, item := range pool {
-		if item.Score > topScore {
-			topScore = item.Score
-		}
-		if item.Score < minScore {
-			minScore = item.Score
-		}
-	}
-	scoreSpread := topScore - minScore
-	if scoreSpread < 0 {
-		scoreSpread = 0
 	}
 
 	droppedLowConfidence := 0
 	eligible := make([]highlightCandidate, 0, len(pool))
-	for idx, candidate := range pool {
-		confidence := estimateGIFCandidateConfidence(candidate.Score, topScore, scoreSpread, idx == 0)
-		if confidence < confidenceThreshold && len(eligible) > 0 {
-			droppedLowConfidence++
-			continue
+	if plannerDriven {
+		eligible = append(eligible, pool...)
+	} else {
+		topScore := pool[0].Score
+		minScore := pool[0].Score
+		for _, item := range pool {
+			if item.Score > topScore {
+				topScore = item.Score
+			}
+			if item.Score < minScore {
+				minScore = item.Score
+			}
 		}
-		eligible = append(eligible, candidate)
+		scoreSpread := topScore - minScore
+		if scoreSpread < 0 {
+			scoreSpread = 0
+		}
+		for idx, candidate := range pool {
+			confidence := estimateGIFCandidateConfidence(candidate.Score, topScore, scoreSpread, idx == 0)
+			if confidence < confidenceThreshold && len(eligible) > 0 {
+				droppedLowConfidence++
+				continue
+			}
+			eligible = append(eligible, candidate)
+		}
 	}
 	if len(eligible) == 0 {
 		eligible = append(eligible, pool[0])
@@ -157,11 +163,14 @@ func resolveOutputClipWindows(
 
 	selected := make([]highlightCandidate, 0, tierMaxOutputs)
 	selectedEstimatedKB := 0.0
+	selectedEstimatedRenderSec := 0.0
+	selectedEstimatedCostUnits := 0.0
 	droppedByBudget := 0
 	droppedByOutputLimit := 0
 	selectedWindowInfo := make([]map[string]interface{}, 0, tierMaxOutputs)
 	for _, candidate := range eligible {
-		estimatedKB := estimateGIFCandidateSizeKB(meta, candidate, qualitySettings)
+		costEstimate := estimateGIFCandidateCost(meta, candidate, options, qualitySettings)
+		estimatedKB := costEstimate.PredictedSizeKB
 		if len(selected) > 0 && selectedEstimatedKB+estimatedKB > budgetLimitKB {
 			droppedByBudget++
 			continue
@@ -172,36 +181,47 @@ func resolveOutputClipWindows(
 		}
 		selected = append(selected, candidate)
 		selectedEstimatedKB += estimatedKB
+		selectedEstimatedRenderSec += costEstimate.PredictedRenderSec
+		selectedEstimatedCostUnits += costEstimate.CostUnits
 		selectedWindowInfo = append(selectedWindowInfo, map[string]interface{}{
-			"start_sec":     roundTo(candidate.StartSec, 3),
-			"end_sec":       roundTo(candidate.EndSec, 3),
-			"duration_sec":  roundTo(candidate.EndSec-candidate.StartSec, 3),
-			"score":         roundTo(candidate.Score, 4),
-			"reason":        strings.TrimSpace(candidate.Reason),
-			"proposal_rank": candidate.ProposalRank,
-			"proposal_id":   valueOrNilUint64(candidate.ProposalID),
-			"candidate_id":  valueOrNilUint64(candidate.CandidateID),
-			"estimated_kb":  roundTo(estimatedKB, 2),
+			"start_sec":            roundTo(candidate.StartSec, 3),
+			"end_sec":              roundTo(candidate.EndSec, 3),
+			"duration_sec":         roundTo(candidate.EndSec-candidate.StartSec, 3),
+			"score":                roundTo(candidate.Score, 4),
+			"reason":               strings.TrimSpace(candidate.Reason),
+			"proposal_rank":        candidate.ProposalRank,
+			"proposal_id":          valueOrNilUint64(candidate.ProposalID),
+			"candidate_id":         valueOrNilUint64(candidate.CandidateID),
+			"estimated_kb":         roundTo(estimatedKB, 2),
+			"predicted_render_sec": roundTo(costEstimate.PredictedRenderSec, 3),
+			"render_cost_units":    roundTo(costEstimate.CostUnits, 3),
+			"cost_model_version":   strings.TrimSpace(costEstimate.ModelVersion),
 		})
 	}
 	if len(selected) == 0 {
 		selected = append(selected, eligible[0])
-		estimatedKB := estimateGIFCandidateSizeKB(meta, eligible[0], qualitySettings)
+		costEstimate := estimateGIFCandidateCost(meta, eligible[0], options, qualitySettings)
+		estimatedKB := costEstimate.PredictedSizeKB
 		selectedEstimatedKB = estimatedKB
+		selectedEstimatedRenderSec = costEstimate.PredictedRenderSec
+		selectedEstimatedCostUnits = costEstimate.CostUnits
 		fallbackApplied = true
 		if fallbackReason == "" {
 			fallbackReason = "budget_filtered_all"
 		}
 		selectedWindowInfo = append(selectedWindowInfo, map[string]interface{}{
-			"start_sec":     roundTo(eligible[0].StartSec, 3),
-			"end_sec":       roundTo(eligible[0].EndSec, 3),
-			"duration_sec":  roundTo(eligible[0].EndSec-eligible[0].StartSec, 3),
-			"score":         roundTo(eligible[0].Score, 4),
-			"reason":        strings.TrimSpace(eligible[0].Reason),
-			"proposal_rank": eligible[0].ProposalRank,
-			"proposal_id":   valueOrNilUint64(eligible[0].ProposalID),
-			"candidate_id":  valueOrNilUint64(eligible[0].CandidateID),
-			"estimated_kb":  roundTo(estimatedKB, 2),
+			"start_sec":            roundTo(eligible[0].StartSec, 3),
+			"end_sec":              roundTo(eligible[0].EndSec, 3),
+			"duration_sec":         roundTo(eligible[0].EndSec-eligible[0].StartSec, 3),
+			"score":                roundTo(eligible[0].Score, 4),
+			"reason":               strings.TrimSpace(eligible[0].Reason),
+			"proposal_rank":        eligible[0].ProposalRank,
+			"proposal_id":          valueOrNilUint64(eligible[0].ProposalID),
+			"candidate_id":         valueOrNilUint64(eligible[0].CandidateID),
+			"estimated_kb":         roundTo(estimatedKB, 2),
+			"predicted_render_sec": roundTo(costEstimate.PredictedRenderSec, 3),
+			"render_cost_units":    roundTo(costEstimate.CostUnits, 3),
+			"cost_model_version":   strings.TrimSpace(costEstimate.ModelVersion),
 		})
 	}
 
@@ -221,21 +241,45 @@ func resolveOutputClipWindows(
 		"confidence_threshold":      roundTo(confidenceThreshold, 4),
 		"estimated_budget_limit_kb": roundTo(budgetLimitKB, 2),
 		"estimated_selected_kb":     roundTo(selectedEstimatedKB, 2),
+		"predicted_render_sec":      roundTo(selectedEstimatedRenderSec, 3),
+		"render_cost_units":         roundTo(selectedEstimatedCostUnits, 3),
+		"cost_model_version":        gifCandidateCostModelVersion,
 		"dropped_low_confidence":    droppedLowConfidence,
 		"dropped_size_budget":       droppedByBudget,
 		"dropped_output_limit":      droppedByOutputLimit,
 		"fallback_applied":          fallbackApplied,
 		"fallback_reason":           fallbackReason,
+		"planner_driven":            plannerDriven,
+		"selection_policy":          resolveGIFRenderSelectionPolicy(plannerDriven),
 		"selected_windows":          selectedWindowInfo,
 	}
+}
+
+func isPlannerDrivenGIFCandidatePool(pool []highlightCandidate) bool {
+	for _, candidate := range pool {
+		if candidate.ProposalRank > 0 {
+			return true
+		}
+		if candidate.ProposalID != nil && *candidate.ProposalID > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveGIFRenderSelectionPolicy(plannerDriven bool) string {
+	if plannerDriven {
+		return "ai2_rank_order_budget_only"
+	}
+	return "confidence_and_budget"
 }
 
 func normalizePreferredGIFMaxOutputs(value int) int {
 	if value <= 0 {
 		return 0
 	}
-	if value > 6 {
-		return 6
+	if value > maxGIFCandidateOutputs {
+		return maxGIFCandidateOutputs
 	}
 	return value
 }

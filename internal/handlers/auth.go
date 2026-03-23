@@ -1238,6 +1238,8 @@ func ttlUntilEndOfDay(now time.Time) time.Duration {
 
 func mapUser(user models.User) UserResponse {
 	subscriptionStatus, userLevel, isSubscriber := resolveUserSubscriptionState(&user, time.Now())
+	role := strings.ToLower(strings.TrimSpace(user.Role))
+	isAdmin := role == "admin" || role == "super_admin"
 	return UserResponse{
 		ID:                    user.ID,
 		Phone:                 user.Phone,
@@ -1247,7 +1249,7 @@ func mapUser(user models.User) UserResponse {
 		Bio:                   user.Bio,
 		Role:                  user.Role,
 		Status:                user.Status,
-		IsAdmin:               user.IsAdmin,
+		IsAdmin:               isAdmin,
 		UserLevel:             userLevel,
 		SubscriptionStatus:    subscriptionStatus,
 		SubscriptionPlan:      strings.TrimSpace(user.SubscriptionPlan),

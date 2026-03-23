@@ -177,6 +177,11 @@ type VideoQualitySettingRequest struct {
 	AIDirectorOperatorInstruction        string  `json:"ai_director_operator_instruction"`
 	AIDirectorOperatorInstructionVersion string  `json:"ai_director_operator_instruction_version"`
 	AIDirectorOperatorEnabled            bool    `json:"ai_director_operator_enabled"`
+	AIDirectorConstraintOverrideEnabled  bool    `json:"ai_director_constraint_override_enabled"`
+	AIDirectorCountExpandRatio           float64 `json:"ai_director_count_expand_ratio"`
+	AIDirectorDurationExpandRatio        float64 `json:"ai_director_duration_expand_ratio"`
+	AIDirectorCountAbsoluteCap           int     `json:"ai_director_count_absolute_cap"`
+	AIDirectorDurationAbsoluteCapSec     float64 `json:"ai_director_duration_absolute_cap_sec"`
 	GIFHealthAlertThresholdSettings
 	FeedbackIntegrityAlertThresholdSettings
 }
@@ -280,14 +285,14 @@ func validateVideoQualitySettingRequest(req VideoQualitySettingRequest) error {
 	if req.GIFGifsicleMinGainRatio < 0 || req.GIFGifsicleMinGainRatio > 0.5 {
 		return errors.New("invalid gif_gifsicle_min_gain_ratio: expected 0..0.5")
 	}
-	if req.GIFCandidateMaxOutputs < 1 || req.GIFCandidateMaxOutputs > 6 {
-		return errors.New("invalid gif_candidate_max_outputs: expected 1..6")
+	if req.GIFCandidateMaxOutputs < 1 || req.GIFCandidateMaxOutputs > videojobs.DefaultQualitySettings().AIDirectorCountAbsoluteCap*2 {
+		return errors.New("invalid gif_candidate_max_outputs: expected 1..20")
 	}
-	if req.GIFCandidateLongVideoMaxOutputs < 1 || req.GIFCandidateLongVideoMaxOutputs > 6 {
-		return errors.New("invalid gif_candidate_long_video_max_outputs: expected 1..6")
+	if req.GIFCandidateLongVideoMaxOutputs < 1 || req.GIFCandidateLongVideoMaxOutputs > videojobs.DefaultQualitySettings().AIDirectorCountAbsoluteCap*2 {
+		return errors.New("invalid gif_candidate_long_video_max_outputs: expected 1..20")
 	}
-	if req.GIFCandidateUltraVideoMaxOutputs < 1 || req.GIFCandidateUltraVideoMaxOutputs > 6 {
-		return errors.New("invalid gif_candidate_ultra_video_max_outputs: expected 1..6")
+	if req.GIFCandidateUltraVideoMaxOutputs < 1 || req.GIFCandidateUltraVideoMaxOutputs > videojobs.DefaultQualitySettings().AIDirectorCountAbsoluteCap*2 {
+		return errors.New("invalid gif_candidate_ultra_video_max_outputs: expected 1..20")
 	}
 	if req.GIFCandidateLongVideoMaxOutputs > req.GIFCandidateMaxOutputs {
 		return errors.New("invalid gif candidate cap: long_video_max_outputs must be <= gif_candidate_max_outputs")
@@ -666,6 +671,21 @@ func validateVideoQualitySettingRequest(req VideoQualitySettingRequest) error {
 	if len(strings.TrimSpace(req.AIDirectorOperatorInstruction)) > 4000 {
 		return errors.New("invalid ai_director_operator_instruction: expected <= 4000 chars")
 	}
+	if req.AIDirectorCountExpandRatio < 0 || req.AIDirectorCountExpandRatio > 3 {
+		return errors.New("invalid ai_director_count_expand_ratio: expected 0..3")
+	}
+	if req.AIDirectorDurationExpandRatio < 0 || req.AIDirectorDurationExpandRatio > 3 {
+		return errors.New("invalid ai_director_duration_expand_ratio: expected 0..3")
+	}
+	if req.AIDirectorCountAbsoluteCap < 1 || req.AIDirectorCountAbsoluteCap > videojobs.DefaultQualitySettings().AIDirectorCountAbsoluteCap*2 {
+		return errors.New("invalid ai_director_count_absolute_cap: expected 1..20")
+	}
+	if req.AIDirectorDurationAbsoluteCapSec < 2 || req.AIDirectorDurationAbsoluteCapSec > 12 {
+		return errors.New("invalid ai_director_duration_absolute_cap_sec: expected 2..12")
+	}
+	if req.AIDirectorCountAbsoluteCap < req.GIFCandidateMaxOutputs {
+		return errors.New("invalid ai_director_count_absolute_cap: expected >= gif_candidate_max_outputs")
+	}
 
 	if err := validateLowRateThreshold("gif_health_done_rate", req.GIFHealthDoneRateWarn, req.GIFHealthDoneRateCritical); err != nil {
 		return err
@@ -909,6 +929,11 @@ func qualitySettingsFromModel(setting models.VideoQualitySetting) videojobs.Qual
 		AIDirectorOperatorInstruction:        setting.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion: setting.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:            setting.AIDirectorOperatorEnabled,
+		AIDirectorConstraintOverrideEnabled:  setting.AIDirectorConstraintOverrideEnabled,
+		AIDirectorCountExpandRatio:           setting.AIDirectorCountExpandRatio,
+		AIDirectorDurationExpandRatio:        setting.AIDirectorDurationExpandRatio,
+		AIDirectorCountAbsoluteCap:           setting.AIDirectorCountAbsoluteCap,
+		AIDirectorDurationAbsoluteCapSec:     setting.AIDirectorDurationAbsoluteCapSec,
 	})
 }
 
@@ -1074,6 +1099,11 @@ func applyQualitySettingsToModel(dst *models.VideoQualitySetting, settings video
 	dst.AIDirectorOperatorInstruction = strings.TrimSpace(settings.AIDirectorOperatorInstruction)
 	dst.AIDirectorOperatorInstructionVersion = strings.TrimSpace(settings.AIDirectorOperatorInstructionVersion)
 	dst.AIDirectorOperatorEnabled = settings.AIDirectorOperatorEnabled
+	dst.AIDirectorConstraintOverrideEnabled = settings.AIDirectorConstraintOverrideEnabled
+	dst.AIDirectorCountExpandRatio = settings.AIDirectorCountExpandRatio
+	dst.AIDirectorDurationExpandRatio = settings.AIDirectorDurationExpandRatio
+	dst.AIDirectorCountAbsoluteCap = settings.AIDirectorCountAbsoluteCap
+	dst.AIDirectorDurationAbsoluteCapSec = settings.AIDirectorDurationAbsoluteCapSec
 }
 
 func toVideoQualitySettingResponse(setting models.VideoQualitySetting, withMeta bool) VideoQualitySettingResponse {
@@ -1304,6 +1334,11 @@ func videoQualitySettingRequestFromModel(setting models.VideoQualitySetting) Vid
 		AIDirectorOperatorInstruction:           quality.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion:    quality.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:               quality.AIDirectorOperatorEnabled,
+		AIDirectorConstraintOverrideEnabled:     quality.AIDirectorConstraintOverrideEnabled,
+		AIDirectorCountExpandRatio:              quality.AIDirectorCountExpandRatio,
+		AIDirectorDurationExpandRatio:           quality.AIDirectorDurationExpandRatio,
+		AIDirectorCountAbsoluteCap:              quality.AIDirectorCountAbsoluteCap,
+		AIDirectorDurationAbsoluteCapSec:        quality.AIDirectorDurationAbsoluteCapSec,
 		GIFHealthAlertThresholdSettings:         gifThresholds,
 		FeedbackIntegrityAlertThresholdSettings: feedbackThresholds,
 	}
@@ -1468,6 +1503,11 @@ func (h *Handler) saveVideoQualitySetting(req VideoQualitySettingRequest) (model
 		AIDirectorOperatorInstruction:        req.AIDirectorOperatorInstruction,
 		AIDirectorOperatorInstructionVersion: req.AIDirectorOperatorInstructionVersion,
 		AIDirectorOperatorEnabled:            req.AIDirectorOperatorEnabled,
+		AIDirectorConstraintOverrideEnabled:  req.AIDirectorConstraintOverrideEnabled,
+		AIDirectorCountExpandRatio:           req.AIDirectorCountExpandRatio,
+		AIDirectorDurationExpandRatio:        req.AIDirectorDurationExpandRatio,
+		AIDirectorCountAbsoluteCap:           req.AIDirectorCountAbsoluteCap,
+		AIDirectorDurationAbsoluteCapSec:     req.AIDirectorDurationAbsoluteCapSec,
 	})
 	alertThresholds := normalizeGIFHealthAlertThresholdSettings(req.GIFHealthAlertThresholdSettings)
 	feedbackIntegrityThresholds := normalizeFeedbackIntegrityAlertThresholdSettings(req.FeedbackIntegrityAlertThresholdSettings)

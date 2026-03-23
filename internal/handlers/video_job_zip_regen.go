@@ -56,8 +56,8 @@ func (h *Handler) GetVideoJobZipDownload(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", *job.ResultCollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollection(job)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 			return
@@ -73,7 +73,7 @@ func (h *Handler) GetVideoJobZipDownload(c *gin.Context) {
 	key := strings.TrimSpace(collection.LatestZipKey)
 	name := strings.TrimSpace(collection.LatestZipName)
 	if shouldRegenerateCollectionZip(collection) {
-		generatedKey, generatedName, err := h.regenerateCollectionZip(c, job, collection)
+		generatedKey, generatedName, err := h.regenerateCollectionZip(c, job, collection, normalizeVideoJobAssetDomain(job.AssetDomain))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -124,8 +124,8 @@ func (h *Handler) GetAdminVideoJobZipDownload(c *gin.Context) {
 		return
 	}
 
-	var collection models.Collection
-	if err := h.db.Where("id = ?", *job.ResultCollectionID).First(&collection).Error; err != nil {
+	collection, err := h.loadVideoJobResultCollection(job)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 			return
@@ -137,7 +137,7 @@ func (h *Handler) GetAdminVideoJobZipDownload(c *gin.Context) {
 	key := strings.TrimSpace(collection.LatestZipKey)
 	name := strings.TrimSpace(collection.LatestZipName)
 	if shouldRegenerateCollectionZip(collection) {
-		generatedKey, generatedName, err := h.regenerateCollectionZip(c, job, collection)
+		generatedKey, generatedName, err := h.regenerateCollectionZip(c, job, collection, normalizeVideoJobAssetDomain(job.AssetDomain))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -165,14 +165,13 @@ func (h *Handler) GetAdminVideoJobZipDownload(c *gin.Context) {
 	})
 }
 
-func (h *Handler) regenerateCollectionZip(ctx context.Context, job models.VideoJob, collection models.Collection) (string, string, error) {
+func (h *Handler) regenerateCollectionZip(ctx context.Context, job models.VideoJob, collection models.Collection, assetDomain string) (string, string, error) {
 	if h.qiniu == nil {
 		return "", "", errors.New("qiniu not configured")
 	}
 
-	var emojis []models.Emoji
-	if err := h.db.Where("collection_id = ? AND status = ?", collection.ID, "active").
-		Order("display_order ASC, id ASC").Find(&emojis).Error; err != nil {
+	emojis, err := h.listVideoJobResultEmojisByDomain(collection.ID, assetDomain)
+	if err != nil {
 		return "", "", err
 	}
 	if len(emojis) == 0 {
@@ -225,6 +224,11 @@ func (h *Handler) regenerateCollectionZip(ctx context.Context, job models.VideoJ
 	addedEntries := 0
 	lastDownloadErr := ""
 	for idx, item := range emojis {
+		if reason := videojobs.PackageZipEmojiSkipReason(item); reason != "" {
+			lastDownloadErr = reason
+			continue
+		}
+
 		rawFile := strings.TrimSpace(item.FileURL)
 		if rawFile == "" {
 			continue
@@ -350,30 +354,58 @@ func (h *Handler) regenerateCollectionZip(ctx context.Context, job models.VideoJ
 			return err
 		}
 
-		zipRecord := models.CollectionZip{
-			CollectionID: collection.ID,
-			ZipKey:       packageKey,
-			ZipName:      packageName,
-			SizeBytes:    info.Size(),
-			UploadedAt:   &now,
-		}
-		if err := tx.Where("collection_id = ? AND zip_key = ?", collection.ID, packageKey).
-			Assign(models.CollectionZip{
-				ZipName:    packageName,
-				SizeBytes:  info.Size(),
-				UploadedAt: &now,
-			}).FirstOrCreate(&zipRecord).Error; err != nil {
-			return err
-		}
+		if normalizeVideoJobAssetDomain(assetDomain) == models.VideoJobAssetDomainVideo {
+			zipRecord := models.VideoAssetCollectionZip{
+				CollectionID: collection.ID,
+				ZipKey:       packageKey,
+				ZipName:      packageName,
+				SizeBytes:    info.Size(),
+				UploadedAt:   &now,
+			}
+			if err := tx.Where("collection_id = ? AND zip_key = ?", collection.ID, packageKey).
+				Assign(models.VideoAssetCollectionZip{
+					ZipName:    packageName,
+					SizeBytes:  info.Size(),
+					UploadedAt: &now,
+				}).FirstOrCreate(&zipRecord).Error; err != nil {
+				return err
+			}
 
-		if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).
-			Updates(map[string]interface{}{
-				"latest_zip_key":  packageKey,
-				"latest_zip_name": packageName,
-				"latest_zip_size": info.Size(),
-				"latest_zip_at":   &now,
-			}).Error; err != nil {
-			return err
+			if err := tx.Model(&models.VideoAssetCollection{}).Where("id = ?", collection.ID).
+				Updates(map[string]interface{}{
+					"latest_zip_key":  packageKey,
+					"latest_zip_name": packageName,
+					"latest_zip_size": info.Size(),
+					"latest_zip_at":   &now,
+				}).Error; err != nil {
+				return err
+			}
+		} else {
+			zipRecord := models.CollectionZip{
+				CollectionID: collection.ID,
+				ZipKey:       packageKey,
+				ZipName:      packageName,
+				SizeBytes:    info.Size(),
+				UploadedAt:   &now,
+			}
+			if err := tx.Where("collection_id = ? AND zip_key = ?", collection.ID, packageKey).
+				Assign(models.CollectionZip{
+					ZipName:    packageName,
+					SizeBytes:  info.Size(),
+					UploadedAt: &now,
+				}).FirstOrCreate(&zipRecord).Error; err != nil {
+				return err
+			}
+
+			if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).
+				Updates(map[string]interface{}{
+					"latest_zip_key":  packageKey,
+					"latest_zip_name": packageName,
+					"latest_zip_size": info.Size(),
+					"latest_zip_at":   &now,
+				}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {

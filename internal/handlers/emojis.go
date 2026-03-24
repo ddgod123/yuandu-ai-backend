@@ -22,7 +22,7 @@ type EmojiListItem struct {
 	ID           uint64    `json:"id"`
 	CollectionID uint64    `json:"collection_id"`
 	Title        string    `json:"title"`
-	FileURL      string    `json:"file_url"`
+	FileURL      string    `json:"file_url,omitempty"`
 	PreviewURL   string    `json:"preview_url,omitempty"`
 	ThumbURL     string    `json:"thumb_url,omitempty"`
 	Format       string    `json:"format"`
@@ -30,7 +30,7 @@ type EmojiListItem struct {
 	Width        int       `json:"width,omitempty"`
 	Height       int       `json:"height,omitempty"`
 	SizeBytes    int64     `json:"size_bytes"`
-	Status       string    `json:"status"`
+	Status       string    `json:"status,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -106,7 +106,7 @@ func (h *Handler) ListEmojis(c *gin.Context) {
 	var items []models.Emoji
 	db.Offset((page - 1) * limit).Limit(limit).Order("id DESC").Find(&items)
 
-	respItems := mapEmojiItems(items, h.qiniu)
+	respItems := mapEmojiItems(items, h.qiniu, adminView)
 	if userID, ok := currentUserIDFromContext(c); ok && len(respItems) > 0 {
 		emojiIDs := make([]uint64, 0, len(respItems))
 		for _, item := range respItems {
@@ -247,7 +247,7 @@ func (h *Handler) UpdateEmoji(c *gin.Context) {
 	c.JSON(http.StatusOK, emoji)
 }
 
-func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient) []EmojiListItem {
+func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient, adminView bool) []EmojiListItem {
 	out := make([]EmojiListItem, 0, len(items))
 	for _, item := range items {
 		previewSource := strings.TrimSpace(item.FileURL)
@@ -255,18 +255,26 @@ func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient) []Emo
 			previewSource = thumb
 		}
 		previewURL := resolvePreviewURL(previewSource, qiniuClient)
+		fileURL := ""
+		thumbURL := ""
+		status := ""
+		if adminView {
+			fileURL = item.FileURL
+			thumbURL = item.ThumbURL
+			status = item.Status
+		}
 		out = append(out, EmojiListItem{
 			ID:           item.ID,
 			CollectionID: item.CollectionID,
 			Title:        item.Title,
-			FileURL:      item.FileURL,
+			FileURL:      fileURL,
 			PreviewURL:   previewURL,
-			ThumbURL:     item.ThumbURL,
+			ThumbURL:     thumbURL,
 			Format:       item.Format,
 			Width:        item.Width,
 			Height:       item.Height,
 			SizeBytes:    item.SizeBytes,
-			Status:       item.Status,
+			Status:       status,
 			CreatedAt:    item.CreatedAt,
 			UpdatedAt:    item.UpdatedAt,
 		})

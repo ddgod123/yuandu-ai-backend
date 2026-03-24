@@ -225,53 +225,26 @@ func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "download url unavailable"})
 		return
 	}
-	if user != nil && !accessDecision.IsSubscriber {
-		if err := h.consumeCollectionDownloadEntitlement(c, user.ID, collection.ID, "zip"); err != nil {
-			writeCollectionDownloadAccessDenied(c, collectionDownloadAccessDecision{
-				Allowed:            false,
-				IsSubscriber:       false,
-				SubscriptionStatus: accessDecision.SubscriptionStatus,
-				DenyError:          err,
-			})
-			return
-		}
-	}
 	downloadName := normalizeDownloadFileName(collection.Title, name, ".zip")
-	if userID, ok := currentUserIDFromContext(c); ok && userID > 0 {
-		if ticketURL, ticketExp, err := h.issueDownloadTicket(c, key, downloadName, userID); err == nil {
-			url = ticketURL
-			exp = ticketExp
-		} else if h.qiniu != nil && !h.qiniu.Private {
-			url = appendDownloadAttname(url, downloadName)
-		}
-	} else if ticketURL, ticketExp, err := h.issueDownloadTicket(c, key, downloadName, 0); err == nil {
-		url = ticketURL
-		exp = ticketExp
-	} else if h.qiniu != nil && !h.qiniu.Private {
-		url = appendDownloadAttname(url, downloadName)
+	ticketPayload := downloadTicketPayload{
+		Kind:         "qiniu_object",
+		Key:          key,
+		Name:         downloadName,
+		CollectionID: collection.ID,
 	}
-
-	userVal, ok := c.Get("user_id")
-	if ok {
-		if userID, ok := userVal.(uint64); ok && userID > 0 {
-			uid := userID
-			_ = h.db.Create(&models.CollectionDownload{
-				CollectionID: collection.ID,
-				UserID:       &uid,
-				IP:           c.ClientIP(),
-			}).Error
-		} else {
-			_ = h.db.Create(&models.CollectionDownload{
-				CollectionID: collection.ID,
-				IP:           c.ClientIP(),
-			}).Error
-		}
-	} else {
-		_ = h.db.Create(&models.CollectionDownload{
-			CollectionID: collection.ID,
-			IP:           c.ClientIP(),
-		}).Error
+	if userID, hasUserID := currentUserIDFromContext(c); hasUserID && userID > 0 {
+		ticketPayload.UserID = userID
 	}
+	if user != nil && !accessDecision.IsSubscriber {
+		ticketPayload.EntitlementMode = "zip"
+	}
+	ticketURL, ticketExp, err := h.issueDownloadTicketWithPayload(c, ticketPayload)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "download unavailable"})
+		return
+	}
+	url = ticketURL
+	exp = ticketExp
 
 	c.JSON(http.StatusOK, DownloadURLResponse{
 		CollectionID: collection.ID,
@@ -341,11 +314,12 @@ func (h *Handler) GetCollectionZipList(c *gin.Context) {
 	})
 }
 
-// GetCollectionZipDownloadAll streams all zip parts as a single zip archive.
-// @Summary Download all zip parts as one archive
+// GetCollectionZipDownloadAll returns a ticket URL for downloading all zip parts as one archive.
+// @Summary Get collection aggregated zip download URL
 // @Tags collections
-// @Produce application/zip
+// @Produce json
 // @Param id path int true "collection id"
+// @Success 200 {object} DownloadURLResponse
 // @Router /api/collections/{id}/download-zip-all [get]
 func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
 	user, ok := h.requireActiveUser(c)
@@ -391,85 +365,47 @@ func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "zip not found"})
 		return
 	}
-	if user != nil && !accessDecision.IsSubscriber {
-		if err := h.consumeCollectionDownloadEntitlement(c, user.ID, collection.ID, "zip_all"); err != nil {
-			writeCollectionDownloadAccessDenied(c, collectionDownloadAccessDecision{
-				Allowed:            false,
-				IsSubscriber:       false,
-				SubscriptionStatus: accessDecision.SubscriptionStatus,
-				DenyError:          err,
-			})
-			return
-		}
-	}
-
 	filename := normalizeDownloadFileName(collection.Title, fmt.Sprintf("collection-%d-all", collection.ID), ".zip")
-	asciiFallback := fmt.Sprintf("collection-%d-all.zip", collection.ID)
-	encodedFilename := strings.ReplaceAll(url.QueryEscape(filename), "+", "%20")
-	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", asciiFallback, encodedFilename))
-	c.Status(http.StatusOK)
-
-	zw := zip.NewWriter(c.Writer)
-	client := &http.Client{Timeout: 10 * time.Minute}
-	ttlParam := strings.TrimSpace(c.Query("ttl"))
-	usedNames := make(map[string]int)
-
+	zipItems := make([]downloadTicketZipItem, 0, len(zips))
 	for _, item := range zips {
 		entryName := strings.TrimSpace(item.ZipName)
 		if entryName == "" {
 			entryName = path.Base(strings.TrimSpace(item.ZipKey))
 		}
-		if !strings.HasSuffix(strings.ToLower(entryName), ".zip") {
-			entryName += ".zip"
-		}
-		entryName = nextZipEntryName(entryName, usedNames)
-
-		url, _ := resolveDownloadURL(item.ZipKey, h.qiniu, ttlParam)
-		if url == "" {
-			continue
-		}
-		resp, err := downloadZipPart(client, url)
-		if err != nil {
-			continue
-		}
-		if resp.StatusCode >= 300 {
-			resp.Body.Close()
-			continue
-		}
-
-		zipEntry, err := zw.Create(entryName)
-		if err != nil {
-			resp.Body.Close()
-			continue
-		}
-		_, _ = io.Copy(zipEntry, resp.Body)
-		resp.Body.Close()
+		zipItems = append(zipItems, downloadTicketZipItem{
+			Key:  strings.TrimSpace(item.ZipKey),
+			Name: strings.TrimSpace(entryName),
+		})
+	}
+	if len(zipItems) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "zip not found"})
+		return
 	}
 
-	_ = zw.Close()
-
-	userVal, ok := c.Get("user_id")
-	if ok {
-		if userID, ok := userVal.(uint64); ok && userID > 0 {
-			uid := userID
-			_ = h.db.Create(&models.CollectionDownload{
-				CollectionID: collection.ID,
-				UserID:       &uid,
-				IP:           c.ClientIP(),
-			}).Error
-		} else {
-			_ = h.db.Create(&models.CollectionDownload{
-				CollectionID: collection.ID,
-				IP:           c.ClientIP(),
-			}).Error
-		}
-	} else {
-		_ = h.db.Create(&models.CollectionDownload{
-			CollectionID: collection.ID,
-			IP:           c.ClientIP(),
-		}).Error
+	ticketPayload := downloadTicketPayload{
+		Kind:         "collection_zip_aggregate",
+		Name:         filename,
+		CollectionID: collection.ID,
+		ZipItems:     zipItems,
 	}
+	if userID, hasUserID := currentUserIDFromContext(c); hasUserID && userID > 0 {
+		ticketPayload.UserID = userID
+	}
+	if user != nil && !accessDecision.IsSubscriber {
+		ticketPayload.EntitlementMode = "zip_all"
+	}
+	ticketURL, ticketExp, err := h.issueDownloadTicketWithPayload(c, ticketPayload)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "download unavailable"})
+		return
+	}
+
+	c.JSON(http.StatusOK, DownloadURLResponse{
+		CollectionID: collection.ID,
+		Name:         filename,
+		URL:          ticketURL,
+		ExpiresAt:    ticketExp,
+	})
 }
 
 // GetCollectionDownloadList returns ordered emoji download URLs.
@@ -586,20 +522,22 @@ func (h *Handler) GetEmojiDownload(c *gin.Context) {
 		return
 	}
 	downloadName := normalizeDownloadFileName(emoji.Title, path.Base(strings.TrimSpace(emoji.FileURL)), inferEmojiDownloadExt(emoji))
-	if userID, ok := currentUserIDFromContext(c); ok && userID > 0 {
-		if ticketURL, ticketExp, err := h.issueDownloadTicket(c, emoji.FileURL, downloadName, userID); err == nil {
-			url = ticketURL
-			exp = ticketExp
-		} else if h.qiniu != nil && !h.qiniu.Private {
-			url = appendDownloadAttname(url, downloadName)
-		}
-	} else if ticketURL, ticketExp, err := h.issueDownloadTicket(c, emoji.FileURL, downloadName, 0); err == nil {
-		url = ticketURL
-		exp = ticketExp
-	} else if h.qiniu != nil && !h.qiniu.Private {
-		url = appendDownloadAttname(url, downloadName)
+	ticketPayload := downloadTicketPayload{
+		Kind:    "qiniu_object",
+		Key:     emoji.FileURL,
+		Name:    downloadName,
+		EmojiID: emoji.ID,
 	}
-	h.recordEmojiDownload(c, emoji.ID)
+	if userID, hasUserID := currentUserIDFromContext(c); hasUserID && userID > 0 {
+		ticketPayload.UserID = userID
+	}
+	ticketURL, ticketExp, err := h.issueDownloadTicketWithPayload(c, ticketPayload)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "download unavailable"})
+		return
+	}
+	url = ticketURL
+	exp = ticketExp
 
 	c.JSON(http.StatusOK, DownloadURLResponse{
 		EmojiID:   emoji.ID,
@@ -687,23 +625,99 @@ func (h *Handler) DownloadEmojiFile(c *gin.Context) {
 	c.Status(http.StatusOK)
 
 	if _, err := io.Copy(c.Writer, resp.Body); err == nil {
-		h.recordEmojiDownload(c, emoji.ID)
+		h.recordEmojiDownload(c, emoji.ID, 0)
 	}
 }
 
-func (h *Handler) recordEmojiDownload(c *gin.Context, emojiID uint64) {
-	var userID uint64
+func (h *Handler) recordCollectionDownload(c *gin.Context, collectionID, fallbackUserID uint64) {
+	download := models.CollectionDownload{
+		CollectionID: collectionID,
+		IP:           c.ClientIP(),
+	}
+	userID := fallbackUserID
+	if uid, ok := currentUserIDFromContext(c); ok && uid > 0 {
+		userID = uid
+	}
+	if userID > 0 {
+		uid := userID
+		download.UserID = &uid
+	}
+	_ = h.db.Create(&download).Error
+}
+
+func (h *Handler) recordEmojiDownload(c *gin.Context, emojiID, fallbackUserID uint64) {
+	userID := fallbackUserID
 	download := models.Download{
 		EmojiID: emojiID,
 		IP:      c.ClientIP(),
 	}
 	if uid, ok := currentUserIDFromContext(c); ok && uid > 0 {
-		download.UserID = &uid
 		userID = uid
+	}
+	if userID > 0 {
+		uid := userID
+		download.UserID = &uid
 	}
 	_ = h.db.Create(&download).Error
 	h.bumpVideoJobFeedbackByEmojiID(emojiID, "download", userID)
 	h.recordVideoImageFeedbackByEmojiID(emojiID, videoImageFeedbackActionDownload, userID, nil)
+}
+
+func (h *Handler) streamCollectionZipAggregateByTicket(c *gin.Context, payload *downloadTicketPayload) {
+	if payload == nil || payload.CollectionID == 0 || len(payload.ZipItems) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ticket"})
+		return
+	}
+
+	filename := normalizeDownloadFileName("", payload.Name, ".zip")
+	asciiFallback := fmt.Sprintf("collection-%d-all.zip", payload.CollectionID)
+	encodedFilename := strings.ReplaceAll(url.QueryEscape(filename), "+", "%20")
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", asciiFallback, encodedFilename))
+	c.Status(http.StatusOK)
+
+	zw := zip.NewWriter(c.Writer)
+	client := &http.Client{Timeout: 10 * time.Minute}
+	signTTL := h.cfg.DownloadTicketSignTTL
+	if signTTL <= 0 {
+		signTTL = 180
+	}
+	usedNames := make(map[string]int)
+	for _, item := range payload.ZipItems {
+		key := strings.TrimSpace(item.Key)
+		if key == "" {
+			continue
+		}
+		entryName := strings.TrimSpace(item.Name)
+		if entryName == "" {
+			entryName = path.Base(key)
+		}
+		if !strings.HasSuffix(strings.ToLower(entryName), ".zip") {
+			entryName += ".zip"
+		}
+		entryName = nextZipEntryName(entryName, usedNames)
+
+		partURL, _ := resolveDownloadURL(key, h.qiniu, strconv.Itoa(signTTL))
+		if partURL == "" {
+			continue
+		}
+		resp, err := downloadZipPart(client, partURL)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode >= 300 {
+			resp.Body.Close()
+			continue
+		}
+		zipEntry, err := zw.Create(entryName)
+		if err != nil {
+			resp.Body.Close()
+			continue
+		}
+		_, _ = io.Copy(zipEntry, resp.Body)
+		resp.Body.Close()
+	}
+	_ = zw.Close()
 }
 
 func resolveDownloadURL(fileURL string, qiniuClient *storage.QiniuClient, ttlParam string) (string, int64) {

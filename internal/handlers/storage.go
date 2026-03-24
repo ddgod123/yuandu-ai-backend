@@ -189,13 +189,14 @@ func (h *Handler) ProxyObject(c *gin.Context) {
 			key = rawURL
 		}
 	}
-	key = strings.TrimLeft(strings.SplitN(strings.SplitN(strings.TrimSpace(key), "?", 2)[0], "#", 2)[0], "/")
+	key = normalizeStorageObjectKey(key)
 	if key == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing key"})
 		return
 	}
-	// 临时兜底：仅允许代理 emoji 命名空间对象，避免放大暴露范围。
-	if !strings.HasPrefix(key, "emoji/") {
+	if isAdminRole(c) {
+		// Admin callers can proxy arbitrary keys for operational workflows.
+	} else if !canProxyStorageKeyPublic(key) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
 		return
 	}
@@ -391,13 +392,46 @@ type storageURLCacheValue struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
+var publicProxyAllowedImageExt = map[string]struct{}{
+	".gif":  {},
+	".png":  {},
+	".jpg":  {},
+	".jpeg": {},
+	".webp": {},
+	".avif": {},
+	".bmp":  {},
+}
+
+func normalizeStorageObjectKey(raw string) string {
+	key := strings.TrimSpace(raw)
+	key = strings.TrimLeft(strings.SplitN(strings.SplitN(key, "?", 2)[0], "#", 2)[0], "/")
+	return key
+}
+
+func canProxyStorageKeyPublic(key string) bool {
+	normalized := normalizeStorageObjectKey(key)
+	if normalized == "" {
+		return false
+	}
+	if !strings.HasPrefix(normalized, "emoji/") {
+		return false
+	}
+	lower := strings.ToLower(normalized)
+	if strings.Contains(lower, "/zip/") || strings.Contains(lower, "/zips/") || strings.HasSuffix(lower, ".zip") {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(lower))
+	_, ok := publicProxyAllowedImageExt[ext]
+	return ok
+}
+
 func canAccessStorageKey(c *gin.Context, key string) bool {
-	trimmed := strings.TrimLeft(strings.TrimSpace(key), "/")
+	trimmed := normalizeStorageObjectKey(key)
 	if trimmed == "" {
 		return false
 	}
-	// Non-admin callers are restricted to the emoji namespace.
-	if !isAdminRole(c) && !strings.HasPrefix(trimmed, "emoji/") {
+	// Signed URL issuing is admin-only to avoid bypassing business download gates.
+	if !isAdminRole(c) {
 		return false
 	}
 	return true
@@ -521,6 +555,10 @@ func (h *Handler) GetObjectURL(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
 		return
 	}
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
 	key := strings.TrimLeft(c.Query("key"), "/")
 	if key == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing key"})
@@ -556,6 +594,10 @@ func (h *Handler) GetObjectURL(c *gin.Context) {
 func (h *Handler) GetObjectURLs(c *gin.Context) {
 	if h.qiniu == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
+		return
+	}
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
 		return
 	}
 

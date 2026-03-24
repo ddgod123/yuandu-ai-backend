@@ -69,6 +69,7 @@ func main() {
 	apply := flag.Bool("apply", false, "apply fixes")
 	fixOrphans := flag.Bool("fix-orphans", false, "also fix orphan db/qiniu records (requires --apply)")
 	reportFile := flag.String("report", "", "write audit report JSON to file")
+	persistRun := flag.Bool("persist-run", true, "persist run result to ops.data_audit_runs")
 	flag.Parse()
 
 	if *fixOrphans && !*apply {
@@ -76,6 +77,7 @@ func main() {
 	}
 
 	loadEnv()
+	startAt := time.Now()
 	cfg := config.Load()
 	dbConn, err := db.Connect(cfg)
 	if err != nil {
@@ -93,11 +95,75 @@ func main() {
 
 	out, _ := json.MarshalIndent(report, "", "  ")
 	fmt.Println(string(out))
+	reportPath := strings.TrimSpace(*reportFile)
 	if strings.TrimSpace(*reportFile) != "" {
 		if err := os.WriteFile(*reportFile, out, 0644); err != nil {
 			log.Fatalf("write report failed: %v", err)
 		}
+		if absPath, absErr := filepath.Abs(*reportFile); absErr == nil {
+			reportPath = absPath
+		}
 	}
+
+	if *persistRun {
+		if err := persistAuditRun(dbConn, report, reportPath, time.Since(startAt), ""); err != nil {
+			log.Printf("persist audit run failed: %v", err)
+		}
+	}
+}
+
+func deriveAuditStatus(report *auditReport) string {
+	if report == nil {
+		return "failed"
+	}
+	if report.MissingEmojiObjectCount > 0 ||
+		report.MissingZipObjectCount > 0 ||
+		report.QiniuOrphanRawCount > 0 ||
+		report.QiniuOrphanZipCount > 0 ||
+		report.FileCountMismatchCount > 0 {
+		return "warn"
+	}
+	return "healthy"
+}
+
+func persistAuditRun(dbConn *gorm.DB, report *auditReport, reportPath string, duration time.Duration, errorMessage string) error {
+	if dbConn == nil {
+		return nil
+	}
+
+	reportJSON := []byte("{}")
+	if report != nil {
+		if raw, err := json.Marshal(report); err == nil {
+			reportJSON = raw
+		}
+	}
+
+	run := models.DataAuditRun{
+		RunAt:      time.Now(),
+		Status:     deriveAuditStatus(report),
+		DurationMs: duration.Milliseconds(),
+		ReportPath: strings.TrimSpace(reportPath),
+		ErrorMessage: func() string {
+			return strings.TrimSpace(errorMessage)
+		}(),
+		ReportJSON: reportJSON,
+	}
+
+	if report != nil {
+		run.RunAt = report.GeneratedAt
+		run.Apply = report.Apply
+		run.FixOrphans = report.FixOrphans
+		run.DBEmojiTotal = report.DBEmojiTotal
+		run.DBZipTotal = report.DBZipTotal
+		run.QiniuObjectTotal = report.QiniuObjectTotal
+		run.MissingEmojiObjectCount = report.MissingEmojiObjectCount
+		run.MissingZipObjectCount = report.MissingZipObjectCount
+		run.QiniuOrphanRawCount = report.QiniuOrphanRawCount
+		run.QiniuOrphanZipCount = report.QiniuOrphanZipCount
+		run.FileCountMismatchCount = report.FileCountMismatchCount
+	}
+
+	return dbConn.Create(&run).Error
 }
 
 func runAudit(dbConn *gorm.DB, q *storage.QiniuClient, apply, fixOrphans bool) (*auditReport, error) {

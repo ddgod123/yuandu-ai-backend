@@ -362,6 +362,55 @@ func (Download) TableName() string {
 	return "action.downloads"
 }
 
+type UserBehaviorEvent struct {
+	ID                 uint64         `gorm:"primaryKey;autoIncrement"`
+	UserID             *uint64        `gorm:"index"`
+	DeviceID           string         `gorm:"size:128;index"`
+	SessionID          string         `gorm:"size:128;index"`
+	EventName          string         `gorm:"size:64;index"`
+	Route              string         `gorm:"size:512"`
+	Referrer           string         `gorm:"size:512"`
+	CollectionID       *uint64        `gorm:"index"`
+	EmojiID            *uint64        `gorm:"index"`
+	IPID               *uint64        `gorm:"index"`
+	SubscriptionStatus string         `gorm:"size:32;index"`
+	Success            *bool          `gorm:"index"`
+	ErrorCode          string         `gorm:"size:64"`
+	RequestID          string         `gorm:"size:128"`
+	Metadata           datatypes.JSON `gorm:"type:jsonb"`
+	CreatedAt          time.Time      `gorm:"autoCreateTime"`
+}
+
+func (UserBehaviorEvent) TableName() string {
+	return "action.user_behavior_events"
+}
+
+type DataAuditRun struct {
+	ID                      uint64         `gorm:"primaryKey;autoIncrement"`
+	RunAt                   time.Time      `gorm:"column:run_at;index"`
+	Status                  string         `gorm:"column:status;size:32;index"`
+	Apply                   bool           `gorm:"column:apply"`
+	FixOrphans              bool           `gorm:"column:fix_orphans"`
+	DurationMs              int64          `gorm:"column:duration_ms"`
+	ReportPath              string         `gorm:"column:report_path;type:text"`
+	ErrorMessage            string         `gorm:"column:error_message;type:text"`
+	DBEmojiTotal            int            `gorm:"column:db_emoji_total"`
+	DBZipTotal              int            `gorm:"column:db_zip_total"`
+	QiniuObjectTotal        int            `gorm:"column:qiniu_object_total"`
+	MissingEmojiObjectCount int            `gorm:"column:missing_emoji_object_count"`
+	MissingZipObjectCount   int            `gorm:"column:missing_zip_object_count"`
+	QiniuOrphanRawCount     int            `gorm:"column:qiniu_orphan_raw_count"`
+	QiniuOrphanZipCount     int            `gorm:"column:qiniu_orphan_zip_count"`
+	FileCountMismatchCount  int            `gorm:"column:file_count_mismatch_count"`
+	ReportJSON              datatypes.JSON `gorm:"column:report_json;type:jsonb"`
+	CreatedAt               time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt               time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (DataAuditRun) TableName() string {
+	return "ops.data_audit_runs"
+}
+
 type Report struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement"`
 	UserID    uint64    `gorm:"index"`

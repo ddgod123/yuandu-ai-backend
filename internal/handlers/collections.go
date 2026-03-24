@@ -470,7 +470,7 @@ func (h *Handler) ListCollections(c *gin.Context) {
 		}
 		stats := statMap[item.ID]
 		coverKey := resolveCollectionCoverKey(item.CoverURL, h.qiniu)
-		respItems = append(respItems, CollectionListItem{
+		respItem := CollectionListItem{
 			ID:               item.ID,
 			Title:            item.Title,
 			Slug:             item.Slug,
@@ -492,25 +492,28 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			IPID:             item.IPID,
 			ThemeID:          item.ThemeID,
 			Source:           item.Source,
-			QiniuPrefix:      item.QiniuPrefix,
-			PathMismatch:     resolveCollectionPathMismatch(item, categoryPrefixMap),
 			FileCount:        item.FileCount,
 			IsFeatured:       item.IsFeatured,
 			IsPinned:         item.IsPinned,
 			IsSample:         item.IsSample,
 			PinnedAt:         item.PinnedAt,
-			LatestZipKey:     item.LatestZipKey,
-			LatestZipName:    item.LatestZipName,
-			LatestZipSize:    item.LatestZipSize,
-			LatestZipAt:      item.LatestZipAt,
-			DownloadCode:     item.DownloadCode,
-			Visibility:       item.Visibility,
-			Status:           item.Status,
 			CreatedAt:        item.CreatedAt,
 			UpdatedAt:        item.UpdatedAt,
 			Tags:             tagMap[item.ID],
 			PreviewImages:    previewMap[item.ID],
-		})
+		}
+		if adminView {
+			respItem.QiniuPrefix = item.QiniuPrefix
+			respItem.PathMismatch = resolveCollectionPathMismatch(item, categoryPrefixMap)
+			respItem.LatestZipKey = item.LatestZipKey
+			respItem.LatestZipName = item.LatestZipName
+			respItem.LatestZipSize = item.LatestZipSize
+			respItem.LatestZipAt = item.LatestZipAt
+			respItem.DownloadCode = item.DownloadCode
+			respItem.Visibility = item.Visibility
+			respItem.Status = item.Status
+		}
+		respItems = append(respItems, respItem)
 	}
 
 	c.JSON(http.StatusOK, CollectionListResponse{
@@ -593,23 +596,25 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		IPID:             collection.IPID,
 		ThemeID:          collection.ThemeID,
 		Source:           collection.Source,
-		QiniuPrefix:      collection.QiniuPrefix,
-		PathMismatch:     resolveCollectionPathMismatch(collection, categoryPrefixMap),
 		FileCount:        collection.FileCount,
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
 		IsSample:         collection.IsSample,
 		PinnedAt:         collection.PinnedAt,
-		LatestZipKey:     collection.LatestZipKey,
-		LatestZipName:    collection.LatestZipName,
-		LatestZipSize:    collection.LatestZipSize,
-		LatestZipAt:      collection.LatestZipAt,
-		DownloadCode:     collection.DownloadCode,
-		Visibility:       collection.Visibility,
-		Status:           collection.Status,
 		CreatedAt:        collection.CreatedAt,
 		UpdatedAt:        collection.UpdatedAt,
 		Tags:             tagMap[collection.ID],
+	}
+	if isAdminRole(c) {
+		resp.QiniuPrefix = collection.QiniuPrefix
+		resp.PathMismatch = resolveCollectionPathMismatch(collection, categoryPrefixMap)
+		resp.LatestZipKey = collection.LatestZipKey
+		resp.LatestZipName = collection.LatestZipName
+		resp.LatestZipSize = collection.LatestZipSize
+		resp.LatestZipAt = collection.LatestZipAt
+		resp.DownloadCode = collection.DownloadCode
+		resp.Visibility = collection.Visibility
+		resp.Status = collection.Status
 	}
 
 	c.JSON(http.StatusOK, resp)

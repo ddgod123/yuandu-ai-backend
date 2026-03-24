@@ -197,7 +197,7 @@ func (h *Handler) ListFavorites(c *gin.Context) {
 	}
 
 	emojiMap := make(map[uint64]EmojiListItem, len(emojis))
-	for _, item := range mapEmojiItems(emojis, h.qiniu) {
+	for _, item := range mapEmojiItems(emojis, h.qiniu, false) {
 		item.Favorited = true
 		emojiMap[item.ID] = item
 	}

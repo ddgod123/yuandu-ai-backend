@@ -55,6 +55,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 
 		api.GET("/stats/today", h.GetTodayStats)
 		api.GET("/stats/home", h.GetHomeStats)
+		api.POST("/behavior/events", h.TrackUserBehaviorEvent)
 		api.GET("/categories", h.ListPublicCategories)
 		api.GET("/ips", h.ListIPs)
 		api.GET("/ips/:id", h.GetIP)
@@ -134,7 +135,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 			adminCompat.PUT("/emojis/:id", h.UpdateEmoji)
 			adminCompat.DELETE("/emojis/:id", h.DeleteEmoji)
 
-			// Lock down storage management APIs; keep proxy/url read endpoints public.
+			// Lock down storage management APIs; signed URL issuing is enforced by handler role checks.
 			adminCompat.POST("/storage/upload-token", h.GetUploadToken)
 			adminCompat.GET("/storage/object", h.GetObject)
 			adminCompat.DELETE("/storage/object", h.DeleteObject)
@@ -187,6 +188,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 			admin.GET("/dashboard/trends", h.GetAdminDashboardTrends)
 			admin.GET("/system/worker-health", h.GetAdminWorkerHealth)
 			admin.POST("/system/worker-start", h.StartAdminWorker)
+			admin.GET("/system/data-audit/overview", h.GetAdminDataAuditOverview)
 			admin.GET("/users/:id/detail", h.GetAdminUserDetail)
 			admin.PUT("/collections/:id", h.AdminUpdateCollection)
 			admin.DELETE("/collections/:id", h.AdminDeleteCollection)

@@ -419,6 +419,119 @@ func normalizeCollectionEntitlementStatus(raw string) (string, bool) {
 	}
 }
 
+func isTruthyQuery(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldExposeCollectionCodePlain(c *gin.Context) bool {
+	if c == nil || !isTruthyQuery(c.Query("include_plain")) {
+		return false
+	}
+	roleAny, ok := c.Get("role")
+	if !ok {
+		return false
+	}
+	role, ok := roleAny.(string)
+	if !ok {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(role), "super_admin")
+}
+
+func normalizeCollectionDownloadEntitlementRuntimeStatus(status string, remainingDownloadTimes int, expiresAt *time.Time, now time.Time) string {
+	current := strings.ToLower(strings.TrimSpace(status))
+	if current == "disabled" {
+		return "disabled"
+	}
+	if expiresAt != nil && !expiresAt.After(now) {
+		return "expired"
+	}
+	if remainingDownloadTimes <= 0 {
+		return "exhausted"
+	}
+	return "active"
+}
+
+func (h *Handler) normalizeCollectionDownloadEntitlementStatuses(now time.Time, userID, collectionID uint64) error {
+	if h == nil || h.db == nil {
+		return nil
+	}
+	scope := func() *gorm.DB {
+		query := h.db.Model(&models.CollectionDownloadEntitlement{})
+		if userID > 0 {
+			query = query.Where("user_id = ?", userID)
+		}
+		if collectionID > 0 {
+			query = query.Where("collection_id = ?", collectionID)
+		}
+		return query
+	}
+
+	if err := scope().
+		Where("status <> ? AND expires_at IS NOT NULL AND expires_at <= ?", "expired", now).
+		Update("status", "expired").Error; err != nil {
+		return err
+	}
+	if err := scope().
+		Where("status NOT IN ? AND remaining_download_times <= 0", []string{"disabled", "expired", "exhausted"}).
+		Update("status", "exhausted").Error; err != nil {
+		return err
+	}
+	if err := scope().
+		Where("status = ? AND remaining_download_times > 0 AND (expires_at IS NULL OR expires_at > ?)", "exhausted", now).
+		Update("status", "active").Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func collectionDownloadCodeSnapshot(row models.CollectionDownloadCode) map[string]interface{} {
+	return map[string]interface{}{
+		"id":                     row.ID,
+		"collection_id":          row.CollectionID,
+		"batch_no":               strings.TrimSpace(row.BatchNo),
+		"code_mask":              strings.TrimSpace(row.CodeMask),
+		"granted_download_times": row.GrantedDownloadTimes,
+		"max_redeem_users":       row.MaxRedeemUsers,
+		"used_redeem_users":      row.UsedRedeemUsers,
+		"status":                 strings.TrimSpace(row.Status),
+		"starts_at":              row.StartsAt,
+		"ends_at":                row.EndsAt,
+		"note":                   strings.TrimSpace(row.Note),
+		"updated_at":             row.UpdatedAt,
+	}
+}
+
+func collectionDownloadEntitlementSnapshot(row models.CollectionDownloadEntitlement) map[string]interface{} {
+	return map[string]interface{}{
+		"id":                       row.ID,
+		"user_id":                  row.UserID,
+		"collection_id":            row.CollectionID,
+		"code_id":                  row.CodeID,
+		"granted_download_times":   row.GrantedDownloadTimes,
+		"used_download_times":      row.UsedDownloadTimes,
+		"remaining_download_times": row.RemainingDownloadTimes,
+		"status":                   strings.TrimSpace(row.Status),
+		"expires_at":               row.ExpiresAt,
+		"last_consumed_at":         row.LastConsumedAt,
+		"updated_at":               row.UpdatedAt,
+	}
+}
+
+func sampleUint64(values []uint64, max int) []uint64 {
+	if max <= 0 || len(values) <= max {
+		return values
+	}
+	out := make([]uint64, max)
+	copy(out, values[:max])
+	return out
+}
+
 func (h *Handler) resolveCollectionDownloadAccess(user *models.User, collectionID uint64, now time.Time) collectionDownloadAccessDecision {
 	if user == nil {
 		return collectionDownloadAccessDecision{Allowed: true, IsSubscriber: true}
@@ -680,6 +793,27 @@ func (h *Handler) GenerateCollectionDownloadCodes(c *gin.Context) {
 		return
 	}
 
+	generatedIDs := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		if row.ID > 0 {
+			generatedIDs = append(generatedIDs, row.ID)
+		}
+	}
+	h.recordAuditLog(adminUID, "collection", req.CollectionID, "admin_generate_collection_download_codes", map[string]interface{}{
+		"batch_no":                batchNo,
+		"collection_id":           req.CollectionID,
+		"collection_title":        collectionTitle,
+		"count":                   req.Count,
+		"download_times":          req.DownloadTimes,
+		"max_redeem_users":        req.MaxRedeemUsers,
+		"prefix":                  prefix,
+		"starts_at":               req.StartsAt,
+		"ends_at":                 req.EndsAt,
+		"note":                    strings.TrimSpace(req.Note),
+		"generated_code_ids":      sampleUint64(generatedIDs, 30),
+		"generated_code_id_count": len(generatedIDs),
+	})
+
 	c.JSON(http.StatusOK, GenerateCollectionDownloadCodesResponse{
 		BatchNo:         batchNo,
 		CollectionID:    req.CollectionID,
@@ -710,6 +844,7 @@ func (h *Handler) ListCollectionDownloadCodes(c *gin.Context) {
 	status := strings.ToLower(strings.TrimSpace(c.Query("status")))
 	batchNo := strings.TrimSpace(c.Query("batch_no"))
 	collectionID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("collection_id")), 10, 64)
+	includePlain := shouldExposeCollectionCodePlain(c)
 
 	query := h.db.Model(&models.CollectionDownloadCode{})
 	if q != "" {
@@ -757,10 +892,14 @@ func (h *Handler) ListCollectionDownloadCodes(c *gin.Context) {
 
 	items := make([]CollectionDownloadCodeAdminItem, 0, len(rows))
 	for _, row := range rows {
+		codePlain := ""
+		if includePlain {
+			codePlain = strings.TrimSpace(row.CodePlain)
+		}
 		items = append(items, CollectionDownloadCodeAdminItem{
 			ID:                   row.ID,
 			CodeMask:             row.CodeMask,
-			CodePlain:            strings.TrimSpace(row.CodePlain),
+			CodePlain:            codePlain,
 			BatchNo:              row.BatchNo,
 			CollectionID:         row.CollectionID,
 			CollectionTitle:      titleMap[row.CollectionID],
@@ -814,11 +953,17 @@ func (h *Handler) UpdateCollectionDownloadCodeStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	before := collectionDownloadCodeSnapshot(row)
 	row.Status = status
 	if err := h.db.Save(&row).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	adminUID := h.extractUserID(c)
+	h.recordAuditLog(adminUID, "collection_download_code", row.ID, "admin_update_collection_download_code_status", map[string]interface{}{
+		"before": before,
+		"after":  collectionDownloadCodeSnapshot(row),
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"id":      row.ID,
 		"status":  row.Status,
@@ -1134,6 +1279,11 @@ func (h *Handler) ListMyCollectionDownloadEntitlements(c *gin.Context) {
 		pageSize = 20
 	}
 	status := strings.ToLower(strings.TrimSpace(c.Query("status")))
+	now := time.Now()
+	if err := h.normalizeCollectionDownloadEntitlementStatuses(now, user.ID, 0); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	base := h.db.Table("ops.collection_download_entitlements AS e").
 		Select(`
@@ -1176,6 +1326,10 @@ e.updated_at
 
 	items := make([]CollectionDownloadEntitlementItem, 0, len(rows))
 	for _, row := range rows {
+		row.Status = normalizeCollectionDownloadEntitlementRuntimeStatus(row.Status, row.RemainingDownloadTimes, row.ExpiresAt, now)
+		if status != "" && row.Status != status {
+			continue
+		}
 		items = append(items, mapCollectionDownloadEntitlementRow(row))
 	}
 	c.JSON(http.StatusOK, CollectionDownloadEntitlementListResponse{Items: items, Total: total})
@@ -1199,6 +1353,11 @@ func (h *Handler) ListAdminCollectionDownloadEntitlements(c *gin.Context) {
 	userID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("user_id")), 10, 64)
 	collectionID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("collection_id")), 10, 64)
 	q := strings.TrimSpace(c.Query("q"))
+	now := time.Now()
+	if err := h.normalizeCollectionDownloadEntitlementStatuses(now, userID, collectionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	base := h.db.Table("ops.collection_download_entitlements AS e").
 		Select(`
@@ -1249,6 +1408,10 @@ e.updated_at
 
 	items := make([]CollectionDownloadEntitlementItem, 0, len(rows))
 	for _, row := range rows {
+		row.Status = normalizeCollectionDownloadEntitlementRuntimeStatus(row.Status, row.RemainingDownloadTimes, row.ExpiresAt, now)
+		if status != "" && row.Status != status {
+			continue
+		}
 		items = append(items, mapCollectionDownloadEntitlementRow(row))
 	}
 	c.JSON(http.StatusOK, CollectionDownloadEntitlementListResponse{Items: items, Total: total})
@@ -1277,11 +1440,13 @@ func (h *Handler) UpdateAdminCollectionDownloadEntitlement(c *gin.Context) {
 	}
 
 	var result models.CollectionDownloadEntitlement
+	var before models.CollectionDownloadEntitlement
 	err = h.db.Transaction(func(tx *gorm.DB) error {
 		var row models.CollectionDownloadEntitlement
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
 			return err
 		}
+		before = row
 
 		remaining := row.RemainingDownloadTimes
 		if req.SetRemainingDownloadTimes != nil {
@@ -1329,6 +1494,16 @@ func (h *Handler) UpdateAdminCollectionDownloadEntitlement(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	adminUID := h.extractUserID(c)
+	h.recordAuditLog(adminUID, "collection_download_entitlement", result.ID, "admin_adjust_collection_download_entitlement", map[string]interface{}{
+		"request": map[string]interface{}{
+			"set_remaining_download_times":   req.SetRemainingDownloadTimes,
+			"delta_remaining_download_times": req.DeltaRemainingDownloadTimes,
+			"status":                         strings.TrimSpace(req.Status),
+		},
+		"before": collectionDownloadEntitlementSnapshot(before),
+		"after":  collectionDownloadEntitlementSnapshot(result),
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":                       result.ID,

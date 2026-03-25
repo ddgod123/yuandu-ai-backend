@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
+	"sort"
 	"strings"
 
 	"emoji/internal/models"
@@ -13,36 +16,70 @@ import (
 	"gorm.io/gorm"
 )
 
+type SiteFooterSelfMediaItemRequest struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Logo        string `json:"logo"`
+	QRCode      string `json:"qr_code"`
+	ProfileLink string `json:"profile_link"`
+	Enabled     bool   `json:"enabled"`
+	Sort        int    `json:"sort"`
+}
+
+type SiteFooterSelfMediaItemResponse struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Logo        string `json:"logo"`
+	LogoURL     string `json:"logo_url"`
+	QRCode      string `json:"qr_code"`
+	QRCodeURL   string `json:"qr_code_url"`
+	ProfileLink string `json:"profile_link"`
+	Enabled     bool   `json:"enabled"`
+	Sort        int    `json:"sort"`
+}
+
+type siteFooterSelfMediaItemStored struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Logo        string `json:"logo"`
+	QRCode      string `json:"qr_code"`
+	ProfileLink string `json:"profile_link"`
+	Enabled     bool   `json:"enabled"`
+	Sort        int    `json:"sort"`
+}
+
 type SiteFooterSettingRequest struct {
-	SiteName             string `json:"site_name"`
-	SiteDescription      string `json:"site_description"`
-	ContactEmail         string `json:"contact_email"`
-	ComplaintEmail       string `json:"complaint_email"`
-	SelfMediaLogo        string `json:"self_media_logo"`
-	SelfMediaQRCode      string `json:"self_media_qr_code"`
-	ICPNumber            string `json:"icp_number"`
-	ICPLink              string `json:"icp_link"`
-	PublicSecurityNumber string `json:"public_security_number"`
-	PublicSecurityLink   string `json:"public_security_link"`
-	CopyrightText        string `json:"copyright_text"`
+	SiteName             string                           `json:"site_name"`
+	SiteDescription      string                           `json:"site_description"`
+	ContactEmail         string                           `json:"contact_email"`
+	ComplaintEmail       string                           `json:"complaint_email"`
+	SelfMediaLogo        string                           `json:"self_media_logo"`
+	SelfMediaQRCode      string                           `json:"self_media_qr_code"`
+	SelfMediaItems       []SiteFooterSelfMediaItemRequest `json:"self_media_items"`
+	ICPNumber            string                           `json:"icp_number"`
+	ICPLink              string                           `json:"icp_link"`
+	PublicSecurityNumber string                           `json:"public_security_number"`
+	PublicSecurityLink   string                           `json:"public_security_link"`
+	CopyrightText        string                           `json:"copyright_text"`
 }
 
 type SiteFooterSettingResponse struct {
-	SiteName             string `json:"site_name"`
-	SiteDescription      string `json:"site_description"`
-	ContactEmail         string `json:"contact_email"`
-	ComplaintEmail       string `json:"complaint_email"`
-	SelfMediaLogo        string `json:"self_media_logo"`
-	SelfMediaLogoURL     string `json:"self_media_logo_url"`
-	SelfMediaQRCode      string `json:"self_media_qr_code"`
-	SelfMediaQRCodeURL   string `json:"self_media_qr_code_url"`
-	ICPNumber            string `json:"icp_number"`
-	ICPLink              string `json:"icp_link"`
-	PublicSecurityNumber string `json:"public_security_number"`
-	PublicSecurityLink   string `json:"public_security_link"`
-	CopyrightText        string `json:"copyright_text"`
-	CreatedAt            string `json:"created_at,omitempty"`
-	UpdatedAt            string `json:"updated_at,omitempty"`
+	SiteName             string                            `json:"site_name"`
+	SiteDescription      string                            `json:"site_description"`
+	ContactEmail         string                            `json:"contact_email"`
+	ComplaintEmail       string                            `json:"complaint_email"`
+	SelfMediaLogo        string                            `json:"self_media_logo"`
+	SelfMediaLogoURL     string                            `json:"self_media_logo_url"`
+	SelfMediaQRCode      string                            `json:"self_media_qr_code"`
+	SelfMediaQRCodeURL   string                            `json:"self_media_qr_code_url"`
+	SelfMediaItems       []SiteFooterSelfMediaItemResponse `json:"self_media_items"`
+	ICPNumber            string                            `json:"icp_number"`
+	ICPLink              string                            `json:"icp_link"`
+	PublicSecurityNumber string                            `json:"public_security_number"`
+	PublicSecurityLink   string                            `json:"public_security_link"`
+	CopyrightText        string                            `json:"copyright_text"`
+	CreatedAt            string                            `json:"created_at,omitempty"`
+	UpdatedAt            string                            `json:"updated_at,omitempty"`
 }
 
 func defaultSiteFooterSetting() models.SiteFooterSetting {
@@ -52,10 +89,117 @@ func defaultSiteFooterSetting() models.SiteFooterSetting {
 		SiteDescription:      "致力于收集、整理和分享互联网表情包资源。本站提供合集浏览、下载与收藏功能，服务于个人非商业交流场景。",
 		ContactEmail:         "contact@emoji-archive.com",
 		ComplaintEmail:       "contact@emoji-archive.com",
+		SelfMediaItems:       "[]",
 		ICPNumber:            "ICP备案号：待补充",
 		PublicSecurityNumber: "公安备案号：待补充",
 		CopyrightText:        "表情包档案馆. All rights reserved.",
 	}
+}
+
+func defaultSelfMediaNameByKey(key string) string {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "qq":
+		return "QQ"
+	case "wechat":
+		return "微信"
+	case "xiaohongshu":
+		return "小红书"
+	default:
+		return "自媒体"
+	}
+}
+
+func sanitizeSelfMediaKey(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, ch := range raw {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
+			b.WriteRune(ch)
+		}
+	}
+	return b.String()
+}
+
+func defaultSelfMediaItems() []siteFooterSelfMediaItemStored {
+	return []siteFooterSelfMediaItemStored{
+		{Key: "qq", Name: "QQ", Enabled: false, Sort: 1},
+		{Key: "wechat", Name: "微信", Enabled: false, Sort: 2},
+		{Key: "xiaohongshu", Name: "小红书", Enabled: false, Sort: 3},
+	}
+}
+
+func parseStoredSelfMediaItems(raw string) []siteFooterSelfMediaItemStored {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	var items []siteFooterSelfMediaItemStored
+	if err := json.Unmarshal([]byte(trimmed), &items); err != nil {
+		return nil
+	}
+	result := make([]siteFooterSelfMediaItemStored, 0, len(items))
+	for idx, item := range items {
+		key := sanitizeSelfMediaKey(item.Key)
+		if key == "" {
+			key = fmt.Sprintf("item_%d", idx+1)
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = defaultSelfMediaNameByKey(key)
+		}
+		sortValue := item.Sort
+		if sortValue <= 0 {
+			sortValue = idx + 1
+		}
+		result = append(result, siteFooterSelfMediaItemStored{
+			Key:         key,
+			Name:        name,
+			Logo:        strings.TrimSpace(item.Logo),
+			QRCode:      strings.TrimSpace(item.QRCode),
+			ProfileLink: strings.TrimSpace(item.ProfileLink),
+			Enabled:     item.Enabled,
+			Sort:        sortValue,
+		})
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Sort == result[j].Sort {
+			return result[i].Key < result[j].Key
+		}
+		return result[i].Sort < result[j].Sort
+	})
+	return result
+}
+
+func legacySelfMediaItems(logo, qrCode string) []siteFooterSelfMediaItemStored {
+	logo = strings.TrimSpace(logo)
+	qrCode = strings.TrimSpace(qrCode)
+	if logo == "" && qrCode == "" {
+		return nil
+	}
+	return []siteFooterSelfMediaItemStored{
+		{
+			Key:     "qq",
+			Name:    "QQ",
+			Logo:    logo,
+			QRCode:  qrCode,
+			Enabled: true,
+			Sort:    1,
+		},
+	}
+}
+
+func serializeSelfMediaItems(items []siteFooterSelfMediaItemStored) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	bytes, err := json.Marshal(items)
+	if err != nil {
+		return "[]"
+	}
+	return string(bytes)
 }
 
 func normalizeSiteFooterSetting(setting models.SiteFooterSetting) models.SiteFooterSetting {
@@ -65,6 +209,9 @@ func normalizeSiteFooterSetting(setting models.SiteFooterSetting) models.SiteFoo
 	}
 	if strings.TrimSpace(setting.SiteDescription) == "" {
 		setting.SiteDescription = defaultValue.SiteDescription
+	}
+	if strings.TrimSpace(setting.SelfMediaItems) == "" {
+		setting.SelfMediaItems = defaultValue.SelfMediaItems
 	}
 	if strings.TrimSpace(setting.ICPNumber) == "" {
 		setting.ICPNumber = defaultValue.ICPNumber
@@ -78,9 +225,63 @@ func normalizeSiteFooterSetting(setting models.SiteFooterSetting) models.SiteFoo
 	return setting
 }
 
+func pickPrimarySelfMedia(items []siteFooterSelfMediaItemStored) *siteFooterSelfMediaItemStored {
+	for i := range items {
+		if !items[i].Enabled {
+			continue
+		}
+		if strings.TrimSpace(items[i].Logo) != "" || strings.TrimSpace(items[i].QRCode) != "" {
+			return &items[i]
+		}
+	}
+	for i := range items {
+		if strings.TrimSpace(items[i].Logo) != "" || strings.TrimSpace(items[i].QRCode) != "" {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func buildSelfMediaResponseItems(items []siteFooterSelfMediaItemStored, qiniuClient *storage.QiniuClient) []SiteFooterSelfMediaItemResponse {
+	result := make([]SiteFooterSelfMediaItemResponse, 0, len(items))
+	for _, item := range items {
+		logo := strings.TrimSpace(item.Logo)
+		qrCode := strings.TrimSpace(item.QRCode)
+		result = append(result, SiteFooterSelfMediaItemResponse{
+			Key:         item.Key,
+			Name:        item.Name,
+			Logo:        logo,
+			LogoURL:     resolvePreviewURL(logo, qiniuClient),
+			QRCode:      qrCode,
+			QRCodeURL:   resolvePreviewURL(qrCode, qiniuClient),
+			ProfileLink: strings.TrimSpace(item.ProfileLink),
+			Enabled:     item.Enabled,
+			Sort:        item.Sort,
+		})
+	}
+	return result
+}
+
 func toSiteFooterSettingResponse(setting models.SiteFooterSetting, qiniuClient *storage.QiniuClient, withMeta bool) SiteFooterSettingResponse {
+	items := parseStoredSelfMediaItems(setting.SelfMediaItems)
+	if len(items) == 0 {
+		items = legacySelfMediaItems(setting.SelfMediaLogo, setting.SelfMediaQRCode)
+	}
+	if len(items) == 0 {
+		items = defaultSelfMediaItems()
+	}
+
 	selfMediaLogo := strings.TrimSpace(setting.SelfMediaLogo)
 	selfMediaQRCode := strings.TrimSpace(setting.SelfMediaQRCode)
+	if primary := pickPrimarySelfMedia(items); primary != nil {
+		if selfMediaLogo == "" {
+			selfMediaLogo = strings.TrimSpace(primary.Logo)
+		}
+		if selfMediaQRCode == "" {
+			selfMediaQRCode = strings.TrimSpace(primary.QRCode)
+		}
+	}
+
 	resp := SiteFooterSettingResponse{
 		SiteName:             setting.SiteName,
 		SiteDescription:      setting.SiteDescription,
@@ -90,6 +291,7 @@ func toSiteFooterSettingResponse(setting models.SiteFooterSetting, qiniuClient *
 		SelfMediaLogoURL:     resolvePreviewURL(selfMediaLogo, qiniuClient),
 		SelfMediaQRCode:      selfMediaQRCode,
 		SelfMediaQRCodeURL:   resolvePreviewURL(selfMediaQRCode, qiniuClient),
+		SelfMediaItems:       buildSelfMediaResponseItems(items, qiniuClient),
 		ICPNumber:            setting.ICPNumber,
 		ICPLink:              setting.ICPLink,
 		PublicSecurityNumber: setting.PublicSecurityNumber,
@@ -156,6 +358,83 @@ func normalizeOptionalAsset(value string, qiniuClient *storage.QiniuClient) (str
 
 	key := strings.TrimLeft(value, "/")
 	return key, key != ""
+}
+
+func normalizeSelfMediaItemsForRequest(items []SiteFooterSelfMediaItemRequest, qiniuClient *storage.QiniuClient) ([]siteFooterSelfMediaItemStored, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	if len(items) > 20 {
+		return nil, errors.New("self_media_items exceeds limit")
+	}
+
+	usedKeys := make(map[string]int)
+	result := make([]siteFooterSelfMediaItemStored, 0, len(items))
+	for idx, item := range items {
+		key := sanitizeSelfMediaKey(item.Key)
+		if key == "" {
+			key = sanitizeSelfMediaKey(item.Name)
+		}
+		if key == "" {
+			key = fmt.Sprintf("item_%d", idx+1)
+		}
+		usedKeys[key]++
+		if usedKeys[key] > 1 {
+			key = fmt.Sprintf("%s_%d", key, usedKeys[key])
+		}
+
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = defaultSelfMediaNameByKey(key)
+		}
+
+		logo, ok := normalizeOptionalAsset(item.Logo, qiniuClient)
+		if !ok {
+			return nil, fmt.Errorf("self_media_items[%d].logo must be http(s) url or object key", idx)
+		}
+		qrCode, ok := normalizeOptionalAsset(item.QRCode, qiniuClient)
+		if !ok {
+			return nil, fmt.Errorf("self_media_items[%d].qr_code must be http(s) url or object key", idx)
+		}
+		profileLink, ok := normalizeOptionalLink(strings.TrimSpace(item.ProfileLink))
+		if !ok {
+			return nil, fmt.Errorf("self_media_items[%d].profile_link must start with http:// or https://", idx)
+		}
+
+		sortValue := item.Sort
+		if sortValue <= 0 {
+			sortValue = idx + 1
+		}
+
+		result = append(result, siteFooterSelfMediaItemStored{
+			Key:         key,
+			Name:        name,
+			Logo:        logo,
+			QRCode:      qrCode,
+			ProfileLink: profileLink,
+			Enabled:     item.Enabled,
+			Sort:        sortValue,
+		})
+	}
+
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Sort == result[j].Sort {
+			return result[i].Key < result[j].Key
+		}
+		return result[i].Sort < result[j].Sort
+	})
+	return result, nil
+}
+
+func mergeLegacySelfMediaWithItems(items []siteFooterSelfMediaItemStored, logo, qrCode string) []siteFooterSelfMediaItemStored {
+	if len(items) > 0 {
+		return items
+	}
+	legacy := legacySelfMediaItems(logo, qrCode)
+	if len(legacy) > 0 {
+		return legacy
+	}
+	return defaultSelfMediaItems()
 }
 
 // GetSiteFooterSetting godoc
@@ -231,6 +510,21 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "self_media_qr_code must be http(s) url or object key"})
 		return
 	}
+	selfMediaItems, err := normalizeSelfMediaItemsForRequest(req.SelfMediaItems, h.qiniu)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	selfMediaItems = mergeLegacySelfMediaWithItems(selfMediaItems, selfMediaLogo, selfMediaQRCode)
+
+	if primary := pickPrimarySelfMedia(selfMediaItems); primary != nil {
+		if strings.TrimSpace(selfMediaLogo) == "" {
+			selfMediaLogo = strings.TrimSpace(primary.Logo)
+		}
+		if strings.TrimSpace(selfMediaQRCode) == "" {
+			selfMediaQRCode = strings.TrimSpace(primary.QRCode)
+		}
+	}
 
 	icpLink, ok := normalizeOptionalLink(strings.TrimSpace(req.ICPLink))
 	if !ok {
@@ -251,6 +545,7 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		ComplaintEmail:       complaintEmail,
 		SelfMediaLogo:        selfMediaLogo,
 		SelfMediaQRCode:      selfMediaQRCode,
+		SelfMediaItems:       serializeSelfMediaItems(selfMediaItems),
 		ICPNumber:            strings.TrimSpace(req.ICPNumber),
 		ICPLink:              icpLink,
 		PublicSecurityNumber: strings.TrimSpace(req.PublicSecurityNumber),
@@ -259,7 +554,7 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 	}
 
 	var saved models.SiteFooterSetting
-	err := h.db.Transaction(func(tx *gorm.DB) error {
+	err = h.db.Transaction(func(tx *gorm.DB) error {
 		var current models.SiteFooterSetting
 		err := tx.First(&current, 1).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -280,6 +575,7 @@ func (h *Handler) UpdateAdminSiteFooterSetting(c *gin.Context) {
 		current.ComplaintEmail = payload.ComplaintEmail
 		current.SelfMediaLogo = payload.SelfMediaLogo
 		current.SelfMediaQRCode = payload.SelfMediaQRCode
+		current.SelfMediaItems = payload.SelfMediaItems
 		current.ICPNumber = payload.ICPNumber
 		current.ICPLink = payload.ICPLink
 		current.PublicSecurityNumber = payload.PublicSecurityNumber

@@ -45,6 +45,9 @@ var allowedVideoFileExt = map[string]struct{}{
 
 type CreateVideoJobRequest struct {
 	Title            string                    `json:"title"`
+	Prompt           string                    `json:"prompt,omitempty"`
+	AIModel          string                    `json:"ai_model,omitempty"`
+	FlowMode         string                    `json:"flow_mode,omitempty"`
 	CategoryID       *uint64                   `json:"category_id"`
 	SourceVideoKey   string                    `json:"source_video_key"`
 	OutputFormats    []string                  `json:"output_formats"`
@@ -157,6 +160,37 @@ type VideoJobResultResponse struct {
 	Options            map[string]interface{}     `json:"options,omitempty"`
 	Metrics            map[string]interface{}     `json:"metrics,omitempty"`
 	Message            string                     `json:"message,omitempty"`
+}
+
+type VideoJobEventItemResponse struct {
+	ID        uint64                 `json:"id"`
+	Stage     string                 `json:"stage"`
+	Level     string                 `json:"level"`
+	Message   string                 `json:"message"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt time.Time              `json:"created_at"`
+}
+
+type VideoJobEventListResponse struct {
+	Items       []VideoJobEventItemResponse `json:"items"`
+	NextSinceID uint64                      `json:"next_since_id"`
+}
+
+type VideoJobAI1PlanResponse struct {
+	JobID           uint64                 `json:"job_id"`
+	RequestedFormat string                 `json:"requested_format"`
+	SchemaVersion   string                 `json:"schema_version"`
+	Status          string                 `json:"status"`
+	SourcePrompt    string                 `json:"source_prompt,omitempty"`
+	Plan            map[string]interface{} `json:"plan,omitempty"`
+	ModelProvider   string                 `json:"model_provider,omitempty"`
+	ModelName       string                 `json:"model_name,omitempty"`
+	PromptVersion   string                 `json:"prompt_version,omitempty"`
+	FallbackUsed    bool                   `json:"fallback_used"`
+	ConfirmedByUser bool                   `json:"confirmed_by_user"`
+	ConfirmedAt     *time.Time             `json:"confirmed_at,omitempty"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
 type VideoJobCapabilitiesResponse struct {
@@ -304,11 +338,41 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	}
 	priority := normalizeVideoJobPriority(req.Priority)
 	title := strings.TrimSpace(req.Title)
+	prompt := strings.TrimSpace(req.Prompt)
 	if title == "" {
-		title = fmt.Sprintf("视频表情包-%s", time.Now().Format("20060102150405"))
+		if prompt != "" {
+			title = prompt
+		} else {
+			title = fmt.Sprintf("视频表情包-%s", time.Now().Format("20060102150405"))
+		}
 	}
 
 	options := map[string]interface{}{}
+	if prompt != "" {
+		options["user_prompt"] = prompt
+	}
+	if model := strings.TrimSpace(req.AIModel); model != "" {
+		options["ai_model_preference"] = model
+	}
+	flowMode := strings.ToLower(strings.TrimSpace(req.FlowMode))
+	switch flowMode {
+	case "", "direct":
+		options["flow_mode"] = "direct"
+	case "ai1_confirm":
+		options["flow_mode"] = "ai1_confirm"
+		options["ai1_pending"] = false
+		options["ai1_confirmed"] = false
+		options["ai1_pause_consumed"] = false
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "flow_mode must be one of: direct, ai1_confirm"})
+		return
+	}
+	initialQueue, initialTaskType, primaryFormat := videojobs.ResolveVideoJobExecutionTarget(strings.Join(formats, ","))
+	options["execution_queue"] = initialQueue
+	options["execution_task_type"] = initialTaskType
+	if primaryFormat != "" {
+		options["requested_format"] = primaryFormat
+	}
 	autoHighlight := true
 	if req.AutoHighlight != nil {
 		autoHighlight = *req.AutoHighlight
@@ -460,7 +524,7 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 		return
 	}
 
-	task, err := videojobs.NewProcessVideoJobTask(job.ID)
+	task, queueName, _, err := videojobs.NewProcessVideoJobTaskByFormat(job.ID, job.OutputFormats)
 	if err != nil {
 		failUpdates := map[string]interface{}{
 			"status":        models.VideoJobStatusFailed,
@@ -477,7 +541,7 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 
 	_, err = h.queue.Enqueue(
 		task,
-		asynq.Queue("media"),
+		asynq.Queue(queueName),
 		asynq.MaxRetry(6),
 		asynq.Timeout(2*time.Hour),
 		asynq.Retention(7*24*time.Hour),
@@ -748,6 +812,264 @@ func (h *Handler) GetVideoJob(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, buildVideoJobResponse(job, h.qiniu))
+}
+
+// ListVideoJobEvents godoc
+// @Summary List current user video job events
+// @Tags user
+// @Produce json
+// @Param id path int true "job id"
+// @Param since_id query int false "event id cursor (exclusive)"
+// @Param limit query int false "limit (default 80, max 300)"
+// @Success 200 {object} VideoJobEventListResponse
+// @Router /api/video-jobs/{id}/events [get]
+func (h *Handler) ListVideoJobEvents(c *gin.Context) {
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || jobID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var job models.VideoJob
+	if err := h.db.Select("id").Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	sinceID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("since_id")), 10, 64)
+	limit, _ := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("limit", "80")))
+	if limit <= 0 {
+		limit = 80
+	}
+	if limit > 300 {
+		limit = 300
+	}
+
+	var rows []models.VideoImageEventPublic
+	query := h.db.Model(&models.VideoImageEventPublic{}).Where("job_id = ?", jobID)
+	if sinceID > 0 {
+		query = query.Where("id > ?", sinceID)
+	}
+	if err := query.Order("id ASC").Limit(limit).Find(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	items := make([]VideoJobEventItemResponse, 0, len(rows))
+	nextSinceID := sinceID
+	for _, row := range rows {
+		if row.ID > nextSinceID {
+			nextSinceID = row.ID
+		}
+		items = append(items, VideoJobEventItemResponse{
+			ID:        row.ID,
+			Stage:     strings.TrimSpace(row.Stage),
+			Level:     strings.TrimSpace(row.Level),
+			Message:   strings.TrimSpace(row.Message),
+			Metadata:  parseJSONMap(row.Metadata),
+			CreatedAt: row.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, VideoJobEventListResponse{
+		Items:       items,
+		NextSinceID: nextSinceID,
+	})
+}
+
+// GetVideoJobAI1Plan godoc
+// @Summary Get current user video job ai1 executable plan
+// @Tags user
+// @Produce json
+// @Param id path int true "job id"
+// @Success 200 {object} VideoJobAI1PlanResponse
+// @Router /api/video-jobs/{id}/ai1-plan [get]
+func (h *Handler) GetVideoJobAI1Plan(c *gin.Context) {
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || jobID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var job models.VideoJob
+	if err := h.db.Select("id").Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var row models.VideoJobAI1Plan
+	if err := h.db.Where("job_id = ? AND user_id = ?", jobID, userID).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_job_ai1_plans") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ai1 plan not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, VideoJobAI1PlanResponse{
+		JobID:           row.JobID,
+		RequestedFormat: strings.ToLower(strings.TrimSpace(row.RequestedFormat)),
+		SchemaVersion:   strings.TrimSpace(row.SchemaVersion),
+		Status:          strings.TrimSpace(row.Status),
+		SourcePrompt:    strings.TrimSpace(row.SourcePrompt),
+		Plan:            parseJSONMap(row.PlanJSON),
+		ModelProvider:   strings.TrimSpace(row.ModelProvider),
+		ModelName:       strings.TrimSpace(row.ModelName),
+		PromptVersion:   strings.TrimSpace(row.PromptVersion),
+		FallbackUsed:    row.FallbackUsed,
+		ConfirmedByUser: row.ConfirmedByUser,
+		ConfirmedAt:     row.ConfirmedAt,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+	})
+}
+
+// ConfirmVideoJobAI1 godoc
+// @Summary Confirm AI1 result and continue current user video job
+// @Tags user
+// @Produce json
+// @Router /api/video-jobs/{id}/confirm-ai1 [post]
+func (h *Handler) ConfirmVideoJobAI1(c *gin.Context) {
+	if h.queue == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "task queue not configured"})
+		return
+	}
+
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var job models.VideoJob
+	if err := h.db.Where("id = ? AND user_id = ?", id, userID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	switch job.Status {
+	case models.VideoJobStatusDone, models.VideoJobStatusFailed, models.VideoJobStatusCancelled:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job cannot be confirmed in current status"})
+		return
+	}
+
+	options := parseJSONMap(job.Options)
+	flowMode := strings.ToLower(strings.TrimSpace(stringFromAny(options["flow_mode"])))
+	if flowMode != "ai1_confirm" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job is not in ai1_confirm flow mode"})
+		return
+	}
+	ai1Pending := boolFromAny(options["ai1_pending"])
+	if !ai1Pending && strings.ToLower(strings.TrimSpace(job.Stage)) != models.VideoJobStageAwaitingAI1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job is not waiting for ai1 confirmation"})
+		return
+	}
+
+	confirmedAt := time.Now()
+	options["ai1_pending"] = false
+	options["ai1_confirmed"] = true
+	options["ai1_confirmed_at"] = confirmedAt.Format(time.RFC3339)
+	resumeQueue, resumeTaskType, _ := videojobs.ResolveVideoJobExecutionTarget(job.OutputFormats)
+	options["execution_queue"] = resumeQueue
+	options["execution_task_type"] = resumeTaskType
+	progress := job.Progress
+	if progress < 36 {
+		progress = 36
+	}
+	updates := map[string]interface{}{
+		"status":        models.VideoJobStatusQueued,
+		"stage":         models.VideoJobStageQueued,
+		"progress":      progress,
+		"options":       toJSON(options),
+		"error_message": "",
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.VideoJob{}).Where("id = ? AND user_id = ?", job.ID, userID).Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := videojobs.SyncPublicVideoImageJobUpdates(tx, job.ID, updates); err != nil {
+			return err
+		}
+		eventMeta := map[string]interface{}{
+			"flow_mode": "ai1_confirm",
+			"action":    "user_confirmed",
+		}
+		confirmEvent := models.VideoJobEvent{
+			JobID:    job.ID,
+			Stage:    models.VideoJobStageAnalyzing,
+			Level:    "info",
+			Message:  "user confirmed continue after ai1",
+			Metadata: toJSON(eventMeta),
+		}
+		if err := tx.Create(&confirmEvent).Error; err != nil {
+			return err
+		}
+		if err := videojobs.CreatePublicVideoImageEvent(tx, confirmEvent); err != nil {
+			return err
+		}
+		if err := videojobs.ConfirmVideoJobAI1Plan(tx, job.ID, userID, confirmedAt); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	task, queueName, _, err := videojobs.NewProcessVideoJobTaskByFormat(job.ID, job.OutputFormats)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create task"})
+		return
+	}
+	if _, err := h.queue.Enqueue(
+		task,
+		asynq.Queue(queueName),
+		asynq.MaxRetry(6),
+		asynq.Timeout(2*time.Hour),
+		asynq.Retention(7*24*time.Hour),
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue resume task"})
+		return
+	}
+
+	var latest models.VideoJob
+	if err := h.db.Where("id = ? AND user_id = ?", job.ID, userID).First(&latest).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, buildVideoJobResponse(latest, h.qiniu))
 }
 
 // CancelVideoJob godoc
@@ -2192,6 +2514,34 @@ func stringFromAny(raw interface{}) string {
 		return value.String()
 	default:
 		return fmt.Sprintf("%v", raw)
+	}
+}
+
+func boolFromAny(raw interface{}) bool {
+	switch value := raw.(type) {
+	case bool:
+		return value
+	case string:
+		v := strings.ToLower(strings.TrimSpace(value))
+		return v == "1" || v == "true" || v == "yes" || v == "y" || v == "on"
+	case int:
+		return value != 0
+	case int64:
+		return value != 0
+	case int32:
+		return value != 0
+	case uint:
+		return value != 0
+	case uint64:
+		return value != 0
+	case uint32:
+		return value != 0
+	case float64:
+		return value != 0
+	case float32:
+		return value != 0
+	default:
+		return false
 	}
 }
 

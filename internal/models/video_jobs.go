@@ -25,6 +25,7 @@ const (
 	VideoJobStageQueued        = "queued"
 	VideoJobStagePreprocessing = "preprocessing"
 	VideoJobStageAnalyzing     = "analyzing"
+	VideoJobStageAwaitingAI1   = "awaiting_ai1_confirm"
 	VideoJobStageRendering     = "rendering"
 	VideoJobStageUploading     = "uploading"
 	VideoJobStageIndexing      = "indexing"
@@ -358,6 +359,29 @@ func (VideoJobGIFAIDirective) TableName() string {
 	return "archive.video_job_gif_ai_directives"
 }
 
+type VideoJobAI1Plan struct {
+	ID              uint64         `gorm:"primaryKey;autoIncrement"`
+	JobID           uint64         `gorm:"column:job_id;uniqueIndex"`
+	UserID          uint64         `gorm:"column:user_id;index"`
+	RequestedFormat string         `gorm:"column:requested_format;size:16;index"`
+	SchemaVersion   string         `gorm:"column:schema_version;size:64"`
+	Status          string         `gorm:"column:status;size:32;index"`
+	SourcePrompt    string         `gorm:"column:source_prompt;type:text"`
+	PlanJSON        datatypes.JSON `gorm:"column:plan_json;type:jsonb"`
+	ModelProvider   string         `gorm:"column:model_provider;size:32"`
+	ModelName       string         `gorm:"column:model_name;size:128"`
+	PromptVersion   string         `gorm:"column:prompt_version;size:64"`
+	FallbackUsed    bool           `gorm:"column:fallback_used;index"`
+	ConfirmedByUser bool           `gorm:"column:confirmed_by_user;index"`
+	ConfirmedAt     *time.Time     `gorm:"column:confirmed_at;index"`
+	CreatedAt       time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt       time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (VideoJobAI1Plan) TableName() string {
+	return "archive.video_job_ai1_plans"
+}
+
 type ComputeAccount struct {
 	ID                   uint64    `gorm:"primaryKey;autoIncrement"`
 	UserID               uint64    `gorm:"column:user_id;uniqueIndex"`
@@ -601,6 +625,22 @@ type VideoQualitySetting struct {
 
 func (VideoQualitySetting) TableName() string {
 	return "ops.video_quality_settings"
+}
+
+type VideoQualitySettingScoped struct {
+	ID           uint64         `gorm:"primaryKey;autoIncrement"`
+	Format       string         `gorm:"column:format;size:16;index"`
+	Version      string         `gorm:"column:version;size:64"`
+	IsActive     bool           `gorm:"column:is_active;index"`
+	SettingsJSON datatypes.JSON `gorm:"column:settings_json;type:jsonb"`
+	CreatedBy    uint64         `gorm:"column:created_by"`
+	UpdatedBy    uint64         `gorm:"column:updated_by"`
+	CreatedAt    time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt    time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (VideoQualitySettingScoped) TableName() string {
+	return "ops.video_quality_settings_scoped"
 }
 
 type VideoAIPromptTemplate struct {

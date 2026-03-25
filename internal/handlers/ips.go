@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -28,6 +29,7 @@ type IPResponse struct {
 	Name            string    `json:"name"`
 	Slug            string    `json:"slug"`
 	CoverURL        string    `json:"cover_url"`
+	CoverThumbURL   string    `json:"cover_thumb_url,omitempty"`
 	CategoryID      *uint64   `json:"category_id,omitempty"`
 	Description     string    `json:"description"`
 	Sort            int       `json:"sort"`
@@ -94,6 +96,63 @@ func buildIPResponse(ip models.IP, collectionCount int64) IPResponse {
 	}
 }
 
+func hasIPImageExt(value string) bool {
+	clean := strings.ToLower(strings.SplitN(strings.SplitN(strings.TrimSpace(value), "?", 2)[0], "#", 2)[0])
+	return strings.HasSuffix(clean, ".jpg") ||
+		strings.HasSuffix(clean, ".jpeg") ||
+		strings.HasSuffix(clean, ".png") ||
+		strings.HasSuffix(clean, ".gif") ||
+		strings.HasSuffix(clean, ".webp")
+}
+
+func buildIPStaticPreview(raw string) string {
+	val := strings.TrimSpace(raw)
+	if val == "" || !hasIPImageExt(val) {
+		return ""
+	}
+	if !strings.HasPrefix(val, "http://") && !strings.HasPrefix(val, "https://") && !strings.HasPrefix(val, "//") {
+		return ""
+	}
+	if strings.Contains(val, "token=") || strings.Contains(val, "e=") {
+		return ""
+	}
+	separator := "?"
+	if strings.Contains(val, "?") {
+		separator = "&"
+	}
+	// 贴合前台 IP 卡片展示比例，优先返回静态缩略图，降低前台解码和带宽开销。
+	return val + separator + "imageMogr2/thumbnail/!640x340r/gravity/Center/crop/640x340/format/webp"
+}
+
+func (h *Handler) resolveIPCoverURLs(ctx context.Context, raw string, adminView bool) (coverURL string, coverThumbURL string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	key := normalizeStorageObjectKey(raw)
+	if strings.HasPrefix(key, "emoji/") && h.qiniu != nil {
+		coverURL = raw
+		if original, err := h.resolveObjectURLWithCache(ctx, key, 0, false, ""); err == nil && strings.TrimSpace(original.URL) != "" {
+			coverURL = original.URL
+		}
+
+		if thumb, err := h.resolveObjectURLWithCache(ctx, key, 0, false, normalizeStorageURLStyle("ip_cover_card")); err == nil && strings.TrimSpace(thumb.URL) != "" {
+			coverThumbURL = thumb.URL
+		}
+		if coverThumbURL == "" {
+			coverThumbURL = coverURL
+		}
+		return coverURL, coverThumbURL
+	}
+
+	coverURL = raw
+	if thumb := buildIPStaticPreview(raw); thumb != "" {
+		return coverURL, thumb
+	}
+	return coverURL, coverURL
+}
+
 func (h *Handler) listIPs(c *gin.Context, adminView bool) {
 	var ips []models.IP
 	query := h.db.Model(&models.IP{})
@@ -124,8 +183,17 @@ func (h *Handler) listIPs(c *gin.Context, adminView bool) {
 	}
 
 	resp := make([]IPResponse, 0, len(ips))
+	ctx := c.Request.Context()
 	for _, ip := range ips {
-		resp = append(resp, buildIPResponse(ip, countMap[ip.ID]))
+		item := buildIPResponse(ip, countMap[ip.ID])
+		coverURL, coverThumbURL := h.resolveIPCoverURLs(ctx, ip.CoverURL, adminView)
+		if strings.TrimSpace(coverURL) != "" {
+			item.CoverURL = coverURL
+		}
+		if strings.TrimSpace(coverThumbURL) != "" {
+			item.CoverThumbURL = coverThumbURL
+		}
+		resp = append(resp, item)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -170,7 +238,15 @@ func (h *Handler) GetIP(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, buildIPResponse(ip, countMap[id]))
+	resp := buildIPResponse(ip, countMap[id])
+	coverURL, coverThumbURL := h.resolveIPCoverURLs(c.Request.Context(), ip.CoverURL, false)
+	if strings.TrimSpace(coverURL) != "" {
+		resp.CoverURL = coverURL
+	}
+	if strings.TrimSpace(coverThumbURL) != "" {
+		resp.CoverThumbURL = coverThumbURL
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // GetIPCollections godoc
@@ -256,7 +332,7 @@ func (h *Handler) GetIPCollections(c *gin.Context) {
 	categoryPrefixMap := loadCollectionCategoryPrefixMap(h.db, items)
 	creatorMap := loadCreatorProfiles(h.db, items)
 	statMap := loadCollectionStats(h.db, items)
-	previewMap := loadCollectionPreviewImages(h.db, h.qiniu, items, previewCount, false)
+	previewAssetMap := loadCollectionPreviewAssets(h.db, h.qiniu, items, previewCount, false)
 	collectionIDs := make([]uint64, 0, len(items))
 	for _, item := range items {
 		collectionIDs = append(collectionIDs, item.ID)
@@ -322,7 +398,8 @@ func (h *Handler) GetIPCollections(c *gin.Context) {
 			CreatedAt:        item.CreatedAt,
 			UpdatedAt:        item.UpdatedAt,
 			Tags:             tagMap[item.ID],
-			PreviewImages:    previewMap[item.ID],
+			PreviewImages:    flattenPreviewAssetsToImages(previewAssetMap[item.ID]),
+			PreviewAssets:    previewAssetMap[item.ID],
 		})
 	}
 
@@ -338,6 +415,43 @@ func (h *Handler) GetIPCollections(c *gin.Context) {
 // @Router /api/admin/ips [get]
 func (h *Handler) ListAdminIPs(c *gin.Context) {
 	h.listIPs(c, true)
+}
+
+// GetAdminIP godoc
+// @Summary Get IP (admin)
+// @Tags admin
+// @Produce json
+// @Param id path int true "ip id"
+// @Success 200 {object} IPResponse
+// @Router /api/admin/ips/{id} [get]
+func (h *Handler) GetAdminIP(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var ip models.IP
+	if err := h.db.First(&ip, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	countMap, err := h.loadIPCollectionCountMap(h.db, []uint64{id}, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp := buildIPResponse(ip, countMap[id])
+	_, coverThumbURL := h.resolveIPCoverURLs(c.Request.Context(), ip.CoverURL, true)
+	if strings.TrimSpace(coverThumbURL) != "" {
+		resp.CoverThumbURL = coverThumbURL
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // CreateIP godoc

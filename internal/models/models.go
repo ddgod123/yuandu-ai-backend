@@ -498,6 +498,7 @@ type SiteFooterSetting struct {
 	ComplaintEmail       string    `gorm:"column:complaint_email;size:255"`
 	SelfMediaLogo        string    `gorm:"column:self_media_logo;size:512"`
 	SelfMediaQRCode      string    `gorm:"column:self_media_qr_code;size:512"`
+	SelfMediaItems       string    `gorm:"column:self_media_items;type:jsonb;not null;default:'[]'"`
 	ICPNumber            string    `gorm:"column:icp_number;size:128"`
 	ICPLink              string    `gorm:"column:icp_link;size:512"`
 	PublicSecurityNumber string    `gorm:"column:public_security_number;size:128"`

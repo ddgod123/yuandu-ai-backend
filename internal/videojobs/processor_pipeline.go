@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func (p *Processor) process(ctx context.Context, jobID uint64) error {
+func (p *Processor) processUnified(ctx context.Context, jobID uint64) error {
 	var job models.VideoJob
 	if err := p.db.First(&job, jobID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -34,6 +34,13 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	}
 	if strings.TrimSpace(job.SourceVideoKey) == "" {
 		return permanentError{err: errors.New("source video key is empty")}
+	}
+	preOptions := parseJSONMap(job.Options)
+	if isFlowAwaitingAI1Confirm(preOptions) {
+		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "waiting for user confirmation before continuing", map[string]interface{}{
+			"flow_mode": "ai1_confirm",
+		})
+		return nil
 	}
 
 	now := time.Now()
@@ -202,6 +209,9 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	options := parseJobOptions(job.Options)
 	qualitySettings := p.loadQualitySettings()
 	requestedFormats := normalizeOutputFormats(job.OutputFormats)
+	flowMode := normalizeVideoFlowMode(stringFromAny(optionsPayload["flow_mode"]))
+	ai1Confirmed := boolFromAny(optionsPayload["ai1_confirmed"])
+	ai1PauseConsumed := boolFromAny(optionsPayload["ai1_pause_consumed"])
 	pipelineMode := gifPipelineModeStandard
 	pipelineModeDecision := gifPipelineModeDecision{
 		Mode:          gifPipelineModeStandard,
@@ -259,6 +269,68 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	sceneTags := inferSceneTags(job.Title, job.SourceVideoKey, requestedFormats)
 	if len(sceneTags) > 0 {
 		metrics["scene_tags_v1"] = sceneTags
+	}
+	if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) && !containsString(requestedFormats, "gif") {
+		directive, directorSnapshot, directorErr := p.requestAIGIFPromptDirective(ctx, job, sourcePath, meta, highlightSuggestion{}, qualitySettings)
+		aiReply := buildGenericAI1Reply(job.Title, requestedFormats, meta)
+		eventMeta := map[string]interface{}{
+			"sub_stage":    gifSubStageBriefing,
+			"flow_mode":    flowMode,
+			"duration_sec": roundTo(meta.DurationSec, 3),
+			"width":        meta.Width,
+			"height":       meta.Height,
+			"fps":          roundTo(meta.FPS, 3),
+		}
+		if directorErr != nil {
+			metrics["highlight_ai_director_v1"] = map[string]interface{}{
+				"applied": false,
+				"error":   directorErr.Error(),
+				"mode":    pipelineMode,
+			}
+			eventMeta["error"] = directorErr.Error()
+		} else {
+			metrics["highlight_ai_director_v1"] = directorSnapshot
+			if directive != nil {
+				aiReply = strings.TrimSpace(buildAIDirectorNaturalReply(directive))
+				if aiReply == "" {
+					aiReply = buildGenericAI1Reply(job.Title, requestedFormats, meta)
+				}
+				eventMeta["business_goal"] = strings.TrimSpace(directive.BusinessGoal)
+				eventMeta["audience"] = strings.TrimSpace(directive.Audience)
+				eventMeta["must_capture"] = directive.MustCapture
+				eventMeta["avoid"] = directive.Avoid
+				eventMeta["style_direction"] = strings.TrimSpace(directive.StyleDirection)
+				eventMeta["directive_text"] = strings.TrimSpace(directive.DirectiveText)
+				eventMeta["clip_count_min"] = directive.ClipCountMin
+				eventMeta["clip_count_max"] = directive.ClipCountMax
+			}
+		}
+		eventMeta["ai_reply"] = aiReply
+		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai1 preview generated", map[string]interface{}{
+			"sub_stage":       eventMeta["sub_stage"],
+			"flow_mode":       eventMeta["flow_mode"],
+			"ai_reply":        eventMeta["ai_reply"],
+			"duration_sec":    eventMeta["duration_sec"],
+			"width":           eventMeta["width"],
+			"height":          eventMeta["height"],
+			"fps":             eventMeta["fps"],
+			"error":           eventMeta["error"],
+			"business_goal":   eventMeta["business_goal"],
+			"audience":        eventMeta["audience"],
+			"must_capture":    eventMeta["must_capture"],
+			"avoid":           eventMeta["avoid"],
+			"style_direction": eventMeta["style_direction"],
+			"directive_text":  eventMeta["directive_text"],
+			"clip_count_min":  eventMeta["clip_count_min"],
+			"clip_count_max":  eventMeta["clip_count_max"],
+		})
+		p.persistAI1Plan(job, requestedFormats, flowMode, ai1Confirmed, meta, "ai1_preview_generated", eventMeta, directorSnapshot)
+		if p.pauseForAI1Confirmation(job.ID, metrics, optionsPayload, map[string]interface{}{
+			"flow_mode": flowMode,
+			"stage":     "ai1_preview_generated",
+		}) {
+			return nil
+		}
 	}
 	options = applyAnimatedProfileDefaults(options, requestedFormats, qualitySettings)
 	if options.CropW <= 0 || options.CropH <= 0 {
@@ -388,13 +460,31 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 					"applied": true,
 					"mode":    pipelineMode,
 				})
-				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai director prompt pack generated", map[string]interface{}{
+				ai1Event := map[string]interface{}{
 					"business_goal":  directorSnapshot["business_goal"],
 					"clip_count_min": directorSnapshot["clip_count_min"],
 					"clip_count_max": directorSnapshot["clip_count_max"],
 					"sub_stage":      gifSubStageBriefing,
 					"mode":           pipelineMode,
-				})
+				}
+				if resolvedDirective != nil {
+					ai1Event["audience"] = strings.TrimSpace(resolvedDirective.Audience)
+					ai1Event["must_capture"] = resolvedDirective.MustCapture
+					ai1Event["avoid"] = resolvedDirective.Avoid
+					ai1Event["style_direction"] = strings.TrimSpace(resolvedDirective.StyleDirection)
+					ai1Event["directive_text"] = strings.TrimSpace(resolvedDirective.DirectiveText)
+					ai1Event["ai_reply"] = strings.TrimSpace(buildAIDirectorNaturalReply(resolvedDirective))
+				}
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai director prompt pack generated", ai1Event)
+				p.persistAI1Plan(job, requestedFormats, flowMode, ai1Confirmed, meta, gifSubStageBriefing, ai1Event, directorSnapshot)
+				if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) {
+					if p.pauseForAI1Confirmation(job.ID, metrics, optionsPayload, map[string]interface{}{
+						"flow_mode": flowMode,
+						"stage":     gifSubStageBriefing,
+					}) {
+						return nil
+					}
+				}
 			}
 		} else {
 			markGIFSubStageSkipped(gifSubStageBriefing, "pipeline_mode_"+pipelineMode+"_director_skipped")
@@ -1037,6 +1127,300 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	p.syncGIFBaseline(job.ID)
 	p.cleanupSourceVideo(job.ID, "done")
 	return nil
+}
+
+func normalizeVideoFlowMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "ai1_confirm":
+		return "ai1_confirm"
+	default:
+		return "direct"
+	}
+}
+
+func isFlowAwaitingAI1Confirm(options map[string]interface{}) bool {
+	if normalizeVideoFlowMode(stringFromAny(options["flow_mode"])) != "ai1_confirm" {
+		return false
+	}
+	return boolFromAny(options["ai1_pending"]) && !boolFromAny(options["ai1_confirmed"])
+}
+
+func shouldPauseAtAI1(flowMode string, ai1Confirmed, ai1PauseConsumed bool) bool {
+	if flowMode != "ai1_confirm" {
+		return false
+	}
+	if ai1Confirmed {
+		return false
+	}
+	if ai1PauseConsumed {
+		return false
+	}
+	return true
+}
+
+func buildGenericAI1Reply(title string, requestedFormats []string, meta videoProbeMeta) string {
+	formatLabel := "-"
+	if len(requestedFormats) > 0 {
+		formatLabel = strings.ToUpper(strings.Join(requestedFormats, "/"))
+	}
+	titleText := strings.TrimSpace(title)
+	if titleText == "" {
+		titleText = "未提供额外提示词"
+	}
+	return fmt.Sprintf(
+		"我先做了首轮识别：目标输出格式 %s；视频约 %.1f 秒，分辨率 %dx%d，帧率 %.1ffps。你的需求描述是“%s”。如果方向OK，请确认继续后续生成。",
+		formatLabel,
+		meta.DurationSec,
+		meta.Width,
+		meta.Height,
+		meta.FPS,
+		titleText,
+	)
+}
+
+func (p *Processor) pauseForAI1Confirmation(jobID uint64, metrics map[string]interface{}, optionsPayload map[string]interface{}, extra map[string]interface{}) bool {
+	if p == nil || p.db == nil || jobID == 0 {
+		return false
+	}
+	if optionsPayload == nil {
+		optionsPayload = map[string]interface{}{}
+	}
+	if metrics == nil {
+		metrics = map[string]interface{}{}
+	}
+	optionsPayload["ai1_pending"] = true
+	optionsPayload["ai1_confirmed"] = false
+	optionsPayload["ai1_pause_consumed"] = true
+	optionsPayload["ai1_paused_at"] = time.Now().Format(time.RFC3339)
+	metrics["ai1_confirm_flow_v1"] = map[string]interface{}{
+		"pending": true,
+		"status":  "awaiting_user_confirm",
+	}
+	updates := map[string]interface{}{
+		"status":   models.VideoJobStatusQueued,
+		"stage":    models.VideoJobStageAwaitingAI1,
+		"progress": 38,
+		"options":  mustJSON(optionsPayload),
+		"metrics":  mustJSON(metrics),
+	}
+	p.updateVideoJob(jobID, updates)
+	_ = SyncPublicVideoImageJobUpdates(p.db, jobID, updates)
+
+	metadata := map[string]interface{}{
+		"flow_mode": "ai1_confirm",
+		"status":    "awaiting_user_confirm",
+	}
+	for k, v := range extra {
+		metadata[k] = v
+	}
+	p.appendJobEvent(jobID, models.VideoJobStageAwaitingAI1, "info", "ai1 waiting user confirmation", metadata)
+	return true
+}
+
+func buildAIDirectorNaturalReply(directive *gifAIDirectiveProfile) string {
+	if directive == nil {
+		return ""
+	}
+	if text := strings.TrimSpace(directive.DirectiveText); text != "" {
+		return text
+	}
+
+	parts := make([]string, 0, 6)
+	if goal := strings.TrimSpace(directive.BusinessGoal); goal != "" {
+		parts = append(parts, "目标："+goal)
+	}
+	if audience := strings.TrimSpace(directive.Audience); audience != "" {
+		parts = append(parts, "受众："+audience)
+	}
+	if len(directive.MustCapture) > 0 {
+		parts = append(parts, "重点："+strings.Join(directive.MustCapture, "、"))
+	}
+	if len(directive.Avoid) > 0 {
+		parts = append(parts, "规避："+strings.Join(directive.Avoid, "、"))
+	}
+	if directive.ClipCountMin > 0 || directive.ClipCountMax > 0 {
+		parts = append(parts, fmt.Sprintf("候选数量：%d~%d", directive.ClipCountMin, directive.ClipCountMax))
+	}
+	if style := strings.TrimSpace(directive.StyleDirection); style != "" {
+		parts = append(parts, "风格："+style)
+	}
+	return strings.Join(parts, "；")
+}
+
+func resolveAI1PlanStatus(flowMode string, ai1Confirmed bool) string {
+	if ai1Confirmed {
+		return VideoJobAI1PlanStatusConfirmed
+	}
+	if normalizeVideoFlowMode(flowMode) == "ai1_confirm" {
+		return VideoJobAI1PlanStatusAwaitingUser
+	}
+	return VideoJobAI1PlanStatusGenerated
+}
+
+func firstRequestedFormat(formats []string) string {
+	for _, item := range formats {
+		value := strings.ToLower(strings.TrimSpace(item))
+		if value == "" {
+			continue
+		}
+		if value == "jpeg" {
+			value = "jpg"
+		}
+		return value
+	}
+	return ""
+}
+
+func resolveVideoJobSourcePrompt(job models.VideoJob) string {
+	options := parseJSONMap(job.Options)
+	if prompt := strings.TrimSpace(stringFromAny(options["user_prompt"])); prompt != "" {
+		return prompt
+	}
+	return strings.TrimSpace(job.Title)
+}
+
+func cloneMapStringKey(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	out := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func buildAI1PlanDirective(eventMeta map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	for _, key := range []string{
+		"business_goal",
+		"audience",
+		"must_capture",
+		"avoid",
+		"style_direction",
+		"directive_text",
+		"clip_count_min",
+		"clip_count_max",
+		"candidate_hints",
+	} {
+		value, ok := eventMeta[key]
+		if !ok || value == nil {
+			continue
+		}
+		if text, isText := value.(string); isText && strings.TrimSpace(text) == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func buildAI1PlanDirectorSnapshot(snapshot map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	for _, key := range []string{
+		"provider",
+		"model",
+		"prompt_version",
+		"status",
+		"fallback_used",
+		"applied",
+		"target_format",
+		"director_input_mode_applied",
+		"director_input_source",
+		"response_shape",
+		"error",
+	} {
+		value, ok := snapshot[key]
+		if !ok || value == nil {
+			continue
+		}
+		if text, isText := value.(string); isText && strings.TrimSpace(text) == "" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func (p *Processor) persistAI1Plan(
+	job models.VideoJob,
+	requestedFormats []string,
+	flowMode string,
+	ai1Confirmed bool,
+	meta videoProbeMeta,
+	eventStage string,
+	eventMeta map[string]interface{},
+	directorSnapshot map[string]interface{},
+) {
+	if p == nil || p.db == nil || job.ID == 0 {
+		return
+	}
+	requestedFormat := firstRequestedFormat(requestedFormats)
+	sourcePrompt := resolveVideoJobSourcePrompt(job)
+	aiReply := strings.TrimSpace(stringFromAny(eventMeta["ai_reply"]))
+
+	provider := strings.TrimSpace(stringFromAny(directorSnapshot["provider"]))
+	model := strings.TrimSpace(stringFromAny(directorSnapshot["model"]))
+	promptVersion := strings.TrimSpace(stringFromAny(directorSnapshot["prompt_version"]))
+	fallbackUsed := boolFromAny(directorSnapshot["fallback_used"]) || strings.TrimSpace(stringFromAny(eventMeta["error"])) != ""
+
+	trace := map[string]interface{}{
+		"event_stage": strings.TrimSpace(eventStage),
+		"flow_mode":   normalizeVideoFlowMode(flowMode),
+		"sub_stage":   strings.TrimSpace(stringFromAny(eventMeta["sub_stage"])),
+		"mode":        strings.TrimSpace(stringFromAny(eventMeta["mode"])),
+		"error":       strings.TrimSpace(stringFromAny(eventMeta["error"])),
+	}
+	if inputMode := strings.TrimSpace(stringFromAny(directorSnapshot["director_input_mode_applied"])); inputMode != "" {
+		trace["director_input_mode"] = inputMode
+	}
+	if inputSource := strings.TrimSpace(stringFromAny(directorSnapshot["director_input_source"])); inputSource != "" {
+		trace["director_input_source"] = inputSource
+	}
+
+	planPayload := map[string]interface{}{
+		"schema_version":    VideoJobAI1PlanSchemaV1,
+		"requested_format":  requestedFormat,
+		"requested_formats": requestedFormats,
+		"flow_mode":         normalizeVideoFlowMode(flowMode),
+		"source_prompt":     sourcePrompt,
+		"ai_reply":          aiReply,
+		"source_meta": map[string]interface{}{
+			"duration_sec": roundTo(meta.DurationSec, 3),
+			"width":        meta.Width,
+			"height":       meta.Height,
+			"fps":          roundTo(meta.FPS, 3),
+		},
+		"directive":         buildAI1PlanDirective(eventMeta),
+		"event_meta":        cloneMapStringKey(eventMeta),
+		"trace":             trace,
+		"director_snapshot": buildAI1PlanDirectorSnapshot(directorSnapshot),
+	}
+
+	status := resolveAI1PlanStatus(flowMode, ai1Confirmed)
+	row := models.VideoJobAI1Plan{
+		JobID:           job.ID,
+		UserID:          job.UserID,
+		RequestedFormat: requestedFormat,
+		SchemaVersion:   VideoJobAI1PlanSchemaV1,
+		Status:          status,
+		SourcePrompt:    sourcePrompt,
+		PlanJSON:        mustJSON(planPayload),
+		ModelProvider:   provider,
+		ModelName:       model,
+		PromptVersion:   promptVersion,
+		FallbackUsed:    fallbackUsed,
+		ConfirmedByUser: ai1Confirmed,
+	}
+	if ai1Confirmed {
+		now := time.Now()
+		row.ConfirmedAt = &now
+	}
+	if err := UpsertVideoJobAI1Plan(p.db, row); err != nil {
+		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "ai1 plan persistence failed", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
 }
 
 func (p *Processor) persistSourceReadability(jobID uint64, currentMetrics []byte, readability map[string]interface{}) {

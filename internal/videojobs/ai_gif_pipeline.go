@@ -783,6 +783,34 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func resolveAIDirectorAssetGoal(format string) string {
+	switch normalizeAIPromptTemplateFormat(format) {
+	case "gif":
+		return "gif_highlight"
+	case "png", "jpg":
+		return "keyframe_image_set"
+	case "webp":
+		return "webp_reaction_set"
+	case "live":
+		return "live_cover_set"
+	default:
+		return "visual_asset_set"
+	}
+}
+
+func resolveAIDirectorDeliveryGoal(format string) string {
+	switch normalizeAIPromptTemplateFormat(format) {
+	case "gif", "webp":
+		return "standalone_shareable"
+	case "png", "jpg":
+		return "high_quality_images"
+	case "live":
+		return "cover_ready"
+	default:
+		return "general_delivery"
+	}
+}
+
 func validateAIGIFDirectiveContract(directive gifAIDirectiveProfile) error {
 	if strings.TrimSpace(directive.BusinessGoal) == "" {
 		return fmt.Errorf("business_goal required")
@@ -944,6 +972,13 @@ func (p *Processor) requestAIGIFPromptDirective(
 	local highlightSuggestion,
 	qualitySettings QualitySettings,
 ) (*gifAIDirectiveProfile, map[string]interface{}, error) {
+	requestedFormats := normalizeOutputFormats(job.OutputFormats)
+	targetFormat := "gif"
+	if len(requestedFormats) > 0 {
+		targetFormat = strings.ToLower(strings.TrimSpace(requestedFormats[0]))
+	}
+	targetFormat = normalizeAIPromptTemplateFormat(targetFormat)
+
 	cfg := p.loadGIFAIDirectorConfig()
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
 	operatorInstruction := strings.TrimSpace(qualitySettings.AIDirectorOperatorInstruction)
@@ -960,7 +995,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 	fixedPromptSource := "built_in_default"
 	contractTailVersion := "built_in_contract_tail_v1"
 
-	if fixedTemplate, templateErr := p.loadAIPromptTemplateWithFallback("gif", "ai1", "fixed"); templateErr == nil {
+	if fixedTemplate, templateErr := p.loadAIPromptTemplateWithFallback(targetFormat, "ai1", "fixed"); templateErr == nil {
 		if fixedTemplate.Found {
 			if strings.TrimSpace(fixedTemplate.Text) != "" && fixedTemplate.Enabled {
 				fixedPromptCore = strings.TrimSpace(fixedTemplate.Text)
@@ -973,7 +1008,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 			}
 		}
 	}
-	if editableTemplate, templateErr := p.loadAIPromptTemplateWithFallback("gif", "ai1", "editable"); templateErr == nil {
+	if editableTemplate, templateErr := p.loadAIPromptTemplateWithFallback(targetFormat, "ai1", "editable"); templateErr == nil {
 		if editableTemplate.Found {
 			operatorInstruction = strings.TrimSpace(editableTemplate.Text)
 			operatorEnabled = editableTemplate.Enabled
@@ -1006,6 +1041,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 		"operator_instruction_raw_len":       len(operatorInstructionRaw),
 		"operator_instruction_rendered_len":  len(operatorInstructionRendered),
 		"operator_instruction_render_mode":   operatorInstructionRenderMode,
+		"target_format":                      targetFormat,
 	}
 	if len(operatorInstructionSchema) > 0 {
 		info["operator_instruction_schema"] = operatorInstructionSchema
@@ -1013,10 +1049,6 @@ func (p *Processor) requestAIGIFPromptDirective(
 	if !cfg.Enabled {
 		info["applied"] = false
 		return nil, info, fmt.Errorf("director disabled")
-	}
-	if !containsString(normalizeOutputFormats(job.OutputFormats), "gif") {
-		info["applied"] = false
-		return nil, info, fmt.Errorf("non-gif job")
 	}
 	directorInputModeRequested := normalizeAIDirectorInputModeSetting(qualitySettings.AIDirectorInputMode, "hybrid")
 	directorInputModeApplied := "frames"
@@ -1104,13 +1136,14 @@ func (p *Processor) requestAIGIFPromptDirective(
 			frameRefs = append(frameRefs, row)
 		}
 		task := map[string]interface{}{
-			"asset_goal":           "gif_highlight",
+			"asset_goal":           resolveAIDirectorAssetGoal(targetFormat),
 			"business_scene":       "social_spread",
-			"delivery_goal":        "standalone_shareable",
+			"delivery_goal":        resolveAIDirectorDeliveryGoal(targetFormat),
 			"optimization_target":  resolveAIDirectorOptimizationTarget(qualitySettings.GIFProfile),
 			"cost_sensitivity":     resolveAIDirectorCostSensitivity(qualitySettings.GIFTargetSizeKB),
 			"hard_constraints":     resolveAIDirectorTaskConstraints(meta, qualitySettings),
 			"operator_instruction": map[string]interface{}{"enabled": operatorEnabled, "version": operatorVersion},
+			"requested_format":     targetFormat,
 		}
 		source := map[string]interface{}{
 			"title":        strings.TrimSpace(job.Title),

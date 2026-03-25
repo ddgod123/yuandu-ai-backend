@@ -230,6 +230,8 @@ func NewProcessor(db *gorm.DB, qiniu *storage.QiniuClient, cfg config.Config) *P
 
 func (p *Processor) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskTypeProcessVideoJob, p.HandleProcessVideoJob)
+	mux.HandleFunc(TaskTypeProcessVideoJobGIF, p.HandleProcessVideoJobGIF)
+	mux.HandleFunc(TaskTypeProcessVideoJobPNG, p.HandleProcessVideoJobPNG)
 }
 
 func (p *Processor) loadQualitySettings() QualitySettings {
@@ -431,6 +433,14 @@ func (p *Processor) HandleProcessVideoJob(ctx context.Context, t *asynq.Task) er
 		return p.handleJobError(ctx, payload.JobID, err)
 	}
 	return nil
+}
+
+func (p *Processor) HandleProcessVideoJobGIF(ctx context.Context, t *asynq.Task) error {
+	return p.HandleProcessVideoJob(ctx, t)
+}
+
+func (p *Processor) HandleProcessVideoJobPNG(ctx context.Context, t *asynq.Task) error {
+	return p.HandleProcessVideoJob(ctx, t)
 }
 
 func (p *Processor) acquireVideoJobRun(jobID uint64, startedAt time.Time) (bool, error) {

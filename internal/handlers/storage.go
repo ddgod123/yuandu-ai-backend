@@ -34,6 +34,23 @@ type UploadTokenResponse struct {
 	UpHost    string `json:"up_host,omitempty"`
 }
 
+func normalizeUploadHost(raw string) string {
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return ""
+	}
+	if strings.HasPrefix(host, "//") {
+		return "https:" + host
+	}
+	if strings.HasPrefix(host, "http://") {
+		return "https://" + strings.TrimPrefix(host, "http://")
+	}
+	if strings.HasPrefix(host, "https://") {
+		return host
+	}
+	return "https://" + host
+}
+
 // GetUploadToken godoc
 // @Summary Get upload token
 // @Description Generate Qiniu upload token for key or prefix (default emoji/)
@@ -112,7 +129,8 @@ func (h *Handler) GetUploadToken(c *gin.Context) {
 
 	upHost, err := qiniustorage.NewFormUploader(h.qiniu.Cfg).UpHost(h.qiniu.Mac.AccessKey, h.qiniu.Bucket)
 	if err == nil {
-		resp.UpHost = upHost
+		// Browser-side direct uploads should prefer HTTPS to avoid mixed-content blocking.
+		resp.UpHost = normalizeUploadHost(upHost)
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -375,6 +393,7 @@ type BatchObjectURLRequest struct {
 	Keys    []string `json:"keys"`
 	TTL     int      `json:"ttl"`
 	Private bool     `json:"private"`
+	Style   string   `json:"style"`
 }
 
 type BatchObjectURLItem struct {
@@ -442,10 +461,25 @@ const (
 	signedURLCacheSkewSec = int64(20)  // avoid serving near-expiry cache
 )
 
-func storageURLCacheKey(key string, ttl int64, forcePrivate bool) string {
-	raw := strings.TrimSpace(key) + "|" + strconv.FormatInt(ttl, 10) + "|" + strconv.FormatBool(forcePrivate)
+func storageURLCacheKey(key string, ttl int64, forcePrivate bool, style string) string {
+	raw := strings.TrimSpace(key) + "|" + strconv.FormatInt(ttl, 10) + "|" + strconv.FormatBool(forcePrivate) + "|" + strings.TrimSpace(style)
 	sum := sha256.Sum256([]byte(raw))
 	return "cache:storage:url:v1:" + hex.EncodeToString(sum[:])
+}
+
+func normalizeStorageURLStyle(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "none":
+		return ""
+	case "cover_static":
+		// 管理后台列表封面：静态首帧 + 小图尺寸 + webp，减少 GIF 动图解码和带宽占用
+		return "imageMogr2/thumbnail/!160x160r/gravity/Center/crop/160x160/format/webp"
+	case "ip_cover_card":
+		// IP 卡片封面：统一 1.875:1（1200x640）居中裁剪，前后台展示一致
+		return "imageMogr2/thumbnail/!1200x640r/gravity/Center/crop/1200x640/format/webp"
+	default:
+		return ""
+	}
 }
 
 func (h *Handler) readStorageURLCache(ctx context.Context, cacheKey string) (ObjectURLResponse, bool) {
@@ -511,7 +545,7 @@ func normalizeStorageURLTTL(raw int, fallback int) int {
 	return ttl
 }
 
-func (h *Handler) resolveObjectURLWithCache(ctx context.Context, key string, ttl int, forcePrivate bool) (ObjectURLResponse, error) {
+func (h *Handler) resolveObjectURLWithCache(ctx context.Context, key string, ttl int, forcePrivate bool, style string) (ObjectURLResponse, error) {
 	key = strings.TrimLeft(strings.TrimSpace(key), "/")
 	if key == "" {
 		return ObjectURLResponse{}, nil
@@ -519,14 +553,23 @@ func (h *Handler) resolveObjectURLWithCache(ctx context.Context, key string, ttl
 	if h.qiniu == nil {
 		return ObjectURLResponse{}, nil
 	}
+	style = strings.TrimPrefix(strings.TrimSpace(style), "?")
 
 	if h.qiniu.Private || forcePrivate {
 		signedTTL := normalizeStorageURLTTL(ttl, h.qiniu.SignTTL)
-		cacheKey := storageURLCacheKey(key, int64(signedTTL), forcePrivate)
+		cacheKey := storageURLCacheKey(key, int64(signedTTL), forcePrivate, style)
 		if cached, ok := h.readStorageURLCache(ctx, cacheKey); ok {
 			return cached, nil
 		}
-		url, err := h.qiniu.SignedURL(key, int64(signedTTL))
+		var (
+			url string
+			err error
+		)
+		if style != "" {
+			url, err = h.qiniu.SignedURLWithQuery(key, style, int64(signedTTL))
+		} else {
+			url, err = h.qiniu.SignedURL(key, int64(signedTTL))
+		}
 		if err != nil {
 			return ObjectURLResponse{}, err
 		}
@@ -538,6 +581,9 @@ func (h *Handler) resolveObjectURLWithCache(ctx context.Context, key string, ttl
 		return resp, nil
 	}
 
+	if style != "" {
+		return ObjectURLResponse{URL: h.qiniu.PublicURLWithQuery(key, style), ExpiresAt: 0}, nil
+	}
 	return ObjectURLResponse{URL: h.qiniu.PublicURL(key), ExpiresAt: 0}, nil
 }
 
@@ -548,6 +594,7 @@ func (h *Handler) resolveObjectURLWithCache(ctx context.Context, key string, ttl
 // @Param key query string true "object key"
 // @Param ttl query int false "ttl (seconds)" default(3600)
 // @Param private query bool false "force private url"
+// @Param style query string false "url style preset, e.g. cover_static"
 // @Success 200 {object} ObjectURLResponse
 // @Router /api/storage/url [get]
 func (h *Handler) GetObjectURL(c *gin.Context) {
@@ -574,8 +621,9 @@ func (h *Handler) GetObjectURL(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "private url requires admin"})
 		return
 	}
+	style := normalizeStorageURLStyle(c.Query("style"))
 	ttl, _ := strconv.Atoi(c.DefaultQuery("ttl", "0"))
-	resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, ttl, forcePrivate)
+	resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, ttl, forcePrivate, style)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -614,6 +662,7 @@ func (h *Handler) GetObjectURLs(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "private url requires admin"})
 		return
 	}
+	style := normalizeStorageURLStyle(req.Style)
 
 	seen := make(map[string]struct{}, len(req.Keys))
 	keys := make([]string, 0, len(req.Keys))
@@ -642,7 +691,7 @@ func (h *Handler) GetObjectURLs(c *gin.Context) {
 
 	items := make([]BatchObjectURLItem, 0, len(keys))
 	for _, key := range keys {
-		resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, req.TTL, req.Private)
+		resp, err := h.resolveObjectURLWithCache(c.Request.Context(), key, req.TTL, req.Private, style)
 		if err != nil || strings.TrimSpace(resp.URL) == "" {
 			continue
 		}

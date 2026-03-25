@@ -27,46 +27,54 @@ type TagBrief struct {
 	Slug string `json:"slug"`
 }
 
+type CollectionPreviewAsset struct {
+	StaticURL   string `json:"static_url"`
+	AnimatedURL string `json:"animated_url,omitempty"`
+	IsAnimated  bool   `json:"is_animated"`
+	Format      string `json:"format,omitempty"`
+}
+
 type CollectionListItem struct {
-	ID               uint64     `json:"id"`
-	Title            string     `json:"title"`
-	Slug             string     `json:"slug"`
-	Description      string     `json:"description,omitempty"`
-	CoverKey         string     `json:"cover_key,omitempty"`
-	CoverURL         string     `json:"cover_url,omitempty"`
-	OwnerID          uint64     `json:"owner_id"`
-	CreatorProfileID *uint64    `json:"creator_profile_id,omitempty"`
-	CreatorName      string     `json:"creator_name,omitempty"`
-	CreatorNameZh    string     `json:"creator_name_zh,omitempty"`
-	CreatorNameEn    string     `json:"creator_name_en,omitempty"`
-	CreatorAvatarURL string     `json:"creator_avatar_url,omitempty"`
-	FavoriteCount    int64      `json:"favorite_count"`
-	LikeCount        int64      `json:"like_count"`
-	DownloadCount    int64      `json:"download_count"`
-	Favorited        bool       `json:"favorited"`
-	Liked            bool       `json:"liked"`
-	CategoryID       *uint64    `json:"category_id,omitempty"`
-	IPID             *uint64    `json:"ip_id,omitempty"`
-	ThemeID          *uint64    `json:"theme_id,omitempty"`
-	Source           string     `json:"source,omitempty"`
-	QiniuPrefix      string     `json:"qiniu_prefix,omitempty"`
-	PathMismatch     bool       `json:"path_mismatch"`
-	FileCount        int        `json:"file_count"`
-	IsFeatured       bool       `json:"is_featured"`
-	IsPinned         bool       `json:"is_pinned"`
-	IsSample         bool       `json:"is_sample"`
-	PinnedAt         *time.Time `json:"pinned_at,omitempty"`
-	LatestZipKey     string     `json:"latest_zip_key,omitempty"`
-	LatestZipName    string     `json:"latest_zip_name,omitempty"`
-	LatestZipSize    int64      `json:"latest_zip_size,omitempty"`
-	LatestZipAt      *time.Time `json:"latest_zip_at,omitempty"`
-	DownloadCode     string     `json:"download_code,omitempty"`
-	Visibility       string     `json:"visibility,omitempty"`
-	Status           string     `json:"status,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	Tags             []TagBrief `json:"tags,omitempty"`
-	PreviewImages    []string   `json:"preview_images,omitempty"`
+	ID               uint64                   `json:"id"`
+	Title            string                   `json:"title"`
+	Slug             string                   `json:"slug"`
+	Description      string                   `json:"description,omitempty"`
+	CoverKey         string                   `json:"cover_key,omitempty"`
+	CoverURL         string                   `json:"cover_url,omitempty"`
+	OwnerID          uint64                   `json:"owner_id"`
+	CreatorProfileID *uint64                  `json:"creator_profile_id,omitempty"`
+	CreatorName      string                   `json:"creator_name,omitempty"`
+	CreatorNameZh    string                   `json:"creator_name_zh,omitempty"`
+	CreatorNameEn    string                   `json:"creator_name_en,omitempty"`
+	CreatorAvatarURL string                   `json:"creator_avatar_url,omitempty"`
+	FavoriteCount    int64                    `json:"favorite_count"`
+	LikeCount        int64                    `json:"like_count"`
+	DownloadCount    int64                    `json:"download_count"`
+	Favorited        bool                     `json:"favorited"`
+	Liked            bool                     `json:"liked"`
+	CategoryID       *uint64                  `json:"category_id,omitempty"`
+	IPID             *uint64                  `json:"ip_id,omitempty"`
+	ThemeID          *uint64                  `json:"theme_id,omitempty"`
+	Source           string                   `json:"source,omitempty"`
+	QiniuPrefix      string                   `json:"qiniu_prefix,omitempty"`
+	PathMismatch     bool                     `json:"path_mismatch"`
+	FileCount        int                      `json:"file_count"`
+	IsFeatured       bool                     `json:"is_featured"`
+	IsPinned         bool                     `json:"is_pinned"`
+	IsSample         bool                     `json:"is_sample"`
+	PinnedAt         *time.Time               `json:"pinned_at,omitempty"`
+	LatestZipKey     string                   `json:"latest_zip_key,omitempty"`
+	LatestZipName    string                   `json:"latest_zip_name,omitempty"`
+	LatestZipSize    int64                    `json:"latest_zip_size,omitempty"`
+	LatestZipAt      *time.Time               `json:"latest_zip_at,omitempty"`
+	DownloadCode     string                   `json:"download_code,omitempty"`
+	Visibility       string                   `json:"visibility,omitempty"`
+	Status           string                   `json:"status,omitempty"`
+	CreatedAt        time.Time                `json:"created_at"`
+	UpdatedAt        time.Time                `json:"updated_at"`
+	Tags             []TagBrief               `json:"tags,omitempty"`
+	PreviewImages    []string                 `json:"preview_images,omitempty"`
+	PreviewAssets    []CollectionPreviewAsset `json:"preview_assets,omitempty"`
 }
 
 type CollectionListResponse struct {
@@ -443,7 +451,7 @@ func (h *Handler) ListCollections(c *gin.Context) {
 	categoryPrefixMap := loadCollectionCategoryPrefixMap(h.db, items)
 	creatorMap := loadCreatorProfiles(h.db, items)
 	statMap := loadCollectionStats(h.db, items)
-	previewMap := loadCollectionPreviewImages(h.db, h.qiniu, items, previewCount, adminView)
+	previewAssetMap := loadCollectionPreviewAssets(h.db, h.qiniu, items, previewCount, adminView)
 	collectionIDs := make([]uint64, 0, len(items))
 	for _, item := range items {
 		collectionIDs = append(collectionIDs, item.ID)
@@ -500,7 +508,8 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			CreatedAt:        item.CreatedAt,
 			UpdatedAt:        item.UpdatedAt,
 			Tags:             tagMap[item.ID],
-			PreviewImages:    previewMap[item.ID],
+			PreviewImages:    flattenPreviewAssetsToImages(previewAssetMap[item.ID]),
+			PreviewAssets:    previewAssetMap[item.ID],
 		}
 		if adminView {
 			respItem.QiniuPrefix = item.QiniuPrefix
@@ -1631,19 +1640,21 @@ func loadCollectionStats(db *gorm.DB, items []models.Collection) map[uint64]coll
 }
 
 type collectionPreviewRow struct {
-	CollectionID  uint64
-	PreviewSource string
-	RankNum       int
+	CollectionID uint64
+	StaticSource string
+	FileSource   string
+	Format       string
+	RankNum      int
 }
 
-func loadCollectionPreviewImages(
+func loadCollectionPreviewAssets(
 	db *gorm.DB,
 	qiniu *storage.QiniuClient,
 	items []models.Collection,
 	previewCount int,
 	adminView bool,
-) map[uint64][]string {
-	result := map[uint64][]string{}
+) map[uint64][]CollectionPreviewAsset {
+	result := map[uint64][]CollectionPreviewAsset{}
 	if previewCount <= 0 || len(items) == 0 {
 		return result
 	}
@@ -1658,11 +1669,13 @@ func loadCollectionPreviewImages(
 	}
 	rows := make([]collectionPreviewRow, 0)
 	query := `
-SELECT t.collection_id, t.preview_source, t.rank_num
+SELECT t.collection_id, t.static_source, t.file_source, t.format, t.rank_num
 FROM (
 	SELECT
 		e.collection_id,
-		COALESCE(NULLIF(TRIM(e.thumb_url), ''), e.file_url) AS preview_source,
+		COALESCE(NULLIF(TRIM(e.thumb_url), ''), e.file_url) AS static_source,
+		COALESCE(NULLIF(TRIM(e.file_url), ''), e.thumb_url) AS file_source,
+		COALESCE(NULLIF(TRIM(e.format), ''), '') AS format,
 		ROW_NUMBER() OVER (
 			PARTITION BY e.collection_id
 			ORDER BY COALESCE(e.display_order, 2147483647), e.id
@@ -1694,13 +1707,60 @@ ORDER BY t.collection_id, t.rank_num
 		if len(result[row.CollectionID]) >= previewCount {
 			continue
 		}
-		previewURL := resolveListPreviewURL(row.PreviewSource, qiniu)
-		if strings.TrimSpace(previewURL) == "" {
+		staticURL := resolveListStaticPreviewURL(row.StaticSource, qiniu)
+		if strings.TrimSpace(staticURL) == "" {
 			continue
 		}
-		result[row.CollectionID] = append(result[row.CollectionID], previewURL)
+
+		animatedURL := ""
+		isAnimated := isAnimatedPreviewFile(row.FileSource, row.Format)
+		if isAnimated {
+			animatedURL = resolveListPreviewURL(row.FileSource, qiniu)
+		}
+
+		result[row.CollectionID] = append(result[row.CollectionID], CollectionPreviewAsset{
+			StaticURL:   staticURL,
+			AnimatedURL: animatedURL,
+			IsAnimated:  isAnimated && animatedURL != "",
+			Format:      strings.TrimSpace(row.Format),
+		})
 	}
 	return result
+}
+
+func flattenPreviewAssetsToImages(assets []CollectionPreviewAsset) []string {
+	if len(assets) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(assets))
+	for _, asset := range assets {
+		if strings.TrimSpace(asset.StaticURL) == "" {
+			continue
+		}
+		result = append(result, strings.TrimSpace(asset.StaticURL))
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func isAnimatedPreviewFile(source, format string) bool {
+	src := strings.ToLower(strings.TrimSpace(strings.SplitN(source, "?", 2)[0]))
+	fmtLower := strings.ToLower(strings.TrimSpace(format))
+	if strings.HasSuffix(src, ".gif") {
+		return true
+	}
+	if strings.HasSuffix(src, ".webp") {
+		return true
+	}
+	if strings.Contains(fmtLower, "gif") {
+		return true
+	}
+	if strings.Contains(fmtLower, "webp") {
+		return true
+	}
+	return false
 }
 
 func pickCreatorDisplayName(profile models.CreatorProfile) string {

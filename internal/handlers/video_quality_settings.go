@@ -190,8 +190,11 @@ type VideoQualitySettingResponse struct {
 	videojobs.QualitySettings
 	GIFHealthAlertThresholdSettings
 	FeedbackIntegrityAlertThresholdSettings
-	CreatedAt string `json:"created_at,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	CreatedAt       string   `json:"created_at,omitempty"`
+	UpdatedAt       string   `json:"updated_at,omitempty"`
+	FormatScope     string   `json:"format_scope,omitempty"`
+	ResolvedFrom    []string `json:"resolved_from,omitempty"`
+	OverrideVersion string   `json:"override_version,omitempty"`
 }
 
 type ApplyVideoQualityRolloutSuggestionResponse struct {
@@ -1123,6 +1126,22 @@ func toVideoQualitySettingResponse(setting models.VideoQualitySetting, withMeta 
 	return resp
 }
 
+func attachVideoQualitySettingScopeMeta(resp *VideoQualitySettingResponse, format string, resolvedFrom []string, override *models.VideoQualitySettingScoped) {
+	if resp == nil {
+		return
+	}
+	if format == "" {
+		format = videoQualitySettingFormatAll
+	}
+	resp.FormatScope = format
+	if len(resolvedFrom) > 0 {
+		resp.ResolvedFrom = resolvedFrom
+	}
+	if override != nil {
+		resp.OverrideVersion = strings.TrimSpace(override.Version)
+	}
+}
+
 func (h *Handler) loadVideoQualitySetting() (models.VideoQualitySetting, error) {
 	var setting models.VideoQualitySetting
 	if err := h.db.First(&setting, 1).Error; err != nil {
@@ -1161,15 +1180,23 @@ func (h *Handler) loadLatestVideoQualityRolloutAudit() (*models.VideoQualityRoll
 // @Summary Get video quality tuning setting (admin)
 // @Tags admin
 // @Produce json
+// @Param format query string false "format scope: all|gif|png|jpg|webp|live|mp4"
 // @Success 200 {object} VideoQualitySettingResponse
 // @Router /api/admin/video-jobs/quality-settings [get]
 func (h *Handler) GetAdminVideoQualitySetting(c *gin.Context) {
-	setting, err := h.loadVideoQualitySetting()
+	formatScope, err := normalizeVideoQualitySettingFormatScope(c.Query("format"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	setting, resolvedFrom, override, err := h.resolveVideoQualitySettingByFormat(formatScope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, toVideoQualitySettingResponse(setting, true))
+	resp := toVideoQualitySettingResponse(setting, true)
+	attachVideoQualitySettingScopeMeta(&resp, formatScope, resolvedFrom, override)
+	c.JSON(http.StatusOK, resp)
 }
 
 func videoQualitySettingRequestFromModel(setting models.VideoQualitySetting) VideoQualitySettingRequest {
@@ -1345,173 +1372,6 @@ func videoQualitySettingRequestFromModel(setting models.VideoQualitySetting) Vid
 }
 
 func (h *Handler) saveVideoQualitySetting(req VideoQualitySettingRequest) (models.VideoQualitySetting, error) {
-	settings := videojobs.NormalizeQualitySettings(videojobs.QualitySettings{
-		MinBrightness:                        req.MinBrightness,
-		MaxBrightness:                        req.MaxBrightness,
-		BlurThresholdFactor:                  req.BlurThresholdFactor,
-		BlurThresholdMin:                     req.BlurThresholdMin,
-		BlurThresholdMax:                     req.BlurThresholdMax,
-		DuplicateHammingThreshold:            req.DuplicateHammingThreshold,
-		DuplicateBacktrackFrames:             req.DuplicateBacktrackFrames,
-		FallbackBlurRelaxFactor:              req.FallbackBlurRelaxFactor,
-		FallbackHammingThreshold:             req.FallbackHammingThreshold,
-		MinKeepBase:                          req.MinKeepBase,
-		MinKeepRatio:                         req.MinKeepRatio,
-		QualityAnalysisWorkers:               req.QualityAnalysisWorkers,
-		UploadConcurrency:                    req.UploadConcurrency,
-		GIFProfile:                           req.GIFProfile,
-		WebPProfile:                          req.WebPProfile,
-		LiveProfile:                          req.LiveProfile,
-		JPGProfile:                           req.JPGProfile,
-		PNGProfile:                           req.PNGProfile,
-		GIFDefaultFPS:                        req.GIFDefaultFPS,
-		GIFDefaultMaxColors:                  req.GIFDefaultMaxColors,
-		GIFDitherMode:                        req.GIFDitherMode,
-		GIFTargetSizeKB:                      req.GIFTargetSizeKB,
-		GIFGifsicleEnabled:                   req.GIFGifsicleEnabled,
-		GIFGifsicleLevel:                     req.GIFGifsicleLevel,
-		GIFGifsicleSkipBelowKB:               req.GIFGifsicleSkipBelowKB,
-		GIFGifsicleMinGainRatio:              req.GIFGifsicleMinGainRatio,
-		GIFLoopTuneEnabled:                   req.GIFLoopTuneEnabled,
-		GIFLoopTuneMinEnableSec:              req.GIFLoopTuneMinEnableSec,
-		GIFLoopTuneMinImprovement:            req.GIFLoopTuneMinImprovement,
-		GIFLoopTuneMotionTarget:              req.GIFLoopTuneMotionTarget,
-		GIFLoopTunePreferDuration:            req.GIFLoopTunePreferDuration,
-		GIFCandidateMaxOutputs:               req.GIFCandidateMaxOutputs,
-		GIFCandidateLongVideoMaxOutputs:      req.GIFCandidateLongVideoMaxOutputs,
-		GIFCandidateUltraVideoMaxOutputs:     req.GIFCandidateUltraVideoMaxOutputs,
-		GIFCandidateConfidenceThreshold:      req.GIFCandidateConfidenceThreshold,
-		GIFCandidateDedupIOUThreshold:        req.GIFCandidateDedupIOUThreshold,
-		GIFRenderBudgetNormalMultiplier:      req.GIFRenderBudgetNormalMultiplier,
-		GIFRenderBudgetLongMultiplier:        req.GIFRenderBudgetLongMultiplier,
-		GIFRenderBudgetUltraMultiplier:       req.GIFRenderBudgetUltraMultiplier,
-		GIFPipelineShortVideoMaxSec:          req.GIFPipelineShortVideoMaxSec,
-		GIFPipelineLongVideoMinSec:           req.GIFPipelineLongVideoMinSec,
-		GIFPipelineShortVideoMode:            req.GIFPipelineShortVideoMode,
-		GIFPipelineDefaultMode:               req.GIFPipelineDefaultMode,
-		GIFPipelineLongVideoMode:             req.GIFPipelineLongVideoMode,
-		GIFPipelineHighPriorityEnabled:       req.GIFPipelineHighPriorityEnabled,
-		GIFPipelineHighPriorityMode:          req.GIFPipelineHighPriorityMode,
-		GIFDurationTierMediumSec:             req.GIFDurationTierMediumSec,
-		GIFDurationTierLongSec:               req.GIFDurationTierLongSec,
-		GIFDurationTierUltraSec:              req.GIFDurationTierUltraSec,
-		GIFSegmentTimeoutMinSec:              req.GIFSegmentTimeoutMinSec,
-		GIFSegmentTimeoutMaxSec:              req.GIFSegmentTimeoutMaxSec,
-		GIFSegmentTimeoutFallbackCapSec:      req.GIFSegmentTimeoutFallbackCapSec,
-		GIFSegmentTimeoutEmergencyCapSec:     req.GIFSegmentTimeoutEmergencyCapSec,
-		GIFSegmentTimeoutLastResortCapSec:    req.GIFSegmentTimeoutLastResortCapSec,
-		GIFRenderRetryMaxAttempts:            req.GIFRenderRetryMaxAttempts,
-		GIFRenderRetryPrimaryColorsFloor:     req.GIFRenderRetryPrimaryColorsFloor,
-		GIFRenderRetryPrimaryColorsStep:      req.GIFRenderRetryPrimaryColorsStep,
-		GIFRenderRetryFPSFloor:               req.GIFRenderRetryFPSFloor,
-		GIFRenderRetryFPSStep:                req.GIFRenderRetryFPSStep,
-		GIFRenderRetryWidthTrigger:           req.GIFRenderRetryWidthTrigger,
-		GIFRenderRetryWidthScale:             req.GIFRenderRetryWidthScale,
-		GIFRenderRetryWidthFloor:             req.GIFRenderRetryWidthFloor,
-		GIFRenderRetrySecondaryColorsFloor:   req.GIFRenderRetrySecondaryColorsFloor,
-		GIFRenderRetrySecondaryColorsStep:    req.GIFRenderRetrySecondaryColorsStep,
-		GIFRenderInitialSizeFPSCap:           req.GIFRenderInitialSizeFPSCap,
-		GIFRenderInitialClarityFPSFloor:      req.GIFRenderInitialClarityFPSFloor,
-		GIFRenderInitialSizeColorsCap:        req.GIFRenderInitialSizeColorsCap,
-		GIFRenderInitialClarityColorsFloor:   req.GIFRenderInitialClarityColorsFloor,
-		GIFMotionLowScoreThreshold:           req.GIFMotionLowScoreThreshold,
-		GIFMotionHighScoreThreshold:          req.GIFMotionHighScoreThreshold,
-		GIFMotionLowFPSDelta:                 req.GIFMotionLowFPSDelta,
-		GIFMotionHighFPSDelta:                req.GIFMotionHighFPSDelta,
-		GIFAdaptiveFPSMin:                    req.GIFAdaptiveFPSMin,
-		GIFAdaptiveFPSMax:                    req.GIFAdaptiveFPSMax,
-		GIFWidthSizeLow:                      req.GIFWidthSizeLow,
-		GIFWidthSizeMedium:                   req.GIFWidthSizeMedium,
-		GIFWidthSizeHigh:                     req.GIFWidthSizeHigh,
-		GIFWidthClarityLow:                   req.GIFWidthClarityLow,
-		GIFWidthClarityMedium:                req.GIFWidthClarityMedium,
-		GIFWidthClarityHigh:                  req.GIFWidthClarityHigh,
-		GIFColorsSizeLow:                     req.GIFColorsSizeLow,
-		GIFColorsSizeMedium:                  req.GIFColorsSizeMedium,
-		GIFColorsSizeHigh:                    req.GIFColorsSizeHigh,
-		GIFColorsClarityLow:                  req.GIFColorsClarityLow,
-		GIFColorsClarityMedium:               req.GIFColorsClarityMedium,
-		GIFColorsClarityHigh:                 req.GIFColorsClarityHigh,
-		GIFDurationLowSec:                    req.GIFDurationLowSec,
-		GIFDurationMediumSec:                 req.GIFDurationMediumSec,
-		GIFDurationHighSec:                   req.GIFDurationHighSec,
-		GIFDurationSizeProfileMaxSec:         req.GIFDurationSizeProfileMaxSec,
-		GIFDownshiftHighResLongSideThreshold: req.GIFDownshiftHighResLongSideThreshold,
-		GIFDownshiftEarlyDurationSec:         req.GIFDownshiftEarlyDurationSec,
-		GIFDownshiftEarlyLongSideThreshold:   req.GIFDownshiftEarlyLongSideThreshold,
-		GIFDownshiftMediumFPSCap:             req.GIFDownshiftMediumFPSCap,
-		GIFDownshiftMediumWidthCap:           req.GIFDownshiftMediumWidthCap,
-		GIFDownshiftMediumColorsCap:          req.GIFDownshiftMediumColorsCap,
-		GIFDownshiftMediumDurationCapSec:     req.GIFDownshiftMediumDurationCapSec,
-		GIFDownshiftLongFPSCap:               req.GIFDownshiftLongFPSCap,
-		GIFDownshiftLongWidthCap:             req.GIFDownshiftLongWidthCap,
-		GIFDownshiftLongColorsCap:            req.GIFDownshiftLongColorsCap,
-		GIFDownshiftLongDurationCapSec:       req.GIFDownshiftLongDurationCapSec,
-		GIFDownshiftUltraFPSCap:              req.GIFDownshiftUltraFPSCap,
-		GIFDownshiftUltraWidthCap:            req.GIFDownshiftUltraWidthCap,
-		GIFDownshiftUltraColorsCap:           req.GIFDownshiftUltraColorsCap,
-		GIFDownshiftUltraDurationCapSec:      req.GIFDownshiftUltraDurationCapSec,
-		GIFDownshiftHighResFPSCap:            req.GIFDownshiftHighResFPSCap,
-		GIFDownshiftHighResWidthCap:          req.GIFDownshiftHighResWidthCap,
-		GIFDownshiftHighResColorsCap:         req.GIFDownshiftHighResColorsCap,
-		GIFDownshiftHighResDurationCapSec:    req.GIFDownshiftHighResDurationCapSec,
-		GIFTimeoutFallbackFPSCap:             req.GIFTimeoutFallbackFPSCap,
-		GIFTimeoutFallbackWidthCap:           req.GIFTimeoutFallbackWidthCap,
-		GIFTimeoutFallbackColorsCap:          req.GIFTimeoutFallbackColorsCap,
-		GIFTimeoutFallbackMinWidth:           req.GIFTimeoutFallbackMinWidth,
-		GIFTimeoutFallbackUltraFPSCap:        req.GIFTimeoutFallbackUltraFPSCap,
-		GIFTimeoutFallbackUltraWidthCap:      req.GIFTimeoutFallbackUltraWidthCap,
-		GIFTimeoutFallbackUltraColorsCap:     req.GIFTimeoutFallbackUltraColorsCap,
-		GIFTimeoutEmergencyFPSCap:            req.GIFTimeoutEmergencyFPSCap,
-		GIFTimeoutEmergencyWidthCap:          req.GIFTimeoutEmergencyWidthCap,
-		GIFTimeoutEmergencyColorsCap:         req.GIFTimeoutEmergencyColorsCap,
-		GIFTimeoutEmergencyMinWidth:          req.GIFTimeoutEmergencyMinWidth,
-		GIFTimeoutEmergencyDurationTrigger:   req.GIFTimeoutEmergencyDurationTrigger,
-		GIFTimeoutEmergencyDurationScale:     req.GIFTimeoutEmergencyDurationScale,
-		GIFTimeoutEmergencyDurationMinSec:    req.GIFTimeoutEmergencyDurationMinSec,
-		GIFTimeoutLastResortFPSCap:           req.GIFTimeoutLastResortFPSCap,
-		GIFTimeoutLastResortWidthCap:         req.GIFTimeoutLastResortWidthCap,
-		GIFTimeoutLastResortColorsCap:        req.GIFTimeoutLastResortColorsCap,
-		GIFTimeoutLastResortMinWidth:         req.GIFTimeoutLastResortMinWidth,
-		GIFTimeoutLastResortDurationMinSec:   req.GIFTimeoutLastResortDurationMinSec,
-		GIFTimeoutLastResortDurationMaxSec:   req.GIFTimeoutLastResortDurationMaxSec,
-		WebPTargetSizeKB:                     req.WebPTargetSizeKB,
-		JPGTargetSizeKB:                      req.JPGTargetSizeKB,
-		PNGTargetSizeKB:                      req.PNGTargetSizeKB,
-		StillMinBlurScore:                    req.StillMinBlurScore,
-		StillMinExposureScore:                req.StillMinExposureScore,
-		StillMinWidth:                        req.StillMinWidth,
-		StillMinHeight:                       req.StillMinHeight,
-		LiveCoverPortraitWeight:              req.LiveCoverPortraitWeight,
-		LiveCoverSceneMinSamples:             req.LiveCoverSceneMinSamples,
-		LiveCoverGuardMinTotal:               req.LiveCoverGuardMinTotal,
-		LiveCoverGuardScoreFloor:             req.LiveCoverGuardScoreFloor,
-		HighlightFeedbackEnabled:             req.HighlightFeedbackEnabled,
-		HighlightFeedbackRollout:             req.HighlightFeedbackRollout,
-		HighlightFeedbackMinJobs:             req.HighlightFeedbackMinJobs,
-		HighlightFeedbackMinScore:            req.HighlightFeedbackMinScore,
-		HighlightFeedbackBoost:               req.HighlightFeedbackBoost,
-		HighlightWeightPosition:              req.HighlightWeightPosition,
-		HighlightWeightDuration:              req.HighlightWeightDuration,
-		HighlightWeightReason:                req.HighlightWeightReason,
-		HighlightNegativeGuardEnabled:        req.HighlightNegativeGuardEnabled,
-		HighlightNegativeGuardThreshold:      req.HighlightNegativeGuardThreshold,
-		HighlightNegativeGuardMinWeight:      req.HighlightNegativeGuardMinWeight,
-		HighlightNegativePenaltyScale:        req.HighlightNegativePenaltyScale,
-		HighlightNegativePenaltyWeight:       req.HighlightNegativePenaltyWeight,
-		AIDirectorInputMode:                  req.AIDirectorInputMode,
-		AIDirectorOperatorInstruction:        req.AIDirectorOperatorInstruction,
-		AIDirectorOperatorInstructionVersion: req.AIDirectorOperatorInstructionVersion,
-		AIDirectorOperatorEnabled:            req.AIDirectorOperatorEnabled,
-		AIDirectorConstraintOverrideEnabled:  req.AIDirectorConstraintOverrideEnabled,
-		AIDirectorCountExpandRatio:           req.AIDirectorCountExpandRatio,
-		AIDirectorDurationExpandRatio:        req.AIDirectorDurationExpandRatio,
-		AIDirectorCountAbsoluteCap:           req.AIDirectorCountAbsoluteCap,
-		AIDirectorDurationAbsoluteCapSec:     req.AIDirectorDurationAbsoluteCapSec,
-	})
-	alertThresholds := normalizeGIFHealthAlertThresholdSettings(req.GIFHealthAlertThresholdSettings)
-	feedbackIntegrityThresholds := normalizeFeedbackIntegrityAlertThresholdSettings(req.FeedbackIntegrityAlertThresholdSettings)
-
 	var saved models.VideoQualitySetting
 	err := h.db.Transaction(func(tx *gorm.DB) error {
 		var current models.VideoQualitySetting
@@ -1521,10 +1381,11 @@ func (h *Handler) saveVideoQualitySetting(req VideoQualitySettingRequest) (model
 		}
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			payload := models.VideoQualitySetting{}
-			applyQualitySettingsToModel(&payload, settings)
-			applyGIFHealthAlertThresholdSettingsToModel(&payload, alertThresholds)
-			applyFeedbackIntegrityAlertThresholdSettingsToModel(&payload, feedbackIntegrityThresholds)
+			payload, buildErr := buildVideoQualitySettingModelFromRequest(req, models.VideoQualitySetting{})
+			if buildErr != nil {
+				return buildErr
+			}
+			payload.ID = 1
 			if err := tx.Create(&payload).Error; err != nil {
 				return err
 			}
@@ -1532,19 +1393,32 @@ func (h *Handler) saveVideoQualitySetting(req VideoQualitySettingRequest) (model
 			return nil
 		}
 
-		applyQualitySettingsToModel(&current, settings)
-		applyGIFHealthAlertThresholdSettingsToModel(&current, alertThresholds)
-		applyFeedbackIntegrityAlertThresholdSettingsToModel(&current, feedbackIntegrityThresholds)
-		if err := tx.Save(&current).Error; err != nil {
+		payload, buildErr := buildVideoQualitySettingModelFromRequest(req, current)
+		if buildErr != nil {
+			return buildErr
+		}
+		payload.ID = current.ID
+		if err := tx.Save(&payload).Error; err != nil {
 			return err
 		}
-		saved = current
+		saved = payload
 		return nil
 	})
 	return saved, err
 }
 
 func (h *Handler) bindVideoQualitySettingPatch(c *gin.Context) (VideoQualitySettingRequest, error) {
+	if h == nil || c == nil {
+		return VideoQualitySettingRequest{}, errors.New("invalid request")
+	}
+	current, err := h.loadVideoQualitySetting()
+	if err != nil {
+		return VideoQualitySettingRequest{}, err
+	}
+	return h.bindVideoQualitySettingPatchWithBase(c, videoQualitySettingRequestFromModel(current))
+}
+
+func (h *Handler) bindVideoQualitySettingPatchWithBase(c *gin.Context, base VideoQualitySettingRequest) (VideoQualitySettingRequest, error) {
 	if h == nil || c == nil {
 		return VideoQualitySettingRequest{}, errors.New("invalid request")
 	}
@@ -1565,11 +1439,7 @@ func (h *Handler) bindVideoQualitySettingPatch(c *gin.Context) (VideoQualitySett
 		return VideoQualitySettingRequest{}, errors.New("no patch fields provided")
 	}
 
-	current, err := h.loadVideoQualitySetting()
-	if err != nil {
-		return VideoQualitySettingRequest{}, err
-	}
-	req := videoQualitySettingRequestFromModel(current)
+	req := base
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return VideoQualitySettingRequest{}, err
 	}
@@ -1581,10 +1451,17 @@ func (h *Handler) bindVideoQualitySettingPatch(c *gin.Context) (VideoQualitySett
 // @Tags admin
 // @Accept json
 // @Produce json
+// @Param format query string false "format scope: all|gif|png|jpg|webp|live|mp4"
 // @Param body body VideoQualitySettingRequest true "video quality setting"
 // @Success 200 {object} VideoQualitySettingResponse
 // @Router /api/admin/video-jobs/quality-settings [put]
 func (h *Handler) UpdateAdminVideoQualitySetting(c *gin.Context) {
+	formatScope, err := normalizeVideoQualitySettingFormatScope(c.Query("format"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	var req VideoQualitySettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1594,13 +1471,50 @@ func (h *Handler) UpdateAdminVideoQualitySetting(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	saved, err := h.saveVideoQualitySetting(req)
+
+	if formatScope == videoQualitySettingFormatAll {
+		saved, err := h.saveVideoQualitySetting(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		resp := toVideoQualitySettingResponse(saved, true)
+		attachVideoQualitySettingScopeMeta(&resp, formatScope, []string{videoQualitySettingFormatAll}, nil)
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
+	base, err := h.loadVideoQualitySetting()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	baseReq := videoQualitySettingRequestFromModel(base)
+	baseMap, err := videoQualitySettingRequestToMap(baseReq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	targetMap, err := videoQualitySettingRequestToMap(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	override := diffVideoQualitySettingMaps(baseMap, targetMap)
+	adminID, _ := currentUserIDFromContext(c)
+	if _, err := h.saveVideoQualitySettingScope(formatScope, override, adminID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusOK, toVideoQualitySettingResponse(saved, true))
+	effective, resolvedFrom, scopeRow, err := h.resolveVideoQualitySettingByFormat(formatScope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp := toVideoQualitySettingResponse(effective, true)
+	attachVideoQualitySettingScopeMeta(&resp, formatScope, resolvedFrom, scopeRow)
+	c.JSON(http.StatusOK, resp)
 }
 
 // PatchAdminVideoQualitySetting godoc
@@ -1608,11 +1522,44 @@ func (h *Handler) UpdateAdminVideoQualitySetting(c *gin.Context) {
 // @Tags admin
 // @Accept json
 // @Produce json
+// @Param format query string false "format scope: all|gif|png|jpg|webp|live|mp4"
 // @Param body body object true "video quality setting patch"
 // @Success 200 {object} VideoQualitySettingResponse
 // @Router /api/admin/video-jobs/quality-settings [patch]
 func (h *Handler) PatchAdminVideoQualitySetting(c *gin.Context) {
-	req, err := h.bindVideoQualitySettingPatch(c)
+	formatScope, err := normalizeVideoQualitySettingFormatScope(c.Query("format"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if formatScope == videoQualitySettingFormatAll {
+		req, err := h.bindVideoQualitySettingPatch(c)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := validateVideoQualitySettingRequest(req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		saved, err := h.saveVideoQualitySetting(req)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		resp := toVideoQualitySettingResponse(saved, true)
+		attachVideoQualitySettingScopeMeta(&resp, formatScope, []string{videoQualitySettingFormatAll}, nil)
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
+	effective, _, _, err := h.resolveVideoQualitySettingByFormat(formatScope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	req, err := h.bindVideoQualitySettingPatchWithBase(c, videoQualitySettingRequestFromModel(effective))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1622,13 +1569,36 @@ func (h *Handler) PatchAdminVideoQualitySetting(c *gin.Context) {
 		return
 	}
 
-	saved, err := h.saveVideoQualitySetting(req)
+	base, err := h.loadVideoQualitySetting()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	baseMap, err := videoQualitySettingRequestToMap(videoQualitySettingRequestFromModel(base))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	targetMap, err := videoQualitySettingRequestToMap(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	override := diffVideoQualitySettingMaps(baseMap, targetMap)
+	adminID, _ := currentUserIDFromContext(c)
+	if _, err := h.saveVideoQualitySettingScope(formatScope, override, adminID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusOK, toVideoQualitySettingResponse(saved, true))
+	resolvedSetting, resolvedFrom, scopeRow, err := h.resolveVideoQualitySettingByFormat(formatScope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp := toVideoQualitySettingResponse(resolvedSetting, true)
+	attachVideoQualitySettingScopeMeta(&resp, formatScope, resolvedFrom, scopeRow)
+	c.JSON(http.StatusOK, resp)
 }
 
 // ApplyAdminVideoQualityRolloutSuggestion godoc

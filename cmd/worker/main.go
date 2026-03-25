@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"emoji/internal/config"
+	"emoji/internal/copyrightjobs"
 	"emoji/internal/db"
 	"emoji/internal/models"
 	"emoji/internal/queue"
@@ -42,6 +43,8 @@ func main() {
 	mux := asynq.NewServeMux()
 	processor := videojobs.NewProcessor(dbConn, qiniuClient, cfg)
 	processor.Register(mux)
+	copyrightProcessor := copyrightjobs.NewProcessor(dbConn, cfg)
+	copyrightProcessor.Register(mux)
 
 	cleanupHours := parseCleanupHours("VIDEO_JOB_TMP_CLEANUP_HOURS", 12)
 	if cleanupHours > 0 {

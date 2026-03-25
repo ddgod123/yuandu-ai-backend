@@ -45,6 +45,8 @@ const (
 	qiniuListGIFWidth     = 320
 	qiniuListGIFFPS       = 12
 	qiniuListGIFTransform = "avthumb/gif/s/%dx/r/%d"
+	// Static list preview must be single-frame. Use PNG instead of WEBP to avoid animated-webp playback.
+	qiniuListStaticTransform = "imageMogr2/thumbnail/!200x200r/gravity/Center/crop/200x200/format/png"
 )
 
 func (h *Handler) ListEmojis(c *gin.Context) {
@@ -345,6 +347,35 @@ func resolveListPreviewURL(fileURL string, qiniuClient *storage.QiniuClient) str
 		return resolvePreviewURL(key, qiniuClient)
 	}
 	return qiniuClient.PublicURLWithQuery(listKey, listQuery)
+}
+
+func resolveListStaticPreviewURL(fileURL string, qiniuClient *storage.QiniuClient) string {
+	fileURL = strings.TrimSpace(fileURL)
+	if fileURL == "" {
+		return ""
+	}
+	if qiniuClient == nil {
+		return fileURL
+	}
+
+	key, ok := extractQiniuObjectKey(fileURL, qiniuClient)
+	if !ok {
+		if strings.HasPrefix(fileURL, "http://") || strings.HasPrefix(fileURL, "https://") {
+			return fileURL
+		}
+		return resolvePreviewURL(fileURL, qiniuClient)
+	}
+
+	if !isGIFObjectKey(key) {
+		return resolvePreviewURL(key, qiniuClient)
+	}
+	if qiniuClient.Private {
+		if signed, err := qiniuClient.SignedURLWithQuery(key, qiniuListStaticTransform, 0); err == nil && signed != "" {
+			return signed
+		}
+		return resolvePreviewURL(key, qiniuClient)
+	}
+	return qiniuClient.PublicURLWithQuery(key, qiniuListStaticTransform)
 }
 
 func isGIFObjectKey(raw string) bool {

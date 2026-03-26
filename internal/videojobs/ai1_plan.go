@@ -13,6 +13,8 @@ import (
 
 const (
 	VideoJobAI1PlanSchemaV1           = "ai1_executable_plan_v1"
+	VideoJobAI1PlanSchemaImageV1      = "ai1_image_executable_plan_v1"
+	VideoJobAI1PlanSchemaPNGV1        = "ai1_png_executable_plan_v1"
 	VideoJobAI1PlanStatusGenerated    = "generated"
 	VideoJobAI1PlanStatusAwaitingUser = "awaiting_user_confirm"
 	VideoJobAI1PlanStatusConfirmed    = "confirmed"

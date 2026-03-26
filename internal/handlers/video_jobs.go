@@ -193,6 +193,20 @@ type VideoJobAI1PlanResponse struct {
 	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
+type VideoJobAI1DebugResponse struct {
+	JobID           uint64                 `json:"job_id"`
+	RequestedFormat string                 `json:"requested_format"`
+	FlowMode        string                 `json:"flow_mode"`
+	Stage           string                 `json:"stage"`
+	Status          string                 `json:"status"`
+	SourcePrompt    string                 `json:"source_prompt,omitempty"`
+	Input           map[string]interface{} `json:"input,omitempty"`
+	ModelRequest    map[string]interface{} `json:"model_request,omitempty"`
+	ModelResponse   map[string]interface{} `json:"model_response,omitempty"`
+	Output          map[string]interface{} `json:"output,omitempty"`
+	Trace           map[string]interface{} `json:"trace,omitempty"`
+}
+
 type VideoJobCapabilitiesResponse struct {
 	FFmpegAvailable    bool                         `json:"ffmpeg_available"`
 	FFprobeAvailable   bool                         `json:"ffprobe_available"`
@@ -942,6 +956,258 @@ func (h *Handler) GetVideoJobAI1Plan(c *gin.Context) {
 		ConfirmedAt:     row.ConfirmedAt,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
+	})
+}
+
+// GetVideoJobAI1Debug godoc
+// @Summary Get current user video job ai1 debug payloads
+// @Tags user
+// @Produce json
+// @Param id path int true "job id"
+// @Success 200 {object} VideoJobAI1DebugResponse
+// @Router /api/video-jobs/{id}/ai1-debug [get]
+func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || jobID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var job models.VideoJob
+	if err := h.db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var planRow models.VideoJobAI1Plan
+	planFound := true
+	if err := h.db.Where("job_id = ? AND user_id = ?", job.ID, userID).First(&planRow).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_job_ai1_plans") {
+			planFound = false
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	var usageRow models.VideoJobAIUsage
+	usageFound := true
+	if err := h.db.Where("job_id = ? AND user_id = ? AND stage = ?", job.ID, userID, "director").Order("id DESC").First(&usageRow).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_job_ai_usage") {
+			usageFound = false
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	var directiveRow models.VideoJobGIFAIDirective
+	directiveFound := true
+	if err := h.db.Where("job_id = ? AND user_id = ?", job.ID, userID).Order("id DESC").First(&directiveRow).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_job_gif_ai_directives") {
+			directiveFound = false
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	options := parseJSONMap(job.Options)
+	metrics := parseJSONMap(job.Metrics)
+	requestedFormat := videojobs.PrimaryRequestedFormat(job.OutputFormats)
+	if requestedFormat == "" {
+		requestedFormat = strings.ToLower(strings.TrimSpace(stringFromAny(options["requested_format"])))
+	}
+	sourcePrompt := resolveVideoJobDebugSourcePrompt(job, options)
+	flowMode := strings.ToLower(strings.TrimSpace(stringFromAny(options["flow_mode"])))
+	if flowMode == "" {
+		flowMode = "direct"
+	}
+
+	planJSON := map[string]interface{}{}
+	planSchemaVersion := ""
+	planStatus := ""
+	if planFound {
+		planJSON = parseJSONMap(planRow.PlanJSON)
+		planSchemaVersion = strings.TrimSpace(planRow.SchemaVersion)
+		planStatus = strings.TrimSpace(planRow.Status)
+	}
+
+	usageMetadata := map[string]interface{}{}
+	if usageFound {
+		usageMetadata = parseJSONMap(usageRow.Metadata)
+	}
+
+	directiveRawResponse := map[string]interface{}{}
+	directiveInputContext := map[string]interface{}{}
+	if directiveFound {
+		directiveRawResponse = parseJSONMap(directiveRow.RawResponse)
+		directiveInputContext = parseJSONMap(directiveRow.InputContextJSON)
+	}
+
+	userReply, ai2Instruction := buildAI1DebugOutput(planJSON)
+
+	modelRequest := map[string]interface{}{
+		"provider":       strings.TrimSpace(planRow.ModelProvider),
+		"model":          strings.TrimSpace(planRow.ModelName),
+		"prompt_version": strings.TrimSpace(planRow.PromptVersion),
+		"flow_mode":      flowMode,
+	}
+	if usageFound {
+		modelRequest["provider"] = firstNonEmptyString(stringFromAny(modelRequest["provider"]), strings.TrimSpace(usageRow.Provider))
+		modelRequest["model"] = firstNonEmptyString(stringFromAny(modelRequest["model"]), strings.TrimSpace(usageRow.Model))
+		modelRequest["endpoint"] = strings.TrimSpace(usageRow.Endpoint)
+		modelRequest["request_status"] = strings.TrimSpace(usageRow.RequestStatus)
+		modelRequest["request_error"] = strings.TrimSpace(usageRow.RequestError)
+		modelRequest["request_duration_ms"] = usageRow.RequestDurationMs
+		modelRequest["usage"] = map[string]interface{}{
+			"input_tokens":        usageRow.InputTokens,
+			"output_tokens":       usageRow.OutputTokens,
+			"cached_input_tokens": usageRow.CachedInputTokens,
+			"image_tokens":        usageRow.ImageTokens,
+			"video_tokens":        usageRow.VideoTokens,
+			"audio_seconds":       usageRow.AudioSeconds,
+			"cost_usd":            usageRow.CostUSD,
+		}
+		if payload := mapFromAnyValue(usageMetadata["director_model_payload_v2"]); len(payload) > 0 {
+			modelRequest["director_model_payload_v2"] = payload
+		}
+		if debugCtx := mapFromAnyValue(usageMetadata["director_debug_context_v1"]); len(debugCtx) > 0 {
+			modelRequest["director_debug_context_v1"] = debugCtx
+		}
+		if systemPrompt := strings.TrimSpace(stringFromAny(usageMetadata["system_prompt_text"])); systemPrompt != "" {
+			modelRequest["system_prompt_text"] = systemPrompt
+		}
+	}
+
+	developerRules := map[string]interface{}{}
+	for _, key := range []string{
+		"fixed_prompt_version",
+		"fixed_prompt_source",
+		"fixed_prompt_contract_version",
+		"operator_instruction_enabled",
+		"operator_instruction_version",
+		"operator_instruction_source",
+		"operator_instruction_render_mode",
+		"operator_instruction_schema",
+		"director_payload_schema_version",
+		"director_input_mode_requested",
+		"director_input_mode_applied",
+		"director_input_source",
+	} {
+		if value, exists := usageMetadata[key]; exists && value != nil {
+			developerRules[key] = value
+		}
+	}
+
+	modelResponse := map[string]interface{}{
+		"plan_found":      planFound,
+		"usage_found":     usageFound,
+		"directive_found": directiveFound,
+	}
+	if directiveFound {
+		modelResponse["raw_response"] = directiveRawResponse
+		modelResponse["normalized_directive"] = map[string]interface{}{
+			"business_goal":         strings.TrimSpace(directiveRow.BusinessGoal),
+			"audience":              strings.TrimSpace(directiveRow.Audience),
+			"must_capture":          parseJSONStringArray(directiveRow.MustCapture),
+			"avoid":                 parseJSONStringArray(directiveRow.Avoid),
+			"clip_count_min":        directiveRow.ClipCountMin,
+			"clip_count_max":        directiveRow.ClipCountMax,
+			"duration_pref_min_sec": directiveRow.DurationPrefMinSec,
+			"duration_pref_max_sec": directiveRow.DurationPrefMaxSec,
+			"loop_preference":       directiveRow.LoopPreference,
+			"style_direction":       strings.TrimSpace(directiveRow.StyleDirection),
+			"risk_flags":            parseJSONStringArray(directiveRow.RiskFlags),
+			"quality_weights":       parseJSONMap(directiveRow.QualityWeights),
+			"directive_text":        strings.TrimSpace(directiveRow.DirectiveText),
+			"status":                strings.TrimSpace(directiveRow.Status),
+			"fallback_used":         directiveRow.FallbackUsed,
+			"prompt_version":        strings.TrimSpace(directiveRow.PromptVersion),
+			"model_version":         strings.TrimSpace(directiveRow.ModelVersion),
+		}
+		if len(directiveInputContext) > 0 {
+			modelResponse["input_context_v2"] = directiveInputContext
+		}
+	}
+
+	input := map[string]interface{}{
+		"user": map[string]interface{}{
+			"prompt":              sourcePrompt,
+			"title":               strings.TrimSpace(job.Title),
+			"ai_model_preference": strings.TrimSpace(stringFromAny(options["ai_model_preference"])),
+		},
+		"video": map[string]interface{}{
+			"source_video_key": strings.TrimSpace(job.SourceVideoKey),
+			"output_formats":   strings.TrimSpace(job.OutputFormats),
+			"probe":            mapFromAnyValue(options["source_video_probe"]),
+			"metrics_meta": map[string]interface{}{
+				"duration_sec": metrics["duration_sec"],
+				"width":        metrics["width"],
+				"height":       metrics["height"],
+				"fps":          metrics["fps"],
+			},
+		},
+		"developer_rules": developerRules,
+	}
+
+	trace := map[string]interface{}{
+		"options": map[string]interface{}{
+			"execution_queue":       stringFromAny(options["execution_queue"]),
+			"execution_task_type":   stringFromAny(options["execution_task_type"]),
+			"ai1_plan_schema":       stringFromAny(options["ai1_plan_schema_version"]),
+			"ai1_plan_mode":         stringFromAny(options["ai1_plan_mode"]),
+			"ai1_plan_applied":      boolFromAny(options["ai1_plan_applied"]),
+			"ai1_plan_generated":    boolFromAny(options["ai1_plan_generated"]),
+			"ai1_pending":           boolFromAny(options["ai1_pending"]),
+			"ai1_confirmed":         boolFromAny(options["ai1_confirmed"]),
+			"ai1_pause_consumed":    boolFromAny(options["ai1_pause_consumed"]),
+			"requested_format":      stringFromAny(options["requested_format"]),
+			"quality_overrides":     mapFromAnyValue(options["quality_profile_overrides"]),
+			"source_video_probe_v1": mapFromAnyValue(options["source_video_probe"]),
+		},
+		"plan": map[string]interface{}{
+			"schema_version": planSchemaVersion,
+			"status":         planStatus,
+			"plan_json":      planJSON,
+		},
+		"rows": map[string]interface{}{
+			"video_job_id":         job.ID,
+			"video_job_stage":      strings.TrimSpace(job.Stage),
+			"video_job_status":     strings.TrimSpace(job.Status),
+			"ai1_plan_updated_at":  planRow.UpdatedAt,
+			"ai_usage_created_at":  usageRow.CreatedAt,
+			"directive_updated_at": directiveRow.UpdatedAt,
+		},
+	}
+
+	output := map[string]interface{}{
+		"user_reply":      userReply,
+		"ai2_instruction": ai2Instruction,
+	}
+
+	c.JSON(http.StatusOK, VideoJobAI1DebugResponse{
+		JobID:           job.ID,
+		RequestedFormat: strings.ToLower(strings.TrimSpace(requestedFormat)),
+		FlowMode:        flowMode,
+		Stage:           strings.TrimSpace(job.Stage),
+		Status:          strings.TrimSpace(job.Status),
+		SourcePrompt:    sourcePrompt,
+		Input:           input,
+		ModelRequest:    modelRequest,
+		ModelResponse:   modelResponse,
+		Output:          output,
+		Trace:           trace,
 	})
 }
 
@@ -2275,6 +2541,94 @@ func parseJSONMap(raw datatypes.JSON) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return m
+}
+
+func mapFromAnyValue(raw interface{}) map[string]interface{} {
+	value, ok := raw.(map[string]interface{})
+	if !ok {
+		return map[string]interface{}{}
+	}
+	return value
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func parseJSONStringArray(raw datatypes.JSON) []string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var arr []interface{}
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		value := strings.TrimSpace(stringFromAny(item))
+		if value == "" {
+			continue
+		}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func resolveVideoJobDebugSourcePrompt(job models.VideoJob, options map[string]interface{}) string {
+	if prompt := strings.TrimSpace(stringFromAny(options["user_prompt"])); prompt != "" {
+		return prompt
+	}
+	return strings.TrimSpace(job.Title)
+}
+
+func buildAI1DebugOutput(plan map[string]interface{}) (map[string]interface{}, map[string]interface{}) {
+	if len(plan) == 0 {
+		return map[string]interface{}{}, map[string]interface{}{}
+	}
+	ai1Output := mapFromAnyValue(plan["ai1_output_v1"])
+	userReply := map[string]interface{}{}
+	ai2Instruction := map[string]interface{}{}
+	if len(ai1Output) > 0 {
+		userReply = mapFromAnyValue(ai1Output["user_reply"])
+		ai2Instruction = mapFromAnyValue(ai1Output["ai2_instruction"])
+	}
+
+	eventMeta := mapFromAnyValue(plan["event_meta"])
+	executablePlan := mapFromAnyValue(plan["executable_plan"])
+	directive := mapFromAnyValue(plan["directive"])
+
+	if len(userReply) == 0 {
+		userReply = map[string]interface{}{
+			"summary": strings.TrimSpace(stringFromAny(plan["ai_reply"])),
+			"understood_intent": map[string]interface{}{
+				"business_goal": strings.TrimSpace(stringFromAny(directive["business_goal"])),
+				"audience":      strings.TrimSpace(stringFromAny(directive["audience"])),
+				"must_capture":  directive["must_capture"],
+				"avoid":         directive["avoid"],
+			},
+			"source": "fallback_from_plan",
+		}
+		if text := strings.TrimSpace(stringFromAny(eventMeta["ai_reply"])); text != "" {
+			userReply["summary"] = text
+		}
+	}
+	if len(ai2Instruction) == 0 {
+		ai2Instruction = map[string]interface{}{
+			"instruction_version": strings.TrimSpace(stringFromAny(plan["schema_version"])),
+			"source":              "fallback_from_executable_plan",
+			"executable_plan":     executablePlan,
+		}
+	}
+	return userReply, ai2Instruction
 }
 
 func parseUint64FromAny(raw interface{}) uint64 {

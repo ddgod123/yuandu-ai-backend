@@ -628,6 +628,66 @@ func buildImageAI1ExecutableSchema(schemaVersion string, requestedFormat string)
 	}
 }
 
+func buildImageAI1UserReply(eventMeta map[string]interface{}, meta videoProbeMeta, requestedFormats []string) map[string]interface{} {
+	formatLabel := strings.ToUpper(firstRequestedFormat(requestedFormats))
+	if formatLabel == "" {
+		formatLabel = "PNG"
+	}
+	summary := strings.TrimSpace(stringFromAny(eventMeta["ai_reply"]))
+	if summary == "" {
+		summary = buildGenericAI1Reply("", requestedFormats, meta)
+	}
+	out := map[string]interface{}{
+		"summary":          summary,
+		"requested_format": formatLabel,
+		"video_meta": map[string]interface{}{
+			"duration_sec": roundTo(meta.DurationSec, 3),
+			"width":        meta.Width,
+			"height":       meta.Height,
+			"fps":          roundTo(meta.FPS, 3),
+		},
+	}
+	intent := map[string]interface{}{}
+	for _, key := range []string{"business_goal", "audience", "style_direction", "must_capture", "avoid"} {
+		if value, ok := eventMeta[key]; ok && value != nil {
+			intent[key] = value
+		}
+	}
+	if len(intent) > 0 {
+		out["understood_intent"] = intent
+	}
+	assumptions := make([]string, 0, 2)
+	if text := strings.TrimSpace(stringFromAny(eventMeta["focus_window_source"])); text != "" {
+		assumptions = append(assumptions, "已根据视频分析启用重点时间窗："+text)
+	}
+	if len(assumptions) > 0 {
+		out["assumptions"] = assumptions
+	}
+	if errText := strings.TrimSpace(stringFromAny(eventMeta["error"])); errText != "" {
+		out["risk_notice"] = []string{errText}
+	}
+	return out
+}
+
+func buildImageAI2Instruction(schemaVersion string, executablePlan map[string]interface{}, eventMeta map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{
+		"instruction_version": schemaVersion,
+		"target_format":       strings.ToLower(strings.TrimSpace(stringFromAny(executablePlan["target_format"]))),
+		"objective":           strings.TrimSpace(stringFromAny(eventMeta["business_goal"])),
+		"sampling_plan":       cloneMapStringKey(executablePlan),
+		"source":              "ai1_executable_plan",
+	}
+	if out["objective"] == "" {
+		out["objective"] = "extract_high_quality_frames"
+	}
+	for _, key := range []string{"must_capture", "avoid", "style_direction"} {
+		if value, ok := executablePlan[key]; ok && value != nil {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func (p *Processor) buildImageAI1ExecutablePlan(
 	ctx context.Context,
 	job models.VideoJob,
@@ -861,6 +921,8 @@ func (p *Processor) persistImageAI1Plan(
 	if inputSource := strings.TrimSpace(stringFromAny(directorSnapshot["director_input_source"])); inputSource != "" {
 		trace["director_input_source"] = inputSource
 	}
+	userReply := buildImageAI1UserReply(eventMeta, meta, requestedFormats)
+	ai2Instruction := buildImageAI2Instruction(schemaVersion, executablePlan, eventMeta)
 
 	planPayload := map[string]interface{}{
 		"schema_version":    schemaVersion,
@@ -881,6 +943,11 @@ func (p *Processor) persistImageAI1Plan(
 		"director_snapshot": buildAI1PlanDirectorSnapshot(directorSnapshot),
 		"executable_schema": cloneMapStringKey(executableSchema),
 		"executable_plan":   cloneMapStringKey(executablePlan),
+		"ai1_output_v1": map[string]interface{}{
+			"schema_version":  schemaVersion,
+			"user_reply":      userReply,
+			"ai2_instruction": ai2Instruction,
+		},
 	}
 
 	status := resolveAI1PlanStatus(flowMode, ai1Confirmed)

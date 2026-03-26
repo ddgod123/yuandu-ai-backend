@@ -546,6 +546,52 @@ func extractOpenAICompatMessageContent(raw map[string]interface{}) string {
 	}
 }
 
+func summarizeOpenAICompatContentParts(parts []openAICompatContentPart) []map[string]interface{} {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]map[string]interface{}, 0, len(parts))
+	for idx, part := range parts {
+		item := map[string]interface{}{
+			"index": idx + 1,
+			"type":  strings.ToLower(strings.TrimSpace(part.Type)),
+		}
+		switch strings.ToLower(strings.TrimSpace(part.Type)) {
+		case "text":
+			text := strings.TrimSpace(part.Text)
+			item["text_len"] = len(text)
+			if text != "" {
+				item["text_preview"] = truncateTextForDebug(text, 260)
+			}
+		case "image_url":
+			if part.ImageURL != nil {
+				urlText := strings.TrimSpace(part.ImageURL.URL)
+				item["url_prefix"] = truncateTextForDebug(urlText, 80)
+				item["url_len"] = len(urlText)
+				item["is_data_url"] = strings.HasPrefix(strings.ToLower(urlText), "data:")
+			}
+		case "video_url":
+			if part.VideoURL != nil {
+				urlText := strings.TrimSpace(part.VideoURL.URL)
+				item["url"] = urlText
+				item["url_len"] = len(urlText)
+			}
+		default:
+			item["raw"] = part
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func truncateTextForDebug(text string, maxLen int) string {
+	text = strings.TrimSpace(text)
+	if maxLen <= 0 || len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "...(truncated)"
+}
+
 func extractUsageFromOpenAICompat(raw map[string]interface{}) cloudHighlightUsage {
 	usageMap := mapFromAny(raw["usage"])
 	usage := cloudHighlightUsage{
@@ -1127,6 +1173,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 	}
 
 	buildDirectorPayloads := func() (map[string]interface{}, map[string]interface{}) {
+		sourcePrompt := resolveVideoJobSourcePrompt(job)
 		frameRefs := make([]map[string]interface{}, 0, len(frameManifest))
 		for _, item := range frameManifest {
 			row := map[string]interface{}{
@@ -1146,14 +1193,16 @@ func (p *Processor) requestAIGIFPromptDirective(
 			"requested_format":     targetFormat,
 		}
 		source := map[string]interface{}{
-			"title":        strings.TrimSpace(job.Title),
-			"duration_sec": roundTo(meta.DurationSec, 3),
-			"width":        meta.Width,
-			"height":       meta.Height,
-			"fps":          roundTo(meta.FPS, 3),
-			"aspect_ratio": resolveAIDirectorSourceAspectRatio(meta.Width, meta.Height),
-			"orientation":  resolveAIDirectorSourceOrientation(meta.Width, meta.Height),
-			"input_mode":   directorInputModeApplied,
+			"title":            strings.TrimSpace(job.Title),
+			"user_prompt":      sourcePrompt,
+			"source_video_key": strings.TrimSpace(job.SourceVideoKey),
+			"duration_sec":     roundTo(meta.DurationSec, 3),
+			"width":            meta.Width,
+			"height":           meta.Height,
+			"fps":              roundTo(meta.FPS, 3),
+			"aspect_ratio":     resolveAIDirectorSourceAspectRatio(meta.Width, meta.Height),
+			"orientation":      resolveAIDirectorSourceOrientation(meta.Width, meta.Height),
+			"input_mode":       directorInputModeApplied,
 		}
 		if len(frameRefs) > 0 {
 			source["frame_refs"] = frameRefs
@@ -1171,6 +1220,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 		debugPayload := map[string]interface{}{
 			"job_id":                      job.ID,
 			"title":                       strings.TrimSpace(job.Title),
+			"source_prompt":               sourcePrompt,
 			"duration_sec":                roundTo(meta.DurationSec, 3),
 			"width":                       meta.Width,
 			"height":                      meta.Height,
@@ -1325,6 +1375,8 @@ func (p *Processor) requestAIGIFPromptDirective(
 				"director_debug_context_bytes":      len(debugPayloadBytes),
 				"director_input_payload_v1":         debugPayload,
 				"director_input_payload_bytes":      len(debugPayloadBytes),
+				"system_prompt_text":                systemPrompt,
+				"user_parts_shape_v1":               summarizeOpenAICompatContentParts(parts),
 			},
 		})
 		return modelText, usage, rawResp, durationMs, err

@@ -1046,7 +1046,10 @@ func isAsynqQueueNotFoundErr(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	return strings.Contains(msg, "not found") || strings.Contains(msg, "no such")
+	return strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "not_found") ||
+		strings.Contains(msg, "no such") ||
+		strings.Contains(msg, "does not exist")
 }
 
 func finalizeAdminWorkerLaneHealth(lane AdminWorkerLaneStatus) (string, []string) {

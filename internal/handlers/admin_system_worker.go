@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"emoji/internal/models"
@@ -99,6 +100,49 @@ type AdminWorkerHealthResponse struct {
 	StartHint          string                    `json:"start_hint,omitempty"`
 	StopEnabled        bool                      `json:"stop_enabled"`
 	StopHint           string                    `json:"stop_hint,omitempty"`
+	Guard              AdminWorkerGuardStatus    `json:"guard"`
+}
+
+type AdminWorkerGuardPolicy struct {
+	Enabled                bool    `json:"enabled"`
+	AutoPauseEnabled       bool    `json:"auto_pause_enabled"`
+	AutoRunOnHealth        bool    `json:"auto_run_on_health"`
+	LatencyWarnSeconds     float64 `json:"latency_warn_seconds"`
+	LatencyCriticalSeconds float64 `json:"latency_critical_seconds"`
+	PendingWarn            int     `json:"pending_warn"`
+	PendingCritical        int     `json:"pending_critical"`
+	RetryCritical          int     `json:"retry_critical"`
+	StaleQueuedCritical    int64   `json:"stale_queued_critical"`
+	PauseCooldownSeconds   int     `json:"pause_cooldown_seconds"`
+}
+
+type AdminWorkerGuardAction struct {
+	Role      string `json:"role"`
+	Label     string `json:"label,omitempty"`
+	QueueName string `json:"queue_name"`
+	Action    string `json:"action"`
+	Trigger   string `json:"trigger"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+	Source    string `json:"source,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+type AdminWorkerGuardStatus struct {
+	Policy             AdminWorkerGuardPolicy   `json:"policy"`
+	RecommendedActions []AdminWorkerGuardAction `json:"recommended_actions"`
+	AppliedActions     []AdminWorkerGuardAction `json:"applied_actions"`
+	LastRunAt          string                   `json:"last_run_at,omitempty"`
+	RecentActions      []AdminWorkerGuardAction `json:"recent_actions,omitempty"`
+}
+
+var adminWorkerGuardRuntime = struct {
+	mu            sync.Mutex
+	lastRunAt     time.Time
+	lastPauseByQ  map[string]time.Time
+	recentActions []AdminWorkerGuardAction
+}{
+	lastPauseByQ: make(map[string]time.Time),
 }
 
 // GetAdminWorkerHealth godoc
@@ -109,6 +153,72 @@ type AdminWorkerHealthResponse struct {
 // @Router /api/admin/system/worker-health [get]
 func (h *Handler) GetAdminWorkerHealth(c *gin.Context) {
 	now := time.Now()
+	out := h.buildAdminWorkerHealthSnapshot(now)
+	applyAuto := h.cfg.WorkerGuardEnabled && h.cfg.WorkerGuardAutoPause && h.cfg.WorkerGuardAutoRun
+	out.Guard = h.evaluateAdminWorkerGuard(&out, applyAuto, "auto_on_health", now)
+	out.Health, out.Alerts = finalizeAdminWorkerHealth(out)
+	c.JSON(http.StatusOK, out)
+}
+
+// RunAdminWorkerGuard godoc
+// @Summary Run worker guard check/remediation once (admin)
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param apply query boolean false "apply remediation actions (default true)"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/admin/system/worker-guard/run [post]
+func (h *Handler) RunAdminWorkerGuard(c *gin.Context) {
+	apply := true
+	if raw := strings.TrimSpace(c.Query("apply")); raw != "" {
+		if parsed, ok := parseBoolLike(raw); ok {
+			apply = parsed
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid apply value, expect true/false"})
+			return
+		}
+	}
+	if c.Request.ContentLength > 0 {
+		var req struct {
+			Apply *bool `json:"apply"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		if req.Apply != nil {
+			apply = *req.Apply
+		}
+	}
+
+	now := time.Now()
+	out := h.buildAdminWorkerHealthSnapshot(now)
+	out.Guard = h.evaluateAdminWorkerGuard(&out, apply, "manual", now)
+	out.Health, out.Alerts = finalizeAdminWorkerHealth(out)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"applied": len(out.Guard.AppliedActions) > 0,
+		"message": func() string {
+			if !out.Guard.Policy.Enabled {
+				return "worker guard 已禁用，仅返回健康快照"
+			}
+			if !apply {
+				return "worker guard 预览完成（未执行修复动作）"
+			}
+			if !out.Guard.Policy.AutoPauseEnabled {
+				return "worker guard 已运行，但自动暂停未启用（仅输出建议）"
+			}
+			if len(out.Guard.AppliedActions) == 0 {
+				return "worker guard 已运行，未执行修复动作"
+			}
+			return fmt.Sprintf("worker guard 已运行，执行了 %d 个修复动作", len(out.Guard.AppliedActions))
+		}(),
+		"health": out,
+	})
+}
+
+func (h *Handler) buildAdminWorkerHealthSnapshot(now time.Time) AdminWorkerHealthResponse {
 	out := AdminWorkerHealthResponse{
 		CheckedAt:    now.Format(time.RFC3339),
 		Health:       "green",
@@ -121,6 +231,12 @@ func (h *Handler) GetAdminWorkerHealth(c *gin.Context) {
 		Queue:        AdminWorkerQueueStatus{Name: videojobs.QueueVideoJobMedia},
 		StartEnabled: true,
 		StopEnabled:  true,
+		Guard: AdminWorkerGuardStatus{
+			Policy:             h.resolveAdminWorkerGuardPolicy(),
+			RecommendedActions: []AdminWorkerGuardAction{},
+			AppliedActions:     []AdminWorkerGuardAction{},
+			RecentActions:      []AdminWorkerGuardAction{},
+		},
 	}
 	if !h.hasAnyAdminWorkerStartCommand() {
 		out.StartHint = "未配置启动命令：将只执行恢复队列消费（软启动）"
@@ -136,8 +252,8 @@ func (h *Handler) GetAdminWorkerHealth(c *gin.Context) {
 	if err != nil {
 		out.Health = "red"
 		out.Alerts = append(out.Alerts, "无法连接 Asynq/Redis，请检查 worker 与 Redis 配置")
-		c.JSON(http.StatusOK, out)
-		return
+		out.Health, out.Alerts = finalizeAdminWorkerHealth(out)
+		return out
 	}
 	out.RedisReachable = true
 
@@ -165,7 +281,6 @@ func (h *Handler) GetAdminWorkerHealth(c *gin.Context) {
 
 	for idx := range out.Lanes {
 		lane := out.Lanes[idx]
-
 		queueInfo, qErr := inspector.GetQueueInfo(lane.QueueName)
 		if qErr != nil {
 			if !isAsynqQueueNotFoundErr(qErr) {
@@ -187,7 +302,6 @@ func (h *Handler) GetAdminWorkerHealth(c *gin.Context) {
 				FailedToday:    queueInfo.Failed,
 			}
 		}
-
 		lane.ServersTotal = countAdminServersByQueue(servers, lane.QueueName, false)
 		lane.ServersActive = countAdminServersByQueue(servers, lane.QueueName, true)
 		lane.Health, lane.Alerts = finalizeAdminWorkerLaneHealth(lane)
@@ -212,7 +326,7 @@ func (h *Handler) GetAdminWorkerHealth(c *gin.Context) {
 	}
 
 	out.Health, out.Alerts = finalizeAdminWorkerHealth(out)
-	c.JSON(http.StatusOK, out)
+	return out
 }
 
 // StartAdminWorker godoc
@@ -492,6 +606,135 @@ func (h *Handler) hasAnyAdminWorkerStopCommand() bool {
 		}
 	}
 	return false
+}
+
+func (h *Handler) resolveAdminWorkerGuardPolicy() AdminWorkerGuardPolicy {
+	return AdminWorkerGuardPolicy{
+		Enabled:                h.cfg.WorkerGuardEnabled,
+		AutoPauseEnabled:       h.cfg.WorkerGuardAutoPause,
+		AutoRunOnHealth:        h.cfg.WorkerGuardAutoRun,
+		LatencyWarnSeconds:     float64(workerMaxInt(h.cfg.WorkerGuardLatencyWarn, 0)),
+		LatencyCriticalSeconds: float64(workerMaxInt(h.cfg.WorkerGuardLatencyCrit, 0)),
+		PendingWarn:            workerMaxInt(h.cfg.WorkerGuardPendingWarn, 0),
+		PendingCritical:        workerMaxInt(h.cfg.WorkerGuardPendingCrit, 0),
+		RetryCritical:          workerMaxInt(h.cfg.WorkerGuardRetryCrit, 0),
+		StaleQueuedCritical:    int64(workerMaxInt(h.cfg.WorkerGuardStaleCrit, 0)),
+		PauseCooldownSeconds:   workerMaxInt(h.cfg.WorkerGuardPauseCooldownSec, 0),
+	}
+}
+
+func (h *Handler) evaluateAdminWorkerGuard(out *AdminWorkerHealthResponse, apply bool, source string, now time.Time) AdminWorkerGuardStatus {
+	policy := h.resolveAdminWorkerGuardPolicy()
+	guard := AdminWorkerGuardStatus{
+		Policy:             policy,
+		RecommendedActions: []AdminWorkerGuardAction{},
+		AppliedActions:     []AdminWorkerGuardAction{},
+		RecentActions:      []AdminWorkerGuardAction{},
+	}
+	if out == nil {
+		return guard
+	}
+	if !policy.Enabled || !out.RedisReachable {
+		guard.LastRunAt, guard.RecentActions = adminWorkerGuardReadState()
+		return guard
+	}
+
+	for _, lane := range out.Lanes {
+		role := normalizeAdminWorkerRole(lane.Role)
+		if role == "" || role == adminWorkerRoleAll {
+			continue
+		}
+		if lane.Queue.Paused {
+			continue
+		}
+		trigger := ""
+		if policy.LatencyCriticalSeconds > 0 && lane.Queue.LatencySeconds >= policy.LatencyCriticalSeconds {
+			trigger = "latency_critical"
+		} else if policy.PendingCritical > 0 && lane.Queue.Pending >= policy.PendingCritical {
+			trigger = "pending_critical"
+		} else if policy.RetryCritical > 0 && lane.Queue.Retry >= policy.RetryCritical {
+			trigger = "retry_critical"
+		}
+		if trigger == "" {
+			continue
+		}
+
+		action := AdminWorkerGuardAction{
+			Role:      role,
+			Label:     lane.Label,
+			QueueName: lane.QueueName,
+			Action:    "pause_queue",
+			Trigger:   trigger,
+			Status:    "recommended",
+			Source:    source,
+			CreatedAt: now.Format(time.RFC3339),
+		}
+		switch trigger {
+		case "latency_critical":
+			action.Message = fmt.Sprintf("延迟 %.0fs >= 临界阈值 %.0fs", lane.Queue.LatencySeconds, policy.LatencyCriticalSeconds)
+		case "pending_critical":
+			action.Message = fmt.Sprintf("积压 %d >= 临界阈值 %d", lane.Queue.Pending, policy.PendingCritical)
+		case "retry_critical":
+			action.Message = fmt.Sprintf("重试 %d >= 临界阈值 %d", lane.Queue.Retry, policy.RetryCritical)
+		}
+		guard.RecommendedActions = append(guard.RecommendedActions, action)
+	}
+	if policy.StaleQueuedCritical > 0 && out.StaleQueuedJobs >= policy.StaleQueuedCritical {
+		guard.RecommendedActions = append(guard.RecommendedActions, AdminWorkerGuardAction{
+			Role:      adminWorkerRoleMedia,
+			Label:     "通用",
+			QueueName: videojobs.QueueVideoJobMedia,
+			Action:    "pause_queue",
+			Trigger:   "stale_queued_critical",
+			Status:    "recommended",
+			Message:   fmt.Sprintf("超时排队任务 %d >= 临界阈值 %d", out.StaleQueuedJobs, policy.StaleQueuedCritical),
+			Source:    source,
+			CreatedAt: now.Format(time.RFC3339),
+		})
+	}
+
+	applyNow := apply && policy.AutoPauseEnabled
+	if applyNow && len(guard.RecommendedActions) > 0 {
+		inspector := queue.NewInspector(h.cfg)
+		defer inspector.Close()
+		for idx := range guard.RecommendedActions {
+			action := guard.RecommendedActions[idx]
+			if action.QueueName == "" {
+				action.Status = "skipped"
+				action.Message = "queue empty"
+				guard.RecommendedActions[idx] = action
+				continue
+			}
+			if policy.PauseCooldownSeconds > 0 {
+				if wait := adminWorkerGuardCooldownRemaining(action.QueueName, now, time.Duration(policy.PauseCooldownSeconds)*time.Second); wait > 0 {
+					action.Status = "skipped"
+					action.Message = fmt.Sprintf("冷却中，剩余 %.0fs", wait.Seconds())
+					guard.RecommendedActions[idx] = action
+					continue
+				}
+			}
+			if err := inspector.PauseQueue(action.QueueName); err != nil {
+				if isAsynqQueueNotFoundErr(err) {
+					action.Status = "skipped"
+					action.Message = "队列不存在（可能尚未产生任务）"
+				} else {
+					action.Status = "failed"
+					action.Message = err.Error()
+				}
+				guard.RecommendedActions[idx] = action
+				continue
+			}
+			action.Status = "applied"
+			action.Message = "已自动暂停队列"
+			guard.RecommendedActions[idx] = action
+			guard.AppliedActions = append(guard.AppliedActions, action)
+			adminWorkerGuardMarkPaused(action.QueueName, now)
+			markAdminWorkerLanePausedByQueue(out, action.QueueName, action.Trigger)
+		}
+	}
+
+	guard.LastRunAt, guard.RecentActions = adminWorkerGuardRecordRun(now, guard.RecommendedActions)
+	return guard
 }
 
 func (h *Handler) resolveAdminWorkerStartCommand(role string) string {
@@ -901,6 +1144,109 @@ func finalizeAdminWorkerHealth(in AdminWorkerHealthResponse) (string, []string) 
 	}
 
 	return health, dedupeAdminWorkerAlerts(alerts)
+}
+
+func markAdminWorkerLanePausedByQueue(out *AdminWorkerHealthResponse, queueName string, trigger string) {
+	if out == nil || queueName == "" {
+		return
+	}
+	for idx := range out.Lanes {
+		lane := out.Lanes[idx]
+		if lane.QueueName != queueName {
+			continue
+		}
+		lane.Queue.Paused = true
+		lane.Alerts = append(lane.Alerts, fmt.Sprintf("guard 自动暂停：%s", strings.TrimSpace(trigger)))
+		lane.Health, lane.Alerts = finalizeAdminWorkerLaneHealth(lane)
+		out.Lanes[idx] = lane
+		break
+	}
+	if out.Queue.Name == queueName {
+		out.Queue.Paused = true
+	}
+}
+
+func adminWorkerGuardCooldownRemaining(queueName string, now time.Time, cooldown time.Duration) time.Duration {
+	if queueName == "" || cooldown <= 0 {
+		return 0
+	}
+	adminWorkerGuardRuntime.mu.Lock()
+	defer adminWorkerGuardRuntime.mu.Unlock()
+	last := adminWorkerGuardRuntime.lastPauseByQ[queueName]
+	if last.IsZero() {
+		return 0
+	}
+	elapsed := now.Sub(last)
+	if elapsed >= cooldown {
+		return 0
+	}
+	return cooldown - elapsed
+}
+
+func adminWorkerGuardMarkPaused(queueName string, now time.Time) {
+	if queueName == "" {
+		return
+	}
+	adminWorkerGuardRuntime.mu.Lock()
+	defer adminWorkerGuardRuntime.mu.Unlock()
+	if adminWorkerGuardRuntime.lastPauseByQ == nil {
+		adminWorkerGuardRuntime.lastPauseByQ = make(map[string]time.Time)
+	}
+	adminWorkerGuardRuntime.lastPauseByQ[queueName] = now
+}
+
+func adminWorkerGuardRecordRun(now time.Time, actions []AdminWorkerGuardAction) (string, []AdminWorkerGuardAction) {
+	adminWorkerGuardRuntime.mu.Lock()
+	defer adminWorkerGuardRuntime.mu.Unlock()
+	adminWorkerGuardRuntime.lastRunAt = now
+	if len(actions) > 0 {
+		for _, action := range actions {
+			item := action
+			if strings.TrimSpace(item.CreatedAt) == "" {
+				item.CreatedAt = now.Format(time.RFC3339)
+			}
+			adminWorkerGuardRuntime.recentActions = append([]AdminWorkerGuardAction{item}, adminWorkerGuardRuntime.recentActions...)
+		}
+	}
+	if len(adminWorkerGuardRuntime.recentActions) > 20 {
+		adminWorkerGuardRuntime.recentActions = adminWorkerGuardRuntime.recentActions[:20]
+	}
+	recent := append([]AdminWorkerGuardAction{}, adminWorkerGuardRuntime.recentActions...)
+	lastRun := ""
+	if !adminWorkerGuardRuntime.lastRunAt.IsZero() {
+		lastRun = adminWorkerGuardRuntime.lastRunAt.Format(time.RFC3339)
+	}
+	return lastRun, recent
+}
+
+func adminWorkerGuardReadState() (string, []AdminWorkerGuardAction) {
+	adminWorkerGuardRuntime.mu.Lock()
+	defer adminWorkerGuardRuntime.mu.Unlock()
+	lastRun := ""
+	if !adminWorkerGuardRuntime.lastRunAt.IsZero() {
+		lastRun = adminWorkerGuardRuntime.lastRunAt.Format(time.RFC3339)
+	}
+	recent := append([]AdminWorkerGuardAction{}, adminWorkerGuardRuntime.recentActions...)
+	return lastRun, recent
+}
+
+func workerMaxInt(value, min int) int {
+	if value < min {
+		return min
+	}
+	return value
+}
+
+func parseBoolLike(raw string) (bool, bool) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func elevateAdminWorkerHealth(current, target string) string {

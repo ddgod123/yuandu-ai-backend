@@ -36,26 +36,36 @@ type Config struct {
 	MinIOBucket    string
 	MinIOUseSSL    bool
 
-	AsynqRedisAddr          string
-	AsynqRedisPassword      string
-	AsynqRedisDB            int
-	WorkerStartCommand      string
-	WorkerStartCommandGIF   string
-	WorkerStartCommandPNG   string
-	WorkerStartCommandMedia string
-	WorkerStopCommand       string
-	WorkerStopCommandGIF    string
-	WorkerStopCommandPNG    string
-	WorkerStopCommandMedia  string
-	WorkerStartTimeout      int
-	GIFSICLEBin             string
-	GIFBundleEnabled        bool
-	GIFMezzanineEnabled     bool
-	GIFBundleMergeGapMS     int
-	GIFBundleMaxSpanSec     int
-	GIFMezzanineMinWindows  int
-	GIFMezzanineCRF         int
-	GIFMezzaninePreset      string
+	AsynqRedisAddr              string
+	AsynqRedisPassword          string
+	AsynqRedisDB                int
+	WorkerStartCommand          string
+	WorkerStartCommandGIF       string
+	WorkerStartCommandPNG       string
+	WorkerStartCommandMedia     string
+	WorkerStopCommand           string
+	WorkerStopCommandGIF        string
+	WorkerStopCommandPNG        string
+	WorkerStopCommandMedia      string
+	WorkerStartTimeout          int
+	WorkerGuardEnabled          bool
+	WorkerGuardAutoPause        bool
+	WorkerGuardAutoRun          bool
+	WorkerGuardLatencyWarn      int
+	WorkerGuardLatencyCrit      int
+	WorkerGuardPendingWarn      int
+	WorkerGuardPendingCrit      int
+	WorkerGuardRetryCrit        int
+	WorkerGuardStaleCrit        int
+	WorkerGuardPauseCooldownSec int
+	GIFSICLEBin                 string
+	GIFBundleEnabled            bool
+	GIFMezzanineEnabled         bool
+	GIFBundleMergeGapMS         int
+	GIFBundleMaxSpanSec         int
+	GIFMezzanineMinWindows      int
+	GIFMezzanineCRF             int
+	GIFMezzaninePreset          string
 	// Enable legacy feedback_v1 fallback/mirror path.
 	// Default false: strict output_id/candidate_id learning only.
 	EnableLegacyFeedbackFallback bool
@@ -232,6 +242,16 @@ func Load() Config {
 	cfg.WorkerStopCommandPNG = getEnv("WORKER_STOP_COMMAND_PNG", "")
 	cfg.WorkerStopCommandMedia = getEnv("WORKER_STOP_COMMAND_MEDIA", "")
 	cfg.WorkerStartTimeout = getEnvAsInt("WORKER_START_TIMEOUT_SECONDS", 20)
+	cfg.WorkerGuardEnabled = getEnvAsBool("WORKER_GUARD_ENABLED", true)
+	cfg.WorkerGuardAutoPause = getEnvAsBool("WORKER_GUARD_AUTO_PAUSE_ENABLED", false)
+	cfg.WorkerGuardAutoRun = getEnvAsBool("WORKER_GUARD_AUTO_RUN_ON_HEALTH", false)
+	cfg.WorkerGuardLatencyWarn = getEnvAsInt("WORKER_GUARD_LATENCY_WARN_SECONDS", 120)
+	cfg.WorkerGuardLatencyCrit = getEnvAsInt("WORKER_GUARD_LATENCY_CRITICAL_SECONDS", 600)
+	cfg.WorkerGuardPendingWarn = getEnvAsInt("WORKER_GUARD_PENDING_WARN", 100)
+	cfg.WorkerGuardPendingCrit = getEnvAsInt("WORKER_GUARD_PENDING_CRITICAL", 300)
+	cfg.WorkerGuardRetryCrit = getEnvAsInt("WORKER_GUARD_RETRY_CRITICAL", 40)
+	cfg.WorkerGuardStaleCrit = getEnvAsInt("WORKER_GUARD_STALE_QUEUED_CRITICAL", 20)
+	cfg.WorkerGuardPauseCooldownSec = getEnvAsInt("WORKER_GUARD_PAUSE_COOLDOWN_SECONDS", 600)
 	cfg.GIFSICLEBin = getEnv("GIFSICLE_BIN", "")
 	devDefault := strings.ToLower(strings.TrimSpace(cfg.Env)) != "prod"
 	cfg.GIFBundleEnabled = getEnvAsBool("GIF_BUNDLE_ENABLED", devDefault)

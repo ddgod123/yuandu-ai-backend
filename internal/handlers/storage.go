@@ -34,6 +34,49 @@ type UploadTokenResponse struct {
 	UpHost    string `json:"up_host,omitempty"`
 }
 
+func normalizeUploadTokenExpire(raw int64, fallback int) int64 {
+	expires := raw
+	if expires <= 0 {
+		expires = int64(fallback)
+	}
+	if expires < 60 {
+		expires = 60
+	}
+	if expires > 86400 {
+		expires = 86400
+	}
+	return expires
+}
+
+func issueQiniuUploadToken(h *Handler, key, prefix string, expires int64, insertOnly bool) UploadTokenResponse {
+	policy := qiniustorage.PutPolicy{}
+	if key != "" {
+		policy.Scope = h.qiniu.Bucket + ":" + key
+	} else {
+		policy.Scope = h.qiniu.Bucket + ":" + prefix
+		policy.IsPrefixalScope = 1
+	}
+	policy.Expires = uint64(expires)
+	if insertOnly {
+		policy.InsertOnly = 1
+	}
+
+	token := policy.UploadToken(h.qiniu.Mac)
+	resp := UploadTokenResponse{
+		Token:     token,
+		Bucket:    h.qiniu.Bucket,
+		Key:       key,
+		Prefix:    prefix,
+		ExpiresAt: time.Now().Unix() + expires,
+	}
+
+	upHost, err := qiniustorage.NewFormUploader(h.qiniu.Cfg).UpHost(h.qiniu.Mac.AccessKey, h.qiniu.Bucket)
+	if err == nil {
+		resp.UpHost = normalizeUploadHost(upHost)
+	}
+	return resp
+}
+
 func normalizeUploadHost(raw string) string {
 	host := strings.TrimSpace(raw)
 	if host == "" {
@@ -95,44 +138,62 @@ func (h *Handler) GetUploadToken(c *gin.Context) {
 		}
 	}
 
-	expires := req.Expires
-	if expires <= 0 {
-		expires = int64(h.qiniu.SignTTL)
+	expires := normalizeUploadTokenExpire(req.Expires, h.qiniu.SignTTL)
+	resp := issueQiniuUploadToken(h, key, prefix, expires, req.InsertOnly)
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetVideoJobUploadToken godoc
+// @Summary Get upload token for video-job source upload
+// @Description Authenticated user upload token, scoped to emoji/user-video/...
+// @Tags storage
+// @Accept json
+// @Produce json
+// @Param body body UploadTokenRequest true "upload token request"
+// @Success 200 {object} UploadTokenResponse
+// @Router /api/video-jobs/upload-token [post]
+func (h *Handler) GetVideoJobUploadToken(c *gin.Context) {
+	if h.qiniu == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
+		return
 	}
-	if expires < 60 {
-		expires = 60
-	}
-	if expires > 86400 {
-		expires = 86400
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
 	}
 
-	policy := qiniustorage.PutPolicy{}
+	var req UploadTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userPrefix := path.Join("emoji", "user-video", strconv.FormatUint(userID, 10)) + "/"
+	legacyPrefix := "emoji/user-video/"
+
+	key := strings.TrimLeft(strings.TrimSpace(req.Key), "/")
+	prefix := strings.TrimLeft(strings.TrimSpace(req.Prefix), "/")
+
+	if key == "" && prefix == "" {
+		prefix = userPrefix
+	}
 	if key != "" {
-		policy.Scope = h.qiniu.Bucket + ":" + key
-	} else {
-		policy.Scope = h.qiniu.Bucket + ":" + prefix
-		policy.IsPrefixalScope = 1
+		if !strings.HasPrefix(key, userPrefix) && !strings.HasPrefix(key, legacyPrefix) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
+			return
+		}
 	}
-	policy.Expires = uint64(expires)
-	if req.InsertOnly {
-		policy.InsertOnly = 1
-	}
-
-	token := policy.UploadToken(h.qiniu.Mac)
-	resp := UploadTokenResponse{
-		Token:     token,
-		Bucket:    h.qiniu.Bucket,
-		Key:       key,
-		Prefix:    prefix,
-		ExpiresAt: time.Now().Unix() + expires,
+	if prefix != "" {
+		if !strings.HasPrefix(prefix, userPrefix) && !strings.HasPrefix(prefix, legacyPrefix) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
+			return
+		}
 	}
 
-	upHost, err := qiniustorage.NewFormUploader(h.qiniu.Cfg).UpHost(h.qiniu.Mac.AccessKey, h.qiniu.Bucket)
-	if err == nil {
-		// Browser-side direct uploads should prefer HTTPS to avoid mixed-content blocking.
-		resp.UpHost = normalizeUploadHost(upHost)
-	}
-
+	insertOnly := true
+	expires := normalizeUploadTokenExpire(req.Expires, h.qiniu.SignTTL)
+	resp := issueQiniuUploadToken(h, key, prefix, expires, insertOnly)
 	c.JSON(http.StatusOK, resp)
 }
 

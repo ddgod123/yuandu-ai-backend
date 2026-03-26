@@ -100,6 +100,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 			auth.POST("/video-jobs", h.CreateVideoJob)
 			auth.GET("/video-jobs", h.ListMyVideoJobs)
 			auth.GET("/video-jobs/capabilities", h.GetVideoJobCapabilities)
+			auth.POST("/video-jobs/upload-token", h.GetVideoJobUploadToken)
 			auth.POST("/video-jobs/source-probe", h.ProbeVideoSource)
 			auth.POST("/video-jobs/source-url-probe", h.ProbeSourceVideoURLMock)
 			auth.GET("/video-jobs/:id", h.GetVideoJob)

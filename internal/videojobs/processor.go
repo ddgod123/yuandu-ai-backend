@@ -411,7 +411,7 @@ func (p *Processor) loadQualitySettings() QualitySettings {
 	})
 }
 
-func (p *Processor) HandleProcessVideoJob(ctx context.Context, t *asynq.Task) error {
+func (p *Processor) handleProcessVideoJob(ctx context.Context, t *asynq.Task, runner func(context.Context, uint64) error) error {
 	var payload ProcessVideoJobPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return fmt.Errorf("decode payload: %w", err)
@@ -429,18 +429,25 @@ func (p *Processor) HandleProcessVideoJob(ctx context.Context, t *asynq.Task) er
 		return fmt.Errorf("%w: qiniu not configured", asynq.SkipRetry)
 	}
 
-	if err := p.process(ctx, payload.JobID); err != nil {
+	if runner == nil {
+		runner = p.process
+	}
+	if err := runner(ctx, payload.JobID); err != nil {
 		return p.handleJobError(ctx, payload.JobID, err)
 	}
 	return nil
 }
 
+func (p *Processor) HandleProcessVideoJob(ctx context.Context, t *asynq.Task) error {
+	return p.handleProcessVideoJob(ctx, t, p.process)
+}
+
 func (p *Processor) HandleProcessVideoJobGIF(ctx context.Context, t *asynq.Task) error {
-	return p.HandleProcessVideoJob(ctx, t)
+	return p.handleProcessVideoJob(ctx, t, p.processGIFPipeline)
 }
 
 func (p *Processor) HandleProcessVideoJobPNG(ctx context.Context, t *asynq.Task) error {
-	return p.HandleProcessVideoJob(ctx, t)
+	return p.handleProcessVideoJob(ctx, t, p.processImagePipeline)
 }
 
 func (p *Processor) acquireVideoJobRun(jobID uint64, startedAt time.Time) (bool, error) {

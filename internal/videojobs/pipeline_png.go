@@ -6,5 +6,5 @@ import "context"
 // (png/jpg/webp/live/mp4 first-frame path). It currently reuses processUnified
 // and serves as the split seam for future format-specific AI stages.
 func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) error {
-	return p.processUnified(ctx, jobID)
+	return p.processUnifiedWithLane(ctx, jobID, "image")
 }

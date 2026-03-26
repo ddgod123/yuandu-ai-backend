@@ -17,6 +17,15 @@ import (
 )
 
 func (p *Processor) processUnified(ctx context.Context, jobID uint64) error {
+	return p.processUnifiedWithLane(ctx, jobID, "")
+}
+
+func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, lane string) error {
+	executionLane := strings.ToLower(strings.TrimSpace(lane))
+	if executionLane == "" {
+		executionLane = "auto"
+	}
+
 	var job models.VideoJob
 	if err := p.db.First(&job, jobID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -52,6 +61,10 @@ func (p *Processor) processUnified(ctx context.Context, jobID uint64) error {
 		p.appendJobEvent(job.ID, models.VideoJobStageQueued, "info", "skip duplicated processing trigger", nil)
 		return nil
 	}
+	p.appendJobEvent(job.ID, models.VideoJobStagePreprocessing, "info", "execution lane resolved", map[string]interface{}{
+		"execution_lane":   executionLane,
+		"requested_format": PrimaryRequestedFormat(job.OutputFormats),
+	})
 	p.appendJobEvent(job.ID, models.VideoJobStagePreprocessing, "info", "video job started", nil)
 
 	if p.isJobCancelled(job.ID) {

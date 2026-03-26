@@ -3,5 +3,5 @@ package main
 import "emoji/internal/workerapp"
 
 func main() {
-	workerapp.Run("")
+	workerapp.Run("png")
 }

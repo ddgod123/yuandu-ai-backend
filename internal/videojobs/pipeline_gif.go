@@ -6,5 +6,5 @@ import "context"
 // Stage-2 refactor keeps the heavy logic in processUnified and isolates the
 // entrypoint so GIF-specific orchestration can evolve independently.
 func (p *Processor) processGIFPipeline(ctx context.Context, jobID uint64) error {
-	return p.processUnified(ctx, jobID)
+	return p.processUnifiedWithLane(ctx, jobID, "gif")
 }

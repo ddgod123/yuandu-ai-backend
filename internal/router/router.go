@@ -207,6 +207,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 			admin.GET("/dashboard/trends", h.GetAdminDashboardTrends)
 			admin.GET("/system/worker-health", h.GetAdminWorkerHealth)
 			admin.POST("/system/worker-start", h.StartAdminWorker)
+			admin.POST("/system/worker-stop", h.StopAdminWorker)
 			admin.GET("/system/data-audit/overview", h.GetAdminDataAuditOverview)
 			admin.GET("/users/:id/detail", h.GetAdminUserDetail)
 			admin.PUT("/collections/:id", h.AdminUpdateCollection)

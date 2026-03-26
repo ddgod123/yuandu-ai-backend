@@ -36,19 +36,26 @@ type Config struct {
 	MinIOBucket    string
 	MinIOUseSSL    bool
 
-	AsynqRedisAddr         string
-	AsynqRedisPassword     string
-	AsynqRedisDB           int
-	WorkerStartCommand     string
-	WorkerStartTimeout     int
-	GIFSICLEBin            string
-	GIFBundleEnabled       bool
-	GIFMezzanineEnabled    bool
-	GIFBundleMergeGapMS    int
-	GIFBundleMaxSpanSec    int
-	GIFMezzanineMinWindows int
-	GIFMezzanineCRF        int
-	GIFMezzaninePreset     string
+	AsynqRedisAddr          string
+	AsynqRedisPassword      string
+	AsynqRedisDB            int
+	WorkerStartCommand      string
+	WorkerStartCommandGIF   string
+	WorkerStartCommandPNG   string
+	WorkerStartCommandMedia string
+	WorkerStopCommand       string
+	WorkerStopCommandGIF    string
+	WorkerStopCommandPNG    string
+	WorkerStopCommandMedia  string
+	WorkerStartTimeout      int
+	GIFSICLEBin             string
+	GIFBundleEnabled        bool
+	GIFMezzanineEnabled     bool
+	GIFBundleMergeGapMS     int
+	GIFBundleMaxSpanSec     int
+	GIFMezzanineMinWindows  int
+	GIFMezzanineCRF         int
+	GIFMezzaninePreset      string
 	// Enable legacy feedback_v1 fallback/mirror path.
 	// Default false: strict output_id/candidate_id learning only.
 	EnableLegacyFeedbackFallback bool
@@ -217,6 +224,13 @@ func Load() Config {
 	cfg.AsynqRedisPassword = getEnv("ASYNQ_REDIS_PASSWORD", cfg.RedisPassword)
 	cfg.AsynqRedisDB = getEnvAsInt("ASYNQ_REDIS_DB", cfg.RedisDB)
 	cfg.WorkerStartCommand = getEnv("WORKER_START_COMMAND", "")
+	cfg.WorkerStartCommandGIF = getEnv("WORKER_START_COMMAND_GIF", "")
+	cfg.WorkerStartCommandPNG = getEnv("WORKER_START_COMMAND_PNG", "")
+	cfg.WorkerStartCommandMedia = getEnv("WORKER_START_COMMAND_MEDIA", "")
+	cfg.WorkerStopCommand = getEnv("WORKER_STOP_COMMAND", "")
+	cfg.WorkerStopCommandGIF = getEnv("WORKER_STOP_COMMAND_GIF", "")
+	cfg.WorkerStopCommandPNG = getEnv("WORKER_STOP_COMMAND_PNG", "")
+	cfg.WorkerStopCommandMedia = getEnv("WORKER_STOP_COMMAND_MEDIA", "")
 	cfg.WorkerStartTimeout = getEnvAsInt("WORKER_START_TIMEOUT_SECONDS", 20)
 	cfg.GIFSICLEBin = getEnv("GIFSICLE_BIN", "")
 	devDefault := strings.ToLower(strings.TrimSpace(cfg.Env)) != "prod"

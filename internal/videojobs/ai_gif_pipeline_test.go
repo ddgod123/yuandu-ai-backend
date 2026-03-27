@@ -32,6 +32,48 @@ func TestExtractUsageFromOpenAICompat(t *testing.T) {
 	}
 }
 
+func TestExtractOpenAICompatMessageContent_TypedPayload(t *testing.T) {
+	raw := map[string]interface{}{
+		"choices": []interface{}{
+			map[string]interface{}{
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []interface{}{
+						map[string]interface{}{"type": "output_text", "text": "第一段"},
+						map[string]interface{}{"type": "output_text", "text": "第二段"},
+					},
+				},
+			},
+		},
+	}
+	content := extractOpenAICompatMessageContent(raw)
+	if !strings.Contains(content, "第一段") || !strings.Contains(content, "第二段") {
+		t.Fatalf("unexpected content: %s", content)
+	}
+}
+
+func TestParseOpenAICompatChatResponse_UseNumber(t *testing.T) {
+	raw := []byte(`{
+		"id":"chatcmpl_xxx",
+		"choices":[{"message":{"role":"assistant","content":"ok"}}],
+		"usage":{"prompt_tokens":1200,"completion_tokens":340,"audio_seconds":1.25}
+	}`)
+	parsed, err := parseOpenAICompatChatResponse(raw)
+	if err != nil {
+		t.Fatalf("parse response failed: %v", err)
+	}
+	if got := extractOpenAICompatMessageContentFromResponse(parsed); got != "ok" {
+		t.Fatalf("content mismatch: %s", got)
+	}
+	usage := extractUsageFromOpenAICompatResponse(parsed)
+	if usage.InputTokens != 1200 || usage.OutputTokens != 340 {
+		t.Fatalf("usage mismatch: %#v", usage)
+	}
+	if usage.AudioSeconds <= 1.2 || usage.AudioSeconds >= 1.3 {
+		t.Fatalf("audio seconds mismatch: %f", usage.AudioSeconds)
+	}
+}
+
 func TestNormalizeAIGIFPlannerProposals(t *testing.T) {
 	in := []gifAIPlannerProposal{
 		{
@@ -314,5 +356,75 @@ func TestApplyAIGIFTechnicalHardGates_KeepInternalNotForced(t *testing.T) {
 	}
 	if stats.Applied != 0 {
 		t.Fatalf("expected no hard gate changes, got %+v", stats)
+	}
+}
+
+func TestApplyAIGIFTechnicalHardGates_UsesConfiguredThresholds(t *testing.T) {
+	reviews := []gifAIJudgeReviewRow{
+		{
+			OutputID:            404,
+			FinalRecommendation: "deliver",
+		},
+	}
+	samples := []gifJudgeSample{
+		{
+			OutputID:    404,
+			Score:       0.88,
+			SizeBytes:   250_000,
+			Width:       720,
+			Height:      720,
+			DurationMs:  1600,
+			EvalOverall: 0.80,
+			EvalClarity: 0.35, // above default(0.2), below overridden(0.4)
+			EvalLoop:    0.70,
+		},
+	}
+	settings := DefaultQualitySettings()
+	settings.GIFAIJudgeHardGateMinClarityScore = 0.40
+
+	updated, verdicts, stats := applyAIGIFTechnicalHardGates(reviews, samples, settings)
+	if updated[0].FinalRecommendation != "reject" {
+		t.Fatalf("expected reject with overridden clarity gate, got %s", updated[0].FinalRecommendation)
+	}
+	v := verdicts[404]
+	if !containsString(v.ReasonCodes, "clarity_low") {
+		t.Fatalf("expected clarity_low reason under overridden threshold, got %+v", v.ReasonCodes)
+	}
+	if stats.Applied != 1 || stats.RejectCount != 1 {
+		t.Fatalf("unexpected hard gate stats: %+v", stats)
+	}
+}
+
+func TestApplyAIGIFTechnicalHardGates_ZeroValueSettingsFallbackToDefaults(t *testing.T) {
+	reviews := []gifAIJudgeReviewRow{
+		{
+			OutputID:            505,
+			FinalRecommendation: "deliver",
+		},
+	}
+	samples := []gifJudgeSample{
+		{
+			OutputID:    505,
+			Score:       0.81,
+			SizeBytes:   320_000,
+			Width:       640,
+			Height:      640,
+			DurationMs:  1500,
+			EvalOverall: 0.70,
+			EvalClarity: 0.12, // should still be rejected by default threshold(0.2)
+			EvalLoop:    0.66,
+		},
+	}
+
+	updated, verdicts, stats := applyAIGIFTechnicalHardGates(reviews, samples, QualitySettings{})
+	if updated[0].FinalRecommendation != "reject" {
+		t.Fatalf("expected reject via default fallback thresholds, got %s", updated[0].FinalRecommendation)
+	}
+	v := verdicts[505]
+	if !containsString(v.ReasonCodes, "clarity_low") {
+		t.Fatalf("expected clarity_low reason under default fallback, got %+v", v.ReasonCodes)
+	}
+	if stats.Applied != 1 || stats.RejectCount != 1 {
+		t.Fatalf("unexpected hard gate stats: %+v", stats)
 	}
 }

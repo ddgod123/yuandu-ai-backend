@@ -933,7 +933,8 @@ func (h *Handler) GetAdminVideoJobsFeedbackIntegrityDrilldown(c *gin.Context) {
 
 	now := time.Now()
 	since := now.Add(-windowDuration)
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
 
 	type anomalyRow struct {
 		JobID            uint64     `gorm:"column:job_id"`
@@ -944,7 +945,7 @@ func (h *Handler) GetAdminVideoJobsFeedbackIntegrityDrilldown(c *gin.Context) {
 		AnomalyCount     int64      `gorm:"column:anomaly_count"`
 		LatestFeedbackAt *time.Time `gorm:"column:latest_feedback_at"`
 	}
-	anomalyQuery := `
+	anomalyQuery := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.id,
@@ -952,9 +953,9 @@ WITH base AS (
 		f.user_id,
 		f.output_id,
 		f.created_at
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 ),
 joined AS (
 	SELECT
@@ -962,7 +963,7 @@ joined AS (
 		o.id AS output_exists_id,
 		o.job_id AS output_job_id
 	FROM base b
-	LEFT JOIN public.video_image_outputs o ON o.id = b.output_id
+	LEFT JOIN %s o ON o.id = b.output_id
 )
 SELECT
 	j.id::bigint AS job_id,
@@ -973,14 +974,14 @@ SELECT
 	COUNT(*)::bigint AS anomaly_count,
 	MAX(joined.created_at) AS latest_feedback_at
 FROM joined
-JOIN public.video_image_jobs j ON j.id = joined.job_id
+JOIN %s j ON j.id = joined.job_id
 WHERE joined.output_id IS NULL
 	OR (joined.output_id IS NOT NULL AND joined.output_exists_id IS NULL)
 	OR (joined.output_id IS NOT NULL AND joined.output_exists_id IS NOT NULL AND joined.output_job_id <> joined.job_id)
 GROUP BY j.id, j.user_id, j.title, j.status, j.stage
 ORDER BY anomaly_count DESC, latest_feedback_at DESC, j.id DESC
 LIMIT ?
-`
+`, tables.Feedback, tables.Outputs, tables.Jobs)
 	anomalyArgs := []interface{}{since}
 	anomalyArgs = append(anomalyArgs, filterArgs...)
 	anomalyArgs = append(anomalyArgs, limit)
@@ -1000,16 +1001,16 @@ LIMIT ?
 		TopPickConflictActions int64      `gorm:"column:top_pick_conflict_actions"`
 		LatestFeedbackAt       *time.Time `gorm:"column:latest_feedback_at"`
 	}
-	topPickQuery := `
+	topPickQuery := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.job_id,
 		f.user_id,
 		LOWER(COALESCE(NULLIF(TRIM(f.action), ''), 'unknown')) AS action,
 		f.created_at
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 ),
 conflict AS (
 	SELECT
@@ -1041,10 +1042,10 @@ SELECT
 	agg.top_pick_conflict_actions,
 	agg.latest_feedback_at
 FROM agg
-JOIN public.video_image_jobs j ON j.id = agg.job_id
+JOIN %s j ON j.id = agg.job_id
 ORDER BY agg.top_pick_conflict_users DESC, agg.top_pick_conflict_actions DESC, agg.latest_feedback_at DESC, agg.job_id DESC
 LIMIT ?
-`
+`, tables.Feedback, tables.Jobs)
 	topPickArgs := []interface{}{since}
 	topPickArgs = append(topPickArgs, filterArgs...)
 	topPickArgs = append(topPickArgs, limit)
@@ -1140,7 +1141,8 @@ func (h *Handler) ExportAdminVideoJobsFeedbackIntegrityAnomaliesCSV(c *gin.Conte
 
 	now := time.Now()
 	since := now.Add(-windowDuration)
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
 
 	type anomalyRow struct {
 		FeedbackID  uint64    `gorm:"column:feedback_id"`
@@ -1153,7 +1155,7 @@ func (h *Handler) ExportAdminVideoJobsFeedbackIntegrityAnomaliesCSV(c *gin.Conte
 		ObjectKey   string    `gorm:"column:object_key"`
 		CreatedAt   time.Time `gorm:"column:created_at"`
 	}
-	anomalyQuery := `
+	anomalyQuery := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.id,
@@ -1162,9 +1164,9 @@ WITH base AS (
 		f.output_id,
 		LOWER(COALESCE(NULLIF(TRIM(f.action), ''), 'unknown')) AS action,
 		f.created_at
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 ),
 joined AS (
 	SELECT
@@ -1173,7 +1175,7 @@ joined AS (
 		o.job_id AS output_job_id,
 		o.object_key
 	FROM base b
-	LEFT JOIN public.video_image_outputs o ON o.id = b.output_id
+	LEFT JOIN %s o ON o.id = b.output_id
 )
 SELECT
 	id::bigint AS feedback_id,
@@ -1196,7 +1198,7 @@ WHERE output_id IS NULL
 	OR (output_id IS NOT NULL AND output_exists_id IS NOT NULL AND output_job_id <> job_id)
 ORDER BY created_at DESC
 LIMIT ?
-`
+`, tables.Feedback, tables.Outputs)
 	anomalyArgs := []interface{}{since}
 	anomalyArgs = append(anomalyArgs, filterArgs...)
 	anomalyArgs = append(anomalyArgs, limit)
@@ -1213,16 +1215,16 @@ LIMIT ?
 		ConflictCount int64     `gorm:"column:conflict_count"`
 		CreatedAt     time.Time `gorm:"column:created_at"`
 	}
-	topPickQuery := `
+	topPickQuery := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.job_id,
 		f.user_id,
 		LOWER(COALESCE(NULLIF(TRIM(f.action), ''), 'unknown')) AS action,
 		f.created_at
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 )
 SELECT
 	job_id::bigint AS job_id,
@@ -1235,7 +1237,7 @@ GROUP BY job_id, user_id
 HAVING COUNT(*) > 1
 ORDER BY conflict_count DESC, created_at DESC
 LIMIT ?
-`
+`, tables.Feedback)
 	topPickArgs := []interface{}{since}
 	topPickArgs = append(topPickArgs, filterArgs...)
 	topPickArgs = append(topPickArgs, limit)

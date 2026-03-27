@@ -382,6 +382,34 @@ func (VideoJobAI1Plan) TableName() string {
 	return "archive.video_job_ai1_plans"
 }
 
+type VideoJobImageAIReview struct {
+	ID                        uint64         `gorm:"primaryKey;autoIncrement"`
+	JobID                     uint64         `gorm:"column:job_id;uniqueIndex:uniq_video_job_image_ai_review"`
+	UserID                    uint64         `gorm:"column:user_id;index"`
+	TargetFormat              string         `gorm:"column:target_format;size:16;index;uniqueIndex:uniq_video_job_image_ai_review"`
+	Stage                     string         `gorm:"column:stage;size:32;index"`
+	Recommendation            string         `gorm:"column:recommendation;size:32;index"`
+	ReviewedOutputs           int            `gorm:"column:reviewed_outputs"`
+	DeliverCount              int            `gorm:"column:deliver_count"`
+	RejectCount               int            `gorm:"column:reject_count"`
+	ManualReviewCount         int            `gorm:"column:manual_review_count"`
+	HardGateRejectCount       int            `gorm:"column:hard_gate_reject_count"`
+	HardGateManualReviewCount int            `gorm:"column:hard_gate_manual_review_count"`
+	CandidateBudget           int            `gorm:"column:candidate_budget"`
+	EffectiveDurationSec      float64        `gorm:"column:effective_duration_sec"`
+	QualityFallback           bool           `gorm:"column:quality_fallback"`
+	QualitySelectorVersion    string         `gorm:"column:quality_selector_version;size:64"`
+	SummaryNote               string         `gorm:"column:summary_note;type:text"`
+	SummaryJSON               datatypes.JSON `gorm:"column:summary_json;type:jsonb"`
+	Metadata                  datatypes.JSON `gorm:"column:metadata;type:jsonb"`
+	CreatedAt                 time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt                 time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (VideoJobImageAIReview) TableName() string {
+	return "archive.video_job_image_ai_reviews"
+}
+
 type ComputeAccount struct {
 	ID                   uint64    `gorm:"primaryKey;autoIncrement"`
 	UserID               uint64    `gorm:"column:user_id;uniqueIndex"`
@@ -619,6 +647,12 @@ type VideoQualitySetting struct {
 	AIDirectorDurationExpandRatio                     float64   `gorm:"column:ai_director_duration_expand_ratio"`
 	AIDirectorCountAbsoluteCap                        int       `gorm:"column:ai_director_count_absolute_cap"`
 	AIDirectorDurationAbsoluteCapSec                  float64   `gorm:"column:ai_director_duration_absolute_cap_sec"`
+	GIFAIJudgeHardGateMinOverallScore                 float64   `gorm:"column:gif_ai_judge_hard_gate_min_overall_score"`
+	GIFAIJudgeHardGateMinClarityScore                 float64   `gorm:"column:gif_ai_judge_hard_gate_min_clarity_score"`
+	GIFAIJudgeHardGateMinLoopScore                    float64   `gorm:"column:gif_ai_judge_hard_gate_min_loop_score"`
+	GIFAIJudgeHardGateMinOutputScore                  float64   `gorm:"column:gif_ai_judge_hard_gate_min_output_score"`
+	GIFAIJudgeHardGateMinDurationMS                   int       `gorm:"column:gif_ai_judge_hard_gate_min_duration_ms"`
+	GIFAIJudgeHardGateSizeMultiplier                  int       `gorm:"column:gif_ai_judge_hard_gate_size_multiplier"`
 	CreatedAt                                         time.Time `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt                                         time.Time `gorm:"column:updated_at;autoUpdateTime"`
 }

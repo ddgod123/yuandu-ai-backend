@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"emoji/internal/models"
+	"emoji/internal/videojobs"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/datatypes"
@@ -191,14 +192,12 @@ func (h *Handler) SubmitVideoJobFeedback(c *gin.Context) {
 	entry.OutputID = &outID
 
 	if action == videoImageFeedbackActionTopPick {
-		if err := h.db.
-			Where("job_id = ? AND user_id = ? AND LOWER(COALESCE(action, '')) = ?", job.ID, userID, videoImageFeedbackActionTopPick).
-			Delete(&models.VideoImageFeedbackPublic{}).Error; err != nil {
+		if err := videojobs.DeletePublicVideoImageFeedbackByJobUserAction(h.db, job.ID, userID, videoImageFeedbackActionTopPick); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 	}
-	if err := h.db.Create(&entry).Error; err != nil {
+	if err := videojobs.CreatePublicVideoImageFeedback(h.db, entry); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

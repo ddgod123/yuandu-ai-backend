@@ -312,10 +312,13 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 				eventMeta["audience"] = strings.TrimSpace(directive.Audience)
 				eventMeta["must_capture"] = directive.MustCapture
 				eventMeta["avoid"] = directive.Avoid
+				eventMeta["risk_flags"] = directive.RiskFlags
+				eventMeta["quality_weights"] = directive.QualityWeights
 				eventMeta["style_direction"] = strings.TrimSpace(directive.StyleDirection)
 				eventMeta["directive_text"] = strings.TrimSpace(directive.DirectiveText)
 				eventMeta["clip_count_min"] = directive.ClipCountMin
 				eventMeta["clip_count_max"] = directive.ClipCountMax
+				eventMeta["loop_preference"] = roundTo(directive.LoopPreference, 4)
 			}
 		}
 		eventMeta["ai_reply"] = aiReply
@@ -484,8 +487,11 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 					ai1Event["audience"] = strings.TrimSpace(resolvedDirective.Audience)
 					ai1Event["must_capture"] = resolvedDirective.MustCapture
 					ai1Event["avoid"] = resolvedDirective.Avoid
+					ai1Event["risk_flags"] = resolvedDirective.RiskFlags
+					ai1Event["quality_weights"] = resolvedDirective.QualityWeights
 					ai1Event["style_direction"] = strings.TrimSpace(resolvedDirective.StyleDirection)
 					ai1Event["directive_text"] = strings.TrimSpace(resolvedDirective.DirectiveText)
+					ai1Event["loop_preference"] = roundTo(resolvedDirective.LoopPreference, 4)
 					ai1Event["ai_reply"] = strings.TrimSpace(buildAIDirectorNaturalReply(resolvedDirective))
 				}
 				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai director prompt pack generated", ai1Event)
@@ -1025,83 +1031,78 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 	if packageOutcome.Error != "" {
 		metrics["package_zip_error"] = packageOutcome.Error
 	}
+	judgeMetricSnapshot := aiGIFJudgeRunSnapshot{}
 	if containsString(generatedFormats, "gif") && pipelineModeDecision.EnableAI3 {
 		reviewingStarted := markGIFSubStageRunning(gifSubStageReviewing, map[string]interface{}{
 			"entry_stage": models.VideoJobStageUploading,
 		})
-		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing started", map[string]interface{}{
+		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing started", normalizeVideoJobAIUsageMetadata(map[string]interface{}{
 			"sub_stage": gifSubStageReviewing,
 			"status":    "running",
-		})
+		}))
 		judgeSnapshot, judgeErr := p.runAIGIFJudgeReview(ctx, job, qualitySettings)
+		judgeMetricSnapshot = decodeAIGIFJudgeRunSnapshot(judgeSnapshot)
 		if judgeErr != nil {
-			metrics["gif_ai_judge_v1"] = map[string]interface{}{
-				"enabled":        judgeSnapshot["enabled"],
-				"provider":       judgeSnapshot["provider"],
-				"model":          judgeSnapshot["model"],
-				"prompt_version": judgeSnapshot["prompt_version"],
-				"applied":        false,
-				"error":          judgeErr.Error(),
-			}
+			judgeMetricSnapshot.Applied = false
+			judgeMetricSnapshot.Error = judgeErr.Error()
+			metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
 			markGIFSubStageDone(gifSubStageReviewing, reviewingStarted, "degraded", map[string]interface{}{
 				"error": judgeErr.Error(),
 			})
-			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "warn", "gif ai judge failed", map[string]interface{}{
-				"error":     judgeErr.Error(),
-				"sub_stage": gifSubStageReviewing,
-			})
+			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "warn", "gif ai judge failed", normalizeVideoJobAIUsageMetadata(aiGIFJudgeFailedEvent{
+				SubStage: gifSubStageReviewing,
+				Error:    judgeErr.Error(),
+				Judge:    judgeMetricSnapshot,
+			}))
 		} else {
-			metrics["gif_ai_judge_v1"] = judgeSnapshot
+			metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
 			markGIFSubStageDone(gifSubStageReviewing, reviewingStarted, "done", map[string]interface{}{
 				"applied": true,
 			})
-			judgeEvent := map[string]interface{}{"sub_stage": gifSubStageReviewing}
-			for k, v := range judgeSnapshot {
-				judgeEvent[k] = v
-			}
-			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif ai judge completed", judgeEvent)
+			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif ai judge completed", normalizeVideoJobAIUsageMetadata(aiGIFJudgeCompletedEvent{
+				SubStage: gifSubStageReviewing,
+				Judge:    judgeMetricSnapshot,
+			}))
 		}
 	} else if containsString(generatedFormats, "gif") {
 		markGIFSubStageSkipped(gifSubStageReviewing, "pipeline_mode_"+pipelineMode+"_judge_skipped")
-		metrics["gif_ai_judge_v1"] = map[string]interface{}{
-			"enabled": false,
-			"applied": false,
-			"mode":    pipelineMode,
-			"reason":  "pipeline_mode_judge_skipped",
+		judgeMetricSnapshot = aiGIFJudgeRunSnapshot{
+			Enabled: false,
+			Applied: false,
+			Mode:    pipelineMode,
+			Reason:  "pipeline_mode_judge_skipped",
 		}
-		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing skipped by pipeline mode", map[string]interface{}{
-			"sub_stage": gifSubStageReviewing,
-			"mode":      pipelineMode,
-		})
+		metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
+		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing skipped by pipeline mode", normalizeVideoJobAIUsageMetadata(aiGIFJudgeSkippedEvent{
+			SubStage: gifSubStageReviewing,
+			Mode:     pipelineMode,
+		}))
 	} else {
 		markGIFSubStageSkipped(gifSubStageReviewing, "gif_not_generated")
 	}
 	if containsString(generatedFormats, "gif") {
-		judgeMetric := mapFromAny(metrics["gif_ai_judge_v1"])
 		reason := "disabled_ai3_final_review_authoritative"
 		if !pipelineModeDecision.EnableAI3 {
 			reason = "disabled_pipeline_mode_" + pipelineMode
-		} else if !boolFromAny(judgeMetric["applied"]) {
+		} else if !judgeMetricSnapshot.Applied {
 			reason = "disabled_ai3_unavailable"
 		}
-		deliverFallback := map[string]interface{}{
-			"attempted":      false,
-			"applied":        false,
-			"reason":         reason,
-			"trigger_reason": "not_applicable",
-			"policy":         "ai3_final_review_authoritative",
+		deliverFallback := aiGIFDeliverFallbackResult{
+			Attempted:     false,
+			Applied:       false,
+			Reason:        reason,
+			TriggerReason: "not_applicable",
+			Policy:        "ai3_final_review_authoritative",
 		}
 		metrics["gif_deliver_fallback_v1"] = deliverFallback
-		if len(judgeMetric) > 0 {
-			judgeMetric["deliver_fallback_applied"] = false
-			judgeMetric["deliver_fallback_reason"] = reason
-			judgeMetric["deliver_fallback_trigger_reason"] = "not_applicable"
-			metrics["gif_ai_judge_v1"] = judgeMetric
-		}
-		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback disabled", map[string]interface{}{
-			"reason": reason,
-			"policy": "ai3_final_review_authoritative",
-		})
+		judgeMetricSnapshot.DeliverFallbackApplied = false
+		judgeMetricSnapshot.DeliverFallbackReason = reason
+		judgeMetricSnapshot.DeliverFallbackTriggerReason = "not_applicable"
+		metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
+		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback disabled", normalizeVideoJobAIUsageMetadata(aiGIFDeliverFallbackDisabledEvent{
+			Reason: reason,
+			Policy: "ai3_final_review_authoritative",
+		}))
 	}
 	gifSubStageStatus := map[string]string{
 		gifSubStageBriefing:  strings.ToLower(strings.TrimSpace(stringFromAny(mapFromAny(gifSubStages[gifSubStageBriefing])["status"]))),
@@ -1355,6 +1356,770 @@ func buildAI1PlanDirectorSnapshot(snapshot map[string]interface{}) map[string]in
 	return out
 }
 
+func buildAI1DetectedTags(eventMeta map[string]interface{}, requestedFormats []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 8)
+	appendTag := func(raw string) {
+		tag := strings.TrimSpace(raw)
+		if tag == "" {
+			return
+		}
+		if !strings.HasPrefix(tag, "#") {
+			tag = "#" + tag
+		}
+		if _, exists := seen[tag]; exists {
+			return
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+
+	appendTag(strings.ToUpper(firstRequestedFormat(requestedFormats)))
+	appendTag(strings.TrimSpace(stringFromAny(eventMeta["business_goal"])))
+	appendTag(strings.TrimSpace(stringFromAny(eventMeta["style_direction"])))
+
+	for _, item := range stringSliceFromAny(eventMeta["must_capture"]) {
+		appendTag(item)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+func buildAI1IntentUnderstanding(eventMeta map[string]interface{}, requestedFormats []string, meta videoProbeMeta) string {
+	parts := make([]string, 0, 5)
+	if goal := strings.TrimSpace(stringFromAny(eventMeta["business_goal"])); goal != "" {
+		parts = append(parts, "目标为 "+goal)
+	}
+	if audience := strings.TrimSpace(stringFromAny(eventMeta["audience"])); audience != "" {
+		parts = append(parts, "受众侧重 "+audience)
+	}
+	if mustCapture := stringSliceFromAny(eventMeta["must_capture"]); len(mustCapture) > 0 {
+		parts = append(parts, "重点抓取 "+strings.Join(mustCapture, "、"))
+	}
+	if avoid := stringSliceFromAny(eventMeta["avoid"]); len(avoid) > 0 {
+		parts = append(parts, "规避 "+strings.Join(avoid, "、"))
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "；")
+	}
+	return strings.TrimSpace(buildGenericAI1Reply("", requestedFormats, meta))
+}
+
+func buildAI1StrategySummary(eventMeta map[string]interface{}, executablePlan map[string]interface{}) string {
+	parts := make([]string, 0, 4)
+	mode := strings.TrimSpace(stringFromAny(executablePlan["mode"]))
+	if mode == "" {
+		mode = strings.TrimSpace(stringFromAny(eventMeta["mode"]))
+	}
+	if mode != "" {
+		parts = append(parts, "执行模式："+mode)
+	}
+	if focus := mapFromAny(executablePlan["focus_window"]); len(focus) > 0 {
+		start := roundTo(floatFromAny(focus["start_sec"]), 3)
+		end := roundTo(floatFromAny(focus["end_sec"]), 3)
+		if end > start {
+			parts = append(parts, fmt.Sprintf("重点窗口：%.3fs~%.3fs", start, end))
+		}
+	}
+	if text := strings.TrimSpace(stringFromAny(eventMeta["focus_window_source"])); text != "" {
+		parts = append(parts, "窗口来源："+text)
+	}
+	if minCount := intFromAny(eventMeta["clip_count_min"]); minCount > 0 {
+		maxCount := intFromAny(eventMeta["clip_count_max"])
+		if maxCount < minCount {
+			maxCount = minCount
+		}
+		parts = append(parts, fmt.Sprintf("候选数量：%d~%d", minCount, maxCount))
+	}
+	if len(parts) == 0 {
+		if text := strings.TrimSpace(stringFromAny(eventMeta["directive_text"])); text != "" {
+			return text
+		}
+		return "已完成首轮意图解析，并将按可执行计划进入下一阶段。"
+	}
+	return strings.Join(parts, "；")
+}
+
+func buildAI1RiskWarning(eventMeta map[string]interface{}, meta videoProbeMeta) map[string]interface{} {
+	hasRisk := false
+	message := ""
+	if errText := strings.TrimSpace(stringFromAny(eventMeta["error"])); errText != "" {
+		hasRisk = true
+		message = errText
+	}
+	if !hasRisk && meta.Width > 0 && meta.Height > 0 && meta.Width*meta.Height <= 640*360 {
+		hasRisk = true
+		message = "检测到输入分辨率较低，输出清晰度可能受限。"
+	}
+	return map[string]interface{}{
+		"has_risk": hasRisk,
+		"message":  strings.TrimSpace(message),
+	}
+}
+
+func estimateAI1ETASeconds(meta videoProbeMeta, requestedFormats []string, eventMeta map[string]interface{}) int {
+	format := firstRequestedFormat(requestedFormats)
+	base := 22.0
+	switch format {
+	case "gif":
+		base = 38
+	case "png", "jpg", "webp":
+		base = 20
+	}
+	if meta.DurationSec > 0 {
+		base += clampFloat(meta.DurationSec*0.35, 0, 70)
+	}
+	longSide := meta.Width
+	if meta.Height > longSide {
+		longSide = meta.Height
+	}
+	switch {
+	case longSide >= 1440:
+		base += 16
+	case longSide >= 1080:
+		base += 10
+	case longSide >= 720:
+		base += 5
+	}
+	if strings.TrimSpace(stringFromAny(eventMeta["error"])) != "" {
+		base += 8
+	}
+	return int(clampFloat(base, 15, 180))
+}
+
+func buildAI1UserFeedbackV2(
+	eventMeta map[string]interface{},
+	requestedFormats []string,
+	meta videoProbeMeta,
+	executablePlan map[string]interface{},
+) map[string]interface{} {
+	summary := strings.TrimSpace(stringFromAny(eventMeta["ai_reply"]))
+	if summary == "" {
+		summary = strings.TrimSpace(buildGenericAI1Reply("", requestedFormats, meta))
+	}
+	riskWarning := buildAI1RiskWarning(eventMeta, meta)
+	hasRisk := boolFromAny(riskWarning["has_risk"])
+
+	out := map[string]interface{}{
+		"schema_version":       AI1UserFeedbackSchemaV2,
+		"summary":              summary,
+		"intent_understanding": buildAI1IntentUnderstanding(eventMeta, requestedFormats, meta),
+		"strategy_summary":     buildAI1StrategySummary(eventMeta, executablePlan),
+		"detected_tags":        buildAI1DetectedTags(eventMeta, requestedFormats),
+		"risk_warning":         riskWarning,
+		"estimated_eta_seconds": estimateAI1ETASeconds(
+			meta,
+			requestedFormats,
+			eventMeta,
+		),
+		"interactive_action": "proceed",
+		"video_meta": map[string]interface{}{
+			"duration_sec": roundTo(meta.DurationSec, 3),
+			"width":        meta.Width,
+			"height":       meta.Height,
+			"fps":          roundTo(meta.FPS, 3),
+		},
+	}
+	if hasRisk && strings.TrimSpace(stringFromAny(eventMeta["error"])) != "" {
+		out["interactive_action"] = "need_clarify"
+	}
+	return out
+}
+
+func buildAI2DirectiveV2(
+	schemaVersion string,
+	requestedFormats []string,
+	executablePlan map[string]interface{},
+	eventMeta map[string]interface{},
+) map[string]interface{} {
+	targetFormat := strings.ToLower(strings.TrimSpace(stringFromAny(executablePlan["target_format"])))
+	if targetFormat == "" {
+		targetFormat = firstRequestedFormat(requestedFormats)
+	}
+	targetFormat = NormalizeRequestedFormat(targetFormat)
+	objective := strings.TrimSpace(stringFromAny(eventMeta["business_goal"]))
+	if objective == "" {
+		switch targetFormat {
+		case "gif":
+			objective = "extract_high_value_clips"
+		default:
+			objective = "extract_high_quality_frames"
+		}
+	}
+
+	mustCapture := stringSliceFromAny(executablePlan["must_capture"])
+	if len(mustCapture) == 0 {
+		mustCapture = stringSliceFromAny(eventMeta["must_capture"])
+	}
+	avoid := stringSliceFromAny(executablePlan["avoid"])
+	if len(avoid) == 0 {
+		avoid = stringSliceFromAny(eventMeta["avoid"])
+	}
+	styleDirection := strings.TrimSpace(stringFromAny(executablePlan["style_direction"]))
+	if styleDirection == "" {
+		styleDirection = strings.TrimSpace(stringFromAny(eventMeta["style_direction"]))
+	}
+
+	visualFocusArea := "auto"
+	if focus := mapFromAny(executablePlan["focus_window"]); len(focus) > 0 {
+		if floatFromAny(focus["end_sec"]) > floatFromAny(focus["start_sec"]) {
+			visualFocusArea = "center"
+		}
+	}
+
+	subjectTracking := "auto"
+	for _, item := range mustCapture {
+		text := strings.ToLower(strings.TrimSpace(item))
+		if strings.Contains(text, "人物") || strings.Contains(text, "主角") || strings.Contains(text, "person") || strings.Contains(text, "subject") {
+			subjectTracking = "primary_subject_auto"
+			break
+		}
+	}
+
+	maxBlurTolerance := "medium"
+	switch targetFormat {
+	case "png", "jpg", "webp":
+		maxBlurTolerance = "low"
+	}
+
+	rhythmTrajectory := "start_peak_fade"
+	if targetFormat == "gif" || targetFormat == "live" {
+		rhythmTrajectory = "loop"
+	}
+
+	out := map[string]interface{}{
+		"schema_version":      AI2DirectiveSchemaV2,
+		"instruction_version": strings.TrimSpace(schemaVersion),
+		"target_format":       targetFormat,
+		"objective":           objective,
+		"sampling_plan":       cloneMapStringKey(executablePlan),
+		"must_capture":        mustCapture,
+		"avoid":               avoid,
+		"style_direction":     styleDirection,
+		"visual_focus_area":   visualFocusArea,
+		"subject_tracking":    subjectTracking,
+		"technical_reject": map[string]interface{}{
+			"max_blur_tolerance": maxBlurTolerance,
+			"avoid_watermarks":   true,
+			"avoid_extreme_dark": true,
+		},
+		"rhythm_trajectory": rhythmTrajectory,
+		"source":            "ai1_executable_plan",
+	}
+	if len(executablePlan) == 0 {
+		out["source"] = "ai1_directive"
+	}
+	if qualityWeights := mapFromAny(eventMeta["quality_weights"]); len(qualityWeights) > 0 {
+		out["quality_weights"] = qualityWeights
+	}
+	if riskFlags := stringSliceFromAny(eventMeta["risk_flags"]); len(riskFlags) > 0 {
+		out["risk_flags"] = riskFlags
+	}
+	if clipMin := intFromAny(eventMeta["clip_count_min"]); clipMin > 0 {
+		out["clip_count_min"] = clipMin
+	}
+	if clipMax := intFromAny(eventMeta["clip_count_max"]); clipMax > 0 {
+		out["clip_count_max"] = clipMax
+	}
+	if text := strings.TrimSpace(stringFromAny(eventMeta["directive_text"])); text != "" {
+		out["planner_instruction_text"] = text
+	}
+	return out
+}
+
+func buildAI1OutputV2(
+	schemaVersion string,
+	requestedFormats []string,
+	meta videoProbeMeta,
+	eventMeta map[string]interface{},
+	executablePlan map[string]interface{},
+	trace map[string]interface{},
+) map[string]interface{} {
+	userFeedback := buildAI1UserFeedbackV2(eventMeta, requestedFormats, meta, executablePlan)
+	ai2Directive := buildAI2DirectiveV2(schemaVersion, requestedFormats, executablePlan, eventMeta)
+	return map[string]interface{}{
+		"schema_version": AI1OutputSchemaV2,
+		"user_feedback":  userFeedback,
+		"ai2_directive":  ai2Directive,
+		"trace":          cloneMapStringKey(trace),
+	}
+}
+
+func appendRepairItem(items []string, item string) []string {
+	item = strings.TrimSpace(item)
+	if item == "" {
+		return items
+	}
+	for _, existing := range items {
+		if existing == item {
+			return items
+		}
+	}
+	return append(items, item)
+}
+
+func normalizeAI1InteractiveAction(raw string, hasSystemError bool) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "proceed", "need_clarify":
+		return value
+	}
+	if hasSystemError {
+		return "need_clarify"
+	}
+	return "proceed"
+}
+
+func normalizeAI1VisualFocusArea(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "auto", "center", "lower_third", "upper_half", "full_frame":
+		return value
+	default:
+		return "auto"
+	}
+}
+
+func normalizeAI1RhythmTrajectory(raw string, targetFormat string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "loop", "sudden_impact", "start_peak_fade":
+		return value
+	}
+	target := NormalizeRequestedFormat(targetFormat)
+	if target == "gif" || target == "live" {
+		return "loop"
+	}
+	return "start_peak_fade"
+}
+
+func normalizeAI1MaxBlurTolerance(raw string, targetFormat string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "low", "medium", "high":
+		return value
+	}
+	target := NormalizeRequestedFormat(targetFormat)
+	switch target {
+	case "png", "jpg", "webp":
+		return "low"
+	default:
+		return "medium"
+	}
+}
+
+func validateAndRepairAI1UserFeedbackV2(
+	raw map[string]interface{},
+	eventMeta map[string]interface{},
+	requestedFormats []string,
+	meta videoProbeMeta,
+	executablePlan map[string]interface{},
+) (map[string]interface{}, []string) {
+	repairs := make([]string, 0, 8)
+	defaultValue := buildAI1UserFeedbackV2(eventMeta, requestedFormats, meta, executablePlan)
+	if len(raw) == 0 {
+		return cloneMapStringKey(defaultValue), appendRepairItem(repairs, "user_feedback.rebuild")
+	}
+	out := cloneMapStringKey(raw)
+
+	if strings.TrimSpace(stringFromAny(out["schema_version"])) != AI1UserFeedbackSchemaV2 {
+		out["schema_version"] = AI1UserFeedbackSchemaV2
+		repairs = appendRepairItem(repairs, "user_feedback.schema_version")
+	}
+	for _, key := range []string{"summary", "intent_understanding", "strategy_summary"} {
+		if strings.TrimSpace(stringFromAny(out[key])) == "" {
+			out[key] = strings.TrimSpace(stringFromAny(defaultValue[key]))
+			repairs = appendRepairItem(repairs, "user_feedback."+key)
+		}
+	}
+
+	riskWarning := mapFromAny(out["risk_warning"])
+	if len(riskWarning) == 0 {
+		riskWarning = cloneMapStringKey(mapFromAny(defaultValue["risk_warning"]))
+		repairs = appendRepairItem(repairs, "user_feedback.risk_warning")
+	}
+	if _, ok := riskWarning["has_risk"]; !ok {
+		riskWarning["has_risk"] = boolFromAny(mapFromAny(defaultValue["risk_warning"])["has_risk"])
+		repairs = appendRepairItem(repairs, "user_feedback.risk_warning.has_risk")
+	} else {
+		riskWarning["has_risk"] = boolFromAny(riskWarning["has_risk"])
+	}
+	if _, ok := riskWarning["message"]; !ok {
+		riskWarning["message"] = strings.TrimSpace(stringFromAny(mapFromAny(defaultValue["risk_warning"])["message"]))
+		repairs = appendRepairItem(repairs, "user_feedback.risk_warning.message")
+	} else {
+		riskWarning["message"] = strings.TrimSpace(stringFromAny(riskWarning["message"]))
+	}
+	out["risk_warning"] = riskWarning
+
+	defaultETA := intFromAny(defaultValue["estimated_eta_seconds"])
+	eta := intFromAny(out["estimated_eta_seconds"])
+	if eta <= 0 {
+		eta = defaultETA
+		repairs = appendRepairItem(repairs, "user_feedback.estimated_eta_seconds")
+	}
+	clampedETA := int(clampFloat(float64(eta), 15, 240))
+	if clampedETA != eta {
+		repairs = appendRepairItem(repairs, "user_feedback.estimated_eta_seconds.clamped")
+	}
+	out["estimated_eta_seconds"] = clampedETA
+
+	hasSystemError := strings.TrimSpace(stringFromAny(eventMeta["error"])) != ""
+	action := normalizeAI1InteractiveAction(stringFromAny(out["interactive_action"]), hasSystemError)
+	if action != strings.ToLower(strings.TrimSpace(stringFromAny(out["interactive_action"]))) {
+		repairs = appendRepairItem(repairs, "user_feedback.interactive_action")
+	}
+	out["interactive_action"] = action
+
+	if len(stringSliceFromAny(out["detected_tags"])) == 0 {
+		out["detected_tags"] = buildAI1DetectedTags(eventMeta, requestedFormats)
+		repairs = appendRepairItem(repairs, "user_feedback.detected_tags")
+	}
+
+	videoMeta := mapFromAny(out["video_meta"])
+	if len(videoMeta) == 0 {
+		videoMeta = cloneMapStringKey(mapFromAny(defaultValue["video_meta"]))
+		repairs = appendRepairItem(repairs, "user_feedback.video_meta")
+	}
+	if intFromAny(videoMeta["width"]) <= 0 && meta.Width > 0 {
+		videoMeta["width"] = meta.Width
+		repairs = appendRepairItem(repairs, "user_feedback.video_meta.width")
+	}
+	if intFromAny(videoMeta["height"]) <= 0 && meta.Height > 0 {
+		videoMeta["height"] = meta.Height
+		repairs = appendRepairItem(repairs, "user_feedback.video_meta.height")
+	}
+	if floatFromAny(videoMeta["duration_sec"]) <= 0 && meta.DurationSec > 0 {
+		videoMeta["duration_sec"] = roundTo(meta.DurationSec, 3)
+		repairs = appendRepairItem(repairs, "user_feedback.video_meta.duration_sec")
+	}
+	out["video_meta"] = videoMeta
+
+	return out, repairs
+}
+
+func validateAndRepairAI2DirectiveV2(
+	raw map[string]interface{},
+	schemaVersion string,
+	requestedFormats []string,
+	executablePlan map[string]interface{},
+	eventMeta map[string]interface{},
+) (map[string]interface{}, []string) {
+	repairs := make([]string, 0, 8)
+	defaultValue := buildAI2DirectiveV2(schemaVersion, requestedFormats, executablePlan, eventMeta)
+	if len(raw) == 0 {
+		return cloneMapStringKey(defaultValue), appendRepairItem(repairs, "ai2_directive.rebuild")
+	}
+	out := cloneMapStringKey(raw)
+
+	if strings.TrimSpace(stringFromAny(out["schema_version"])) != AI2DirectiveSchemaV2 {
+		out["schema_version"] = AI2DirectiveSchemaV2
+		repairs = appendRepairItem(repairs, "ai2_directive.schema_version")
+	}
+
+	if strings.TrimSpace(stringFromAny(out["instruction_version"])) == "" {
+		out["instruction_version"] = strings.TrimSpace(stringFromAny(defaultValue["instruction_version"]))
+		repairs = appendRepairItem(repairs, "ai2_directive.instruction_version")
+	}
+
+	targetFormat := NormalizeRequestedFormat(strings.TrimSpace(stringFromAny(out["target_format"])))
+	if targetFormat == "" {
+		targetFormat = NormalizeRequestedFormat(strings.TrimSpace(stringFromAny(defaultValue["target_format"])))
+	}
+	if targetFormat == "" {
+		targetFormat = NormalizeRequestedFormat(firstRequestedFormat(requestedFormats))
+	}
+	if targetFormat == "" {
+		targetFormat = "png"
+	}
+	if targetFormat != strings.ToLower(strings.TrimSpace(stringFromAny(out["target_format"]))) {
+		repairs = appendRepairItem(repairs, "ai2_directive.target_format")
+	}
+	out["target_format"] = targetFormat
+
+	if strings.TrimSpace(stringFromAny(out["objective"])) == "" {
+		out["objective"] = strings.TrimSpace(stringFromAny(defaultValue["objective"]))
+		repairs = appendRepairItem(repairs, "ai2_directive.objective")
+	}
+
+	samplingPlan := mapFromAny(out["sampling_plan"])
+	if len(samplingPlan) == 0 {
+		samplingPlan = cloneMapStringKey(executablePlan)
+		if len(samplingPlan) == 0 {
+			samplingPlan = cloneMapStringKey(mapFromAny(defaultValue["sampling_plan"]))
+		}
+		repairs = appendRepairItem(repairs, "ai2_directive.sampling_plan")
+	}
+	out["sampling_plan"] = samplingPlan
+
+	visualFocusArea := normalizeAI1VisualFocusArea(stringFromAny(out["visual_focus_area"]))
+	if visualFocusArea != strings.ToLower(strings.TrimSpace(stringFromAny(out["visual_focus_area"]))) {
+		repairs = appendRepairItem(repairs, "ai2_directive.visual_focus_area")
+	}
+	out["visual_focus_area"] = visualFocusArea
+
+	if strings.TrimSpace(stringFromAny(out["subject_tracking"])) == "" {
+		out["subject_tracking"] = strings.TrimSpace(stringFromAny(defaultValue["subject_tracking"]))
+		repairs = appendRepairItem(repairs, "ai2_directive.subject_tracking")
+	}
+
+	technicalReject := mapFromAny(out["technical_reject"])
+	if len(technicalReject) == 0 {
+		technicalReject = cloneMapStringKey(mapFromAny(defaultValue["technical_reject"]))
+		repairs = appendRepairItem(repairs, "ai2_directive.technical_reject")
+	}
+	blurTolerance := normalizeAI1MaxBlurTolerance(stringFromAny(technicalReject["max_blur_tolerance"]), targetFormat)
+	if blurTolerance != strings.ToLower(strings.TrimSpace(stringFromAny(technicalReject["max_blur_tolerance"]))) {
+		repairs = appendRepairItem(repairs, "ai2_directive.technical_reject.max_blur_tolerance")
+	}
+	technicalReject["max_blur_tolerance"] = blurTolerance
+	if _, ok := technicalReject["avoid_watermarks"]; !ok {
+		technicalReject["avoid_watermarks"] = true
+		repairs = appendRepairItem(repairs, "ai2_directive.technical_reject.avoid_watermarks")
+	} else {
+		technicalReject["avoid_watermarks"] = boolFromAny(technicalReject["avoid_watermarks"])
+	}
+	if _, ok := technicalReject["avoid_extreme_dark"]; !ok {
+		technicalReject["avoid_extreme_dark"] = true
+		repairs = appendRepairItem(repairs, "ai2_directive.technical_reject.avoid_extreme_dark")
+	} else {
+		technicalReject["avoid_extreme_dark"] = boolFromAny(technicalReject["avoid_extreme_dark"])
+	}
+	out["technical_reject"] = technicalReject
+
+	rhythm := normalizeAI1RhythmTrajectory(stringFromAny(out["rhythm_trajectory"]), targetFormat)
+	if rhythm != strings.ToLower(strings.TrimSpace(stringFromAny(out["rhythm_trajectory"]))) {
+		repairs = appendRepairItem(repairs, "ai2_directive.rhythm_trajectory")
+	}
+	out["rhythm_trajectory"] = rhythm
+
+	if strings.TrimSpace(stringFromAny(out["source"])) == "" {
+		out["source"] = strings.TrimSpace(stringFromAny(defaultValue["source"]))
+		repairs = appendRepairItem(repairs, "ai2_directive.source")
+	}
+	return out, repairs
+}
+
+func hasRequiredAI1UserFeedbackV2(raw map[string]interface{}) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["summary"])) == "" {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["intent_understanding"])) == "" {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["strategy_summary"])) == "" {
+		return false
+	}
+	action := normalizeAI1InteractiveAction(stringFromAny(raw["interactive_action"]), false)
+	if action != strings.ToLower(strings.TrimSpace(stringFromAny(raw["interactive_action"]))) {
+		return false
+	}
+	risk := mapFromAny(raw["risk_warning"])
+	if len(risk) == 0 {
+		return false
+	}
+	if _, ok := risk["has_risk"]; !ok {
+		return false
+	}
+	return true
+}
+
+func hasRequiredAI2DirectiveV2(raw map[string]interface{}) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["schema_version"])) != AI2DirectiveSchemaV2 {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["target_format"])) == "" {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["objective"])) == "" {
+		return false
+	}
+	if len(mapFromAny(raw["sampling_plan"])) == 0 {
+		return false
+	}
+	technicalReject := mapFromAny(raw["technical_reject"])
+	if len(technicalReject) == 0 {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(technicalReject["max_blur_tolerance"])) == "" {
+		return false
+	}
+	return true
+}
+
+func hasRequiredAI1OutputV2(raw map[string]interface{}) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(raw["schema_version"])) != AI1OutputSchemaV2 {
+		return false
+	}
+	if !hasRequiredAI1UserFeedbackV2(mapFromAny(raw["user_feedback"])) {
+		return false
+	}
+	if !hasRequiredAI2DirectiveV2(mapFromAny(raw["ai2_directive"])) {
+		return false
+	}
+	if len(mapFromAny(raw["trace"])) == 0 {
+		return false
+	}
+	return true
+}
+
+func buildSafeAI1OutputV2(
+	schemaVersion string,
+	requestedFormats []string,
+	meta videoProbeMeta,
+	eventMeta map[string]interface{},
+	executablePlan map[string]interface{},
+	baseTrace map[string]interface{},
+	reason string,
+	repairItems []string,
+) map[string]interface{} {
+	safe := buildAI1OutputV2(schemaVersion, requestedFormats, meta, eventMeta, executablePlan, baseTrace)
+	userFeedback, userRepairs := validateAndRepairAI1UserFeedbackV2(
+		mapFromAny(safe["user_feedback"]),
+		eventMeta,
+		requestedFormats,
+		meta,
+		executablePlan,
+	)
+	ai2Directive, directiveRepairs := validateAndRepairAI2DirectiveV2(
+		mapFromAny(safe["ai2_directive"]),
+		schemaVersion,
+		requestedFormats,
+		executablePlan,
+		eventMeta,
+	)
+	for _, item := range userRepairs {
+		repairItems = appendRepairItem(repairItems, item)
+	}
+	for _, item := range directiveRepairs {
+		repairItems = appendRepairItem(repairItems, item)
+	}
+	repairItems = appendRepairItem(repairItems, "fallback.safe_envelope")
+
+	trace := mapFromAny(safe["trace"])
+	if len(trace) == 0 {
+		trace = cloneMapStringKey(baseTrace)
+	}
+	if len(trace) == 0 {
+		trace = map[string]interface{}{}
+	}
+	trace["contract_repaired"] = true
+	trace["repair_items"] = repairItems
+	if strings.TrimSpace(reason) != "" {
+		trace["repair_reason"] = strings.TrimSpace(reason)
+	}
+
+	safe["schema_version"] = AI1OutputSchemaV2
+	safe["user_feedback"] = userFeedback
+	safe["ai2_directive"] = ai2Directive
+	safe["trace"] = trace
+	return safe
+}
+
+func validateAndRepairAI1OutputV2(
+	raw map[string]interface{},
+	schemaVersion string,
+	requestedFormats []string,
+	meta videoProbeMeta,
+	eventMeta map[string]interface{},
+	executablePlan map[string]interface{},
+	baseTrace map[string]interface{},
+) map[string]interface{} {
+	if len(raw) == 0 {
+		return buildSafeAI1OutputV2(
+			schemaVersion,
+			requestedFormats,
+			meta,
+			eventMeta,
+			executablePlan,
+			baseTrace,
+			"empty_output",
+			nil,
+		)
+	}
+
+	out := cloneMapStringKey(raw)
+	repairs := make([]string, 0, 8)
+
+	if strings.TrimSpace(stringFromAny(out["schema_version"])) != AI1OutputSchemaV2 {
+		out["schema_version"] = AI1OutputSchemaV2
+		repairs = appendRepairItem(repairs, "schema_version")
+	}
+
+	userFeedback, userRepairs := validateAndRepairAI1UserFeedbackV2(
+		mapFromAny(out["user_feedback"]),
+		eventMeta,
+		requestedFormats,
+		meta,
+		executablePlan,
+	)
+	for _, item := range userRepairs {
+		repairs = appendRepairItem(repairs, item)
+	}
+	out["user_feedback"] = userFeedback
+
+	ai2Directive, directiveRepairs := validateAndRepairAI2DirectiveV2(
+		mapFromAny(out["ai2_directive"]),
+		schemaVersion,
+		requestedFormats,
+		executablePlan,
+		eventMeta,
+	)
+	for _, item := range directiveRepairs {
+		repairs = appendRepairItem(repairs, item)
+	}
+	out["ai2_directive"] = ai2Directive
+
+	trace := mapFromAny(out["trace"])
+	if len(trace) == 0 {
+		trace = cloneMapStringKey(baseTrace)
+		repairs = appendRepairItem(repairs, "trace.rebuild")
+	}
+	for _, key := range []string{"event_stage", "flow_mode", "sub_stage", "mode", "error", "director_input_mode", "director_input_source"} {
+		if strings.TrimSpace(stringFromAny(trace[key])) != "" {
+			continue
+		}
+		value := strings.TrimSpace(stringFromAny(baseTrace[key]))
+		if value == "" {
+			continue
+		}
+		trace[key] = value
+		repairs = appendRepairItem(repairs, "trace."+key)
+	}
+	out["trace"] = trace
+
+	if !hasRequiredAI1OutputV2(out) {
+		return buildSafeAI1OutputV2(
+			schemaVersion,
+			requestedFormats,
+			meta,
+			eventMeta,
+			executablePlan,
+			baseTrace,
+			"required_fields_missing_after_repair",
+			repairs,
+		)
+	}
+
+	if len(repairs) > 0 {
+		trace["contract_repaired"] = true
+		trace["repair_items"] = repairs
+		out["trace"] = trace
+	}
+	return out
+}
+
 func (p *Processor) persistAI1Plan(
 	job models.VideoJob,
 	requestedFormats []string,
@@ -1391,6 +2156,30 @@ func (p *Processor) persistAI1Plan(
 		trace["director_input_source"] = inputSource
 	}
 
+	ai1OutputV2 := buildAI1OutputV2(
+		VideoJobAI1PlanSchemaV1,
+		requestedFormats,
+		meta,
+		eventMeta,
+		map[string]interface{}{},
+		trace,
+	)
+	ai1OutputV2 = validateAndRepairAI1OutputV2(
+		ai1OutputV2,
+		VideoJobAI1PlanSchemaV1,
+		requestedFormats,
+		meta,
+		eventMeta,
+		map[string]interface{}{},
+		trace,
+	)
+	traceV2 := mapFromAny(ai1OutputV2["trace"])
+	if len(traceV2) > 0 {
+		trace = traceV2
+	}
+	userFeedbackV2 := mapFromAny(ai1OutputV2["user_feedback"])
+	ai2DirectiveV2 := mapFromAny(ai1OutputV2["ai2_directive"])
+
 	planPayload := map[string]interface{}{
 		"schema_version":    VideoJobAI1PlanSchemaV1,
 		"requested_format":  requestedFormat,
@@ -1408,6 +2197,12 @@ func (p *Processor) persistAI1Plan(
 		"event_meta":        cloneMapStringKey(eventMeta),
 		"trace":             trace,
 		"director_snapshot": buildAI1PlanDirectorSnapshot(directorSnapshot),
+		"ai1_output_v2":     ai1OutputV2,
+		"ai1_output_v1": map[string]interface{}{
+			"schema_version":  VideoJobAI1PlanSchemaV1,
+			"user_reply":      userFeedbackV2,
+			"ai2_instruction": ai2DirectiveV2,
+		},
 	}
 
 	status := resolveAI1PlanStatus(flowMode, ai1Confirmed)

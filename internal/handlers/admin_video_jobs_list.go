@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,6 +46,8 @@ func (h *Handler) ListAdminVideoJobs(c *gin.Context) {
 	}
 
 	query := h.db.Model(&models.VideoJob{})
+	formatFilter := normalizeVideoImageFormatFilter(c.Query("format"))
+	readTables := resolveVideoImageReadTables(formatFilter)
 	if quick := strings.ToLower(strings.TrimSpace(c.Query("quick"))); quick != "" {
 		quickSince := time.Now().Add(-24 * time.Hour)
 		switch quick {
@@ -72,11 +75,11 @@ AND LOWER(COALESCE(NULLIF(TRIM(metrics->'highlight_feedback_v1'->'selected_after
 AND (metrics->'highlight_feedback_v1'->'reason_negative_guard' ? LOWER(COALESCE(NULLIF(TRIM(metrics->'highlight_feedback_v1'->'selected_before'->>'reason'), ''), '')))
 `, models.VideoJobStatusDone)
 		case "feedback_anomaly":
-			query = query.Where(`
+			query = query.Where(fmt.Sprintf(`
 EXISTS (
 	SELECT 1
-	FROM public.video_image_feedback f
-	LEFT JOIN public.video_image_outputs o ON o.id = f.output_id
+	FROM %s f
+	LEFT JOIN %s o ON o.id = f.output_id
 	WHERE f.job_id = video_jobs.id
 		AND f.created_at >= ?
 		AND (
@@ -85,19 +88,19 @@ EXISTS (
 			OR (f.output_id IS NOT NULL AND o.id IS NOT NULL AND o.job_id <> f.job_id)
 		)
 )
-`, quickSince)
+`, readTables.Feedback, readTables.Outputs), quickSince)
 		case "top_pick_conflict":
-			query = query.Where(`
+			query = query.Where(fmt.Sprintf(`
 EXISTS (
 	SELECT 1
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.job_id = video_jobs.id
 		AND f.created_at >= ?
 		AND LOWER(COALESCE(NULLIF(TRIM(f.action), ''), 'unknown')) = 'top_pick'
 	GROUP BY f.job_id, f.user_id
 	HAVING COUNT(*) > 1
 )
-`, quickSince)
+`, readTables.Feedback), quickSince)
 		case "sub_stage_anomaly":
 			query = query.Where("created_at >= ?", quickSince).
 				Where(buildVideoJobAnyGIFSubStageAnomalyPredicate())
@@ -129,8 +132,8 @@ EXISTS (
 	if status := strings.TrimSpace(c.Query("status")); status != "" {
 		query = query.Where("status = ?", status)
 	}
-	if format := strings.ToLower(strings.TrimSpace(c.Query("format"))); format != "" {
-		query = query.Where(buildVideoJobFormatFilterPredicate("video_jobs"), format, format)
+	if formatFilter != "" {
+		query = query.Where(buildVideoJobFormatFilterPredicate("video_jobs"), formatFilter, formatFilter)
 	}
 	if assetDomain := strings.ToLower(strings.TrimSpace(c.Query("asset_domain"))); assetDomain != "" && assetDomain != "all" {
 		switch assetDomain {
@@ -187,12 +190,12 @@ EXISTS (
 	  AND LOWER(COALESCE(NULLIF(TRIM(r.final_recommendation), ''), '')) = 'deliver'
 )`)
 		case "feedback":
-			query = query.Where(`
+			query = query.Where(fmt.Sprintf(`
 EXISTS (
 	SELECT 1
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.job_id = video_jobs.id
-)`)
+)`, readTables.Feedback))
 		case "rerender":
 			query = query.Where(`
 EXISTS (

@@ -1028,6 +1028,7 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 	if requestedFormat == "" {
 		requestedFormat = strings.ToLower(strings.TrimSpace(stringFromAny(options["requested_format"])))
 	}
+	requestedFormat = normalizeRequestedFormatForDebug(requestedFormat)
 	sourcePrompt := resolveVideoJobDebugSourcePrompt(job, options)
 	flowMode := strings.ToLower(strings.TrimSpace(stringFromAny(options["flow_mode"])))
 	if flowMode == "" {
@@ -1042,6 +1043,8 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 		planSchemaVersion = strings.TrimSpace(planRow.SchemaVersion)
 		planStatus = strings.TrimSpace(planRow.Status)
 	}
+	ai1OutputV2 := mapFromAnyValue(planJSON["ai1_output_v2"])
+	ai1OutputContract := buildAI1OutputContractReport(ai1OutputV2)
 
 	usageMetadata := map[string]interface{}{}
 	if usageFound {
@@ -1089,6 +1092,7 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 			modelRequest["system_prompt_text"] = systemPrompt
 		}
 	}
+	modelRequest["payload_summary_v2"] = buildAI1ModelRequestSummary(modelRequest, usageMetadata)
 
 	developerRules := map[string]interface{}{}
 	for _, key := range []string{
@@ -1140,6 +1144,13 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 			modelResponse["input_context_v2"] = directiveInputContext
 		}
 	}
+	modelResponse["response_summary_v2"] = buildAI1ModelResponseSummary(
+		directiveFound,
+		directiveRow,
+		directiveRawResponse,
+		usageFound,
+		usageRow,
+	)
 
 	input := map[string]interface{}{
 		"user": map[string]interface{}{
@@ -1189,12 +1200,26 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 			"ai_usage_created_at":  usageRow.CreatedAt,
 			"directive_updated_at": directiveRow.UpdatedAt,
 		},
+		"ai1_output_contract_v2": ai1OutputContract,
 	}
 
 	output := map[string]interface{}{
 		"user_reply":      userReply,
 		"ai2_instruction": ai2Instruction,
+		"contract_report": ai1OutputContract,
 	}
+	if len(ai1OutputV2) > 0 {
+		output["ai1_output_v2"] = ai1OutputV2
+	}
+	trace["timeline_v1"] = buildAI1DebugTimelineV1(
+		sourcePrompt,
+		requestedFormat,
+		input,
+		modelRequest,
+		modelResponse,
+		output,
+		ai1OutputContract,
+	)
 
 	c.JSON(http.StatusOK, VideoJobAI1DebugResponse{
 		JobID:           job.ID,
@@ -2594,12 +2619,21 @@ func buildAI1DebugOutput(plan map[string]interface{}) (map[string]interface{}, m
 	if len(plan) == 0 {
 		return map[string]interface{}{}, map[string]interface{}{}
 	}
+	ai1OutputV2 := mapFromAnyValue(plan["ai1_output_v2"])
 	ai1Output := mapFromAnyValue(plan["ai1_output_v1"])
 	userReply := map[string]interface{}{}
 	ai2Instruction := map[string]interface{}{}
+	if len(ai1OutputV2) > 0 {
+		userReply = mapFromAnyValue(ai1OutputV2["user_feedback"])
+		ai2Instruction = mapFromAnyValue(ai1OutputV2["ai2_directive"])
+	}
 	if len(ai1Output) > 0 {
-		userReply = mapFromAnyValue(ai1Output["user_reply"])
-		ai2Instruction = mapFromAnyValue(ai1Output["ai2_instruction"])
+		if len(userReply) == 0 {
+			userReply = mapFromAnyValue(ai1Output["user_reply"])
+		}
+		if len(ai2Instruction) == 0 {
+			ai2Instruction = mapFromAnyValue(ai1Output["ai2_instruction"])
+		}
 	}
 
 	eventMeta := mapFromAnyValue(plan["event_meta"])
@@ -2629,6 +2663,441 @@ func buildAI1DebugOutput(plan map[string]interface{}) (map[string]interface{}, m
 		}
 	}
 	return userReply, ai2Instruction
+}
+
+func normalizeRequestedFormatForDebug(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "jpeg" {
+		return "jpg"
+	}
+	return value
+}
+
+func parseStringSliceFromAny(raw interface{}) []string {
+	items, ok := raw.([]interface{})
+	if !ok {
+		if arr, ok2 := raw.([]string); ok2 {
+			out := make([]string, 0, len(arr))
+			for _, item := range arr {
+				text := strings.TrimSpace(item)
+				if text == "" {
+					continue
+				}
+				out = append(out, text)
+			}
+			return out
+		}
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(stringFromAny(item))
+		if text == "" {
+			continue
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+func intFromAnyValue(raw interface{}) int {
+	switch value := raw.(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case int32:
+		return int(value)
+	case uint:
+		return int(value)
+	case uint64:
+		return int(value)
+	case uint32:
+		return int(value)
+	case float64:
+		return int(value)
+	case float32:
+		return int(value)
+	case json.Number:
+		i, err := value.Int64()
+		if err == nil {
+			return int(i)
+		}
+		f, err := value.Float64()
+		if err == nil {
+			return int(f)
+		}
+		return 0
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return 0
+		}
+		return i
+	default:
+		return 0
+	}
+}
+
+func sortedMapKeys(raw map[string]interface{}) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(raw))
+	for key := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func parseContractFieldStatus(raw map[string]interface{}, field string, invalid []string) []string {
+	switch strings.TrimSpace(strings.ToLower(stringFromAny(raw[field]))) {
+	case "":
+		return append(invalid, field)
+	default:
+		return invalid
+	}
+}
+
+func buildAI1OutputContractReport(ai1OutputV2 map[string]interface{}) map[string]interface{} {
+	report := map[string]interface{}{
+		"schema":  videojobs.AI1OutputSchemaV2,
+		"present": len(ai1OutputV2) > 0,
+	}
+	if len(ai1OutputV2) == 0 {
+		report["valid"] = false
+		report["missing_fields"] = []string{
+			"schema_version",
+			"user_feedback",
+			"ai2_directive",
+			"trace",
+		}
+		return report
+	}
+
+	missing := make([]string, 0, 8)
+	invalid := make([]string, 0, 8)
+
+	if strings.TrimSpace(stringFromAny(ai1OutputV2["schema_version"])) == "" {
+		missing = append(missing, "schema_version")
+	} else if strings.TrimSpace(stringFromAny(ai1OutputV2["schema_version"])) != videojobs.AI1OutputSchemaV2 {
+		invalid = append(invalid, "schema_version")
+	}
+
+	userFeedback := mapFromAnyValue(ai1OutputV2["user_feedback"])
+	if len(userFeedback) == 0 {
+		missing = append(missing, "user_feedback")
+	} else {
+		if strings.TrimSpace(stringFromAny(userFeedback["schema_version"])) != videojobs.AI1UserFeedbackSchemaV2 {
+			invalid = append(invalid, "user_feedback.schema_version")
+		}
+		for _, key := range []string{
+			"summary",
+			"intent_understanding",
+			"strategy_summary",
+			"interactive_action",
+			"risk_warning",
+		} {
+			if userFeedback[key] == nil || strings.TrimSpace(stringFromAny(userFeedback[key])) == "" {
+				if key == "risk_warning" {
+					if len(mapFromAnyValue(userFeedback["risk_warning"])) == 0 {
+						missing = append(missing, "user_feedback."+key)
+					}
+					continue
+				}
+				missing = append(missing, "user_feedback."+key)
+			}
+		}
+		action := strings.TrimSpace(strings.ToLower(stringFromAny(userFeedback["interactive_action"])))
+		if action != "" && action != "proceed" && action != "need_clarify" {
+			invalid = append(invalid, "user_feedback.interactive_action")
+		}
+		riskWarning := mapFromAnyValue(userFeedback["risk_warning"])
+		if len(riskWarning) == 0 {
+			missing = append(missing, "user_feedback.risk_warning")
+		} else if _, exists := riskWarning["has_risk"]; !exists {
+			missing = append(missing, "user_feedback.risk_warning.has_risk")
+		}
+	}
+
+	ai2Directive := mapFromAnyValue(ai1OutputV2["ai2_directive"])
+	if len(ai2Directive) == 0 {
+		missing = append(missing, "ai2_directive")
+	} else {
+		if strings.TrimSpace(stringFromAny(ai2Directive["schema_version"])) != videojobs.AI2DirectiveSchemaV2 {
+			invalid = append(invalid, "ai2_directive.schema_version")
+		}
+		invalid = parseContractFieldStatus(ai2Directive, "target_format", invalid)
+		invalid = parseContractFieldStatus(ai2Directive, "objective", invalid)
+		if len(mapFromAnyValue(ai2Directive["sampling_plan"])) == 0 {
+			missing = append(missing, "ai2_directive.sampling_plan")
+		}
+		technicalReject := mapFromAnyValue(ai2Directive["technical_reject"])
+		if len(technicalReject) == 0 {
+			missing = append(missing, "ai2_directive.technical_reject")
+		} else {
+			switch strings.TrimSpace(strings.ToLower(stringFromAny(technicalReject["max_blur_tolerance"]))) {
+			case "low", "medium", "high":
+			default:
+				invalid = append(invalid, "ai2_directive.technical_reject.max_blur_tolerance")
+			}
+		}
+		switch strings.TrimSpace(strings.ToLower(stringFromAny(ai2Directive["visual_focus_area"]))) {
+		case "", "auto", "center", "lower_third", "upper_half", "full_frame":
+		default:
+			invalid = append(invalid, "ai2_directive.visual_focus_area")
+		}
+		switch strings.TrimSpace(strings.ToLower(stringFromAny(ai2Directive["rhythm_trajectory"]))) {
+		case "", "loop", "sudden_impact", "start_peak_fade":
+		default:
+			invalid = append(invalid, "ai2_directive.rhythm_trajectory")
+		}
+	}
+
+	trace := mapFromAnyValue(ai1OutputV2["trace"])
+	if len(trace) == 0 {
+		missing = append(missing, "trace")
+	}
+
+	report["missing_fields"] = missing
+	report["invalid_fields"] = invalid
+	report["valid"] = len(missing) == 0 && len(invalid) == 0
+	if len(trace) > 0 {
+		report["contract_repaired"] = boolFromAny(trace["contract_repaired"])
+		if items := parseStringSliceFromAny(trace["repair_items"]); len(items) > 0 {
+			report["repair_items"] = items
+		}
+		if reason := strings.TrimSpace(stringFromAny(trace["repair_reason"])); reason != "" {
+			report["repair_reason"] = reason
+		}
+	}
+	return report
+}
+
+func summarizeModelUserPartsShape(raw interface{}) map[string]interface{} {
+	parts, ok := raw.([]interface{})
+	if !ok || len(parts) == 0 {
+		return map[string]interface{}{
+			"total_parts": 0,
+		}
+	}
+	textCount := 0
+	imageCount := 0
+	videoCount := 0
+	for _, part := range parts {
+		partMap := mapFromAnyValue(part)
+		switch strings.TrimSpace(strings.ToLower(stringFromAny(partMap["type"]))) {
+		case "text":
+			textCount++
+		case "image_url":
+			imageCount++
+		case "video_url":
+			videoCount++
+		}
+	}
+	return map[string]interface{}{
+		"total_parts": len(parts),
+		"text_parts":  textCount,
+		"image_parts": imageCount,
+		"video_parts": videoCount,
+	}
+}
+
+func buildAI1ModelRequestSummary(modelRequest map[string]interface{}, usageMetadata map[string]interface{}) map[string]interface{} {
+	summary := map[string]interface{}{
+		"provider": strings.TrimSpace(stringFromAny(modelRequest["provider"])),
+		"model":    strings.TrimSpace(stringFromAny(modelRequest["model"])),
+	}
+	payload := mapFromAnyValue(usageMetadata["director_model_payload_v2"])
+	if len(payload) > 0 {
+		summary["payload_schema_version"] = strings.TrimSpace(stringFromAny(payload["schema_version"]))
+		summary["payload_top_level_keys"] = sortedMapKeys(payload)
+	}
+	if payloadBytes := intFromAnyValue(usageMetadata["director_model_payload_bytes"]); payloadBytes > 0 {
+		summary["payload_bytes"] = payloadBytes
+	}
+	if debugBytes := intFromAnyValue(usageMetadata["director_debug_context_bytes"]); debugBytes > 0 {
+		summary["debug_context_bytes"] = debugBytes
+	}
+	summary["user_parts_shape"] = summarizeModelUserPartsShape(usageMetadata["user_parts_shape_v1"])
+
+	for _, key := range []string{
+		"director_input_mode_requested",
+		"director_input_mode_applied",
+		"director_input_source",
+		"director_payload_schema_version",
+	} {
+		if value := strings.TrimSpace(stringFromAny(usageMetadata[key])); value != "" {
+			summary[key] = value
+		}
+	}
+	if text := strings.TrimSpace(stringFromAny(usageMetadata["system_prompt_text"])); text != "" {
+		summary["system_prompt_len"] = len(text)
+	}
+	if enabled, exists := usageMetadata["operator_instruction_enabled"]; exists {
+		summary["operator_instruction_enabled"] = boolFromAny(enabled)
+	}
+	if value := strings.TrimSpace(stringFromAny(usageMetadata["operator_instruction_version"])); value != "" {
+		summary["operator_instruction_version"] = value
+	}
+	if value := strings.TrimSpace(stringFromAny(usageMetadata["fixed_prompt_version"])); value != "" {
+		summary["fixed_prompt_version"] = value
+	}
+	return summary
+}
+
+func buildAI1ModelResponseSummary(
+	directiveFound bool,
+	directiveRow models.VideoJobGIFAIDirective,
+	directiveRawResponse map[string]interface{},
+	usageFound bool,
+	usageRow models.VideoJobAIUsage,
+) map[string]interface{} {
+	summary := map[string]interface{}{
+		"usage_found":     usageFound,
+		"directive_found": directiveFound,
+	}
+	if usageFound {
+		summary["request_status"] = strings.TrimSpace(usageRow.RequestStatus)
+		summary["request_duration_ms"] = usageRow.RequestDurationMs
+		if errText := strings.TrimSpace(usageRow.RequestError); errText != "" {
+			summary["request_error"] = errText
+		}
+	}
+	if directiveFound {
+		summary["directive_status"] = strings.TrimSpace(directiveRow.Status)
+		summary["directive_fallback_used"] = directiveRow.FallbackUsed
+		summary["directive_prompt_version"] = strings.TrimSpace(directiveRow.PromptVersion)
+		summary["directive_model_version"] = strings.TrimSpace(directiveRow.ModelVersion)
+	}
+	if len(directiveRawResponse) > 0 {
+		summary["raw_response_top_level_keys"] = sortedMapKeys(directiveRawResponse)
+		if choices, ok := directiveRawResponse["choices"].([]interface{}); ok {
+			summary["raw_choices_count"] = len(choices)
+		}
+		if errMap := mapFromAnyValue(directiveRawResponse["error"]); len(errMap) > 0 {
+			summary["raw_error"] = errMap
+		}
+	}
+	return summary
+}
+
+func buildAI1DebugTimelineV1(
+	sourcePrompt string,
+	requestedFormat string,
+	input map[string]interface{},
+	modelRequest map[string]interface{},
+	modelResponse map[string]interface{},
+	output map[string]interface{},
+	contractReport map[string]interface{},
+) []map[string]interface{} {
+	timeline := make([]map[string]interface{}, 0, 5)
+	format := strings.ToUpper(strings.TrimSpace(requestedFormat))
+	if format == "" {
+		format = "UNKNOWN"
+	}
+
+	appendStep := func(key, title, status, summary string, details map[string]interface{}) {
+		step := map[string]interface{}{
+			"key":     strings.TrimSpace(key),
+			"title":   strings.TrimSpace(title),
+			"status":  strings.TrimSpace(strings.ToLower(status)),
+			"summary": strings.TrimSpace(summary),
+		}
+		if len(details) > 0 {
+			step["details"] = details
+		}
+		timeline = append(timeline, step)
+	}
+
+	appendStep(
+		"input",
+		"输入聚合（用户 + 视频 + 开发规则）",
+		"done",
+		fmt.Sprintf("已构建 %s 任务输入，用户提示词长度 %d。", format, len(strings.TrimSpace(sourcePrompt))),
+		map[string]interface{}{
+			"source_prompt": sourcePrompt,
+			"input_keys":    sortedMapKeys(input),
+		},
+	)
+
+	modelRequestSummary := mapFromAnyValue(modelRequest["payload_summary_v2"])
+	requestStatus := strings.TrimSpace(strings.ToLower(stringFromAny(modelRequest["request_status"])))
+	requestStepStatus := "done"
+	if requestStatus == "error" {
+		requestStepStatus = "error"
+	} else if len(modelRequestSummary) == 0 {
+		requestStepStatus = "pending"
+	}
+	appendStep(
+		"model_request",
+		"POST 模型请求",
+		requestStepStatus,
+		"已组装模型请求负载（含 payload 摘要与输入模式）。",
+		map[string]interface{}{
+			"provider":           stringFromAny(modelRequest["provider"]),
+			"model":              stringFromAny(modelRequest["model"]),
+			"request_status":     stringFromAny(modelRequest["request_status"]),
+			"payload_summary_v2": modelRequestSummary,
+		},
+	)
+
+	responseSummary := mapFromAnyValue(modelResponse["response_summary_v2"])
+	responseStepStatus := "done"
+	if strings.TrimSpace(strings.ToLower(stringFromAny(responseSummary["request_status"]))) == "error" {
+		responseStepStatus = "error"
+	} else if !boolFromAny(responseSummary["usage_found"]) && !boolFromAny(responseSummary["directive_found"]) {
+		responseStepStatus = "pending"
+	}
+	appendStep(
+		"model_response",
+		"模型响应解析",
+		responseStepStatus,
+		"已提取模型返回、usage 与 directive 标准化结果。",
+		map[string]interface{}{
+			"response_summary_v2": responseSummary,
+		},
+	)
+
+	contractStatus := "done"
+	if !boolFromAny(contractReport["valid"]) {
+		contractStatus = "warn"
+	}
+	if boolFromAny(contractReport["contract_repaired"]) {
+		contractStatus = "repaired"
+	}
+	appendStep(
+		"contract",
+		"AI1 协议校验与修复",
+		contractStatus,
+		"已执行 AI1 Output v2 契约校验，并记录修复轨迹。",
+		map[string]interface{}{
+			"contract_report": contractReport,
+		},
+	)
+
+	finalOutputStatus := "done"
+	userReply := mapFromAnyValue(output["user_reply"])
+	ai2Instruction := mapFromAnyValue(output["ai2_instruction"])
+	if len(userReply) == 0 || len(ai2Instruction) == 0 {
+		finalOutputStatus = "warn"
+	}
+	appendStep(
+		"final_output",
+		"最终输出（用户反馈 + AI2指令）",
+		finalOutputStatus,
+		"已生成用户可读反馈与 AI2 可执行指令。",
+		map[string]interface{}{
+			"user_reply_keys":      sortedMapKeys(userReply),
+			"ai2_instruction_keys": sortedMapKeys(ai2Instruction),
+		},
+	)
+	return timeline
 }
 
 func parseUint64FromAny(raw interface{}) uint64 {

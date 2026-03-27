@@ -53,14 +53,15 @@ type CategoryResponse struct {
 }
 
 type PublicCategoryResponse struct {
-	ID          uint64  `json:"id"`
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	ParentID    *uint64 `json:"parent_id,omitempty"`
-	Description string  `json:"description,omitempty"`
-	CoverURL    string  `json:"cover_url,omitempty"`
-	Icon        string  `json:"icon,omitempty"`
-	Sort        int     `json:"sort"`
+	ID                    uint64  `json:"id"`
+	Name                  string  `json:"name"`
+	Slug                  string  `json:"slug"`
+	ParentID              *uint64 `json:"parent_id,omitempty"`
+	Description           string  `json:"description,omitempty"`
+	CoverURL              string  `json:"cover_url,omitempty"`
+	Icon                  string  `json:"icon,omitempty"`
+	Sort                  int     `json:"sort"`
+	PublicCollectionCount int64   `json:"public_collection_count"`
 }
 
 type ListCategoryObjectsResponse struct {
@@ -187,17 +188,39 @@ func (h *Handler) ListPublicCategories(c *gin.Context) {
 		return
 	}
 
+	type publicCollectionCountRow struct {
+		CategoryID      uint64 `gorm:"column:category_id"`
+		CollectionCount int64  `gorm:"column:collection_count"`
+	}
+	var countRows []publicCollectionCountRow
+	if err := h.db.Table("archive.collections").
+		Select("category_id, COUNT(*) AS collection_count").
+		Where("category_id IS NOT NULL").
+		Where("deleted_at IS NULL").
+		Where("status = ?", "active").
+		Where("visibility = ?", "public").
+		Group("category_id").
+		Scan(&countRows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	publicCountMap := make(map[uint64]int64, len(countRows))
+	for _, row := range countRows {
+		publicCountMap[row.CategoryID] = row.CollectionCount
+	}
+
 	resp := make([]PublicCategoryResponse, 0, len(categories))
 	for _, cat := range categories {
 		resp = append(resp, PublicCategoryResponse{
-			ID:          cat.ID,
-			Name:        cat.Name,
-			Slug:        cat.Slug,
-			ParentID:    cat.ParentID,
-			Description: cat.Description,
-			CoverURL:    cat.CoverURL,
-			Icon:        cat.Icon,
-			Sort:        cat.Sort,
+			ID:                    cat.ID,
+			Name:                  cat.Name,
+			Slug:                  cat.Slug,
+			ParentID:              cat.ParentID,
+			Description:           cat.Description,
+			CoverURL:              cat.CoverURL,
+			Icon:                  cat.Icon,
+			Sort:                  cat.Sort,
+			PublicCollectionCount: publicCountMap[cat.ID],
 		})
 	}
 	c.JSON(http.StatusOK, resp)

@@ -171,6 +171,12 @@ type QualitySettings struct {
 	AIDirectorDurationExpandRatio        float64 `json:"ai_director_duration_expand_ratio"`
 	AIDirectorCountAbsoluteCap           int     `json:"ai_director_count_absolute_cap"`
 	AIDirectorDurationAbsoluteCapSec     float64 `json:"ai_director_duration_absolute_cap_sec"`
+	GIFAIJudgeHardGateMinOverallScore    float64 `json:"gif_ai_judge_hard_gate_min_overall_score"`
+	GIFAIJudgeHardGateMinClarityScore    float64 `json:"gif_ai_judge_hard_gate_min_clarity_score"`
+	GIFAIJudgeHardGateMinLoopScore       float64 `json:"gif_ai_judge_hard_gate_min_loop_score"`
+	GIFAIJudgeHardGateMinOutputScore     float64 `json:"gif_ai_judge_hard_gate_min_output_score"`
+	GIFAIJudgeHardGateMinDurationMS      int     `json:"gif_ai_judge_hard_gate_min_duration_ms"`
+	GIFAIJudgeHardGateSizeMultiplier     int     `json:"gif_ai_judge_hard_gate_size_multiplier"`
 }
 
 func DefaultQualitySettings() QualitySettings {
@@ -337,6 +343,12 @@ func DefaultQualitySettings() QualitySettings {
 		AIDirectorDurationExpandRatio:        0.20,
 		AIDirectorCountAbsoluteCap:           10,
 		AIDirectorDurationAbsoluteCapSec:     6.0,
+		GIFAIJudgeHardGateMinOverallScore:    0.20,
+		GIFAIJudgeHardGateMinClarityScore:    0.20,
+		GIFAIJudgeHardGateMinLoopScore:       0.20,
+		GIFAIJudgeHardGateMinOutputScore:     0.20,
+		GIFAIJudgeHardGateMinDurationMS:      200,
+		GIFAIJudgeHardGateSizeMultiplier:     4,
 	}
 }
 
@@ -998,6 +1010,46 @@ func NormalizeQualitySettings(in QualitySettings) QualitySettings {
 		out.AIDirectorDurationAbsoluteCapSec = def.AIDirectorDurationAbsoluteCapSec
 	}
 	out.AIDirectorDurationAbsoluteCapSec = clampFloat(out.AIDirectorDurationAbsoluteCapSec, 2.0, 12.0)
+
+	legacyZeroAIJudgeHardGate := out.GIFAIJudgeHardGateMinOverallScore == 0 &&
+		out.GIFAIJudgeHardGateMinClarityScore == 0 &&
+		out.GIFAIJudgeHardGateMinLoopScore == 0 &&
+		out.GIFAIJudgeHardGateMinOutputScore == 0 &&
+		out.GIFAIJudgeHardGateMinDurationMS == 0 &&
+		out.GIFAIJudgeHardGateSizeMultiplier == 0
+	if legacyZeroAIJudgeHardGate {
+		out.GIFAIJudgeHardGateMinOverallScore = def.GIFAIJudgeHardGateMinOverallScore
+		out.GIFAIJudgeHardGateMinClarityScore = def.GIFAIJudgeHardGateMinClarityScore
+		out.GIFAIJudgeHardGateMinLoopScore = def.GIFAIJudgeHardGateMinLoopScore
+		out.GIFAIJudgeHardGateMinOutputScore = def.GIFAIJudgeHardGateMinOutputScore
+		out.GIFAIJudgeHardGateMinDurationMS = def.GIFAIJudgeHardGateMinDurationMS
+		out.GIFAIJudgeHardGateSizeMultiplier = def.GIFAIJudgeHardGateSizeMultiplier
+	} else {
+		if out.GIFAIJudgeHardGateMinOverallScore <= 0 {
+			out.GIFAIJudgeHardGateMinOverallScore = def.GIFAIJudgeHardGateMinOverallScore
+		}
+		if out.GIFAIJudgeHardGateMinClarityScore <= 0 {
+			out.GIFAIJudgeHardGateMinClarityScore = def.GIFAIJudgeHardGateMinClarityScore
+		}
+		if out.GIFAIJudgeHardGateMinLoopScore <= 0 {
+			out.GIFAIJudgeHardGateMinLoopScore = def.GIFAIJudgeHardGateMinLoopScore
+		}
+		if out.GIFAIJudgeHardGateMinOutputScore <= 0 {
+			out.GIFAIJudgeHardGateMinOutputScore = def.GIFAIJudgeHardGateMinOutputScore
+		}
+		if out.GIFAIJudgeHardGateMinDurationMS <= 0 {
+			out.GIFAIJudgeHardGateMinDurationMS = def.GIFAIJudgeHardGateMinDurationMS
+		}
+		if out.GIFAIJudgeHardGateSizeMultiplier <= 0 {
+			out.GIFAIJudgeHardGateSizeMultiplier = def.GIFAIJudgeHardGateSizeMultiplier
+		}
+	}
+	out.GIFAIJudgeHardGateMinOverallScore = clampFloat(out.GIFAIJudgeHardGateMinOverallScore, 0.01, 1.0)
+	out.GIFAIJudgeHardGateMinClarityScore = clampFloat(out.GIFAIJudgeHardGateMinClarityScore, 0.01, 1.0)
+	out.GIFAIJudgeHardGateMinLoopScore = clampFloat(out.GIFAIJudgeHardGateMinLoopScore, 0.01, 1.0)
+	out.GIFAIJudgeHardGateMinOutputScore = clampFloat(out.GIFAIJudgeHardGateMinOutputScore, 0.01, 1.0)
+	out.GIFAIJudgeHardGateMinDurationMS = int(clampFloat(float64(out.GIFAIJudgeHardGateMinDurationMS), 50, 10000))
+	out.GIFAIJudgeHardGateSizeMultiplier = int(clampFloat(float64(out.GIFAIJudgeHardGateSizeMultiplier), 1, 20))
 
 	return out
 }

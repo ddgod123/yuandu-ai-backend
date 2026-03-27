@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -88,7 +89,8 @@ func (h *Handler) loadVideoImageFeedbackIntegrityOverviewRange(
 		TopPickMultiHitUsers int64 `gorm:"column:top_pick_multi_hit_users"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
 	untilSQL := ""
 	args := make([]interface{}, 0, 2+len(filterArgs))
 	args = append(args, since)
@@ -97,7 +99,7 @@ func (h *Handler) loadVideoImageFeedbackIntegrityOverviewRange(
 		args = append(args, until)
 	}
 	args = append(args, filterArgs...)
-	query := `
+	query := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.id,
@@ -105,10 +107,10 @@ WITH base AS (
 		f.user_id,
 		f.output_id,
 		LOWER(COALESCE(f.action, '')) AS action
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + untilSQL + `
-` + filterSQL + `
+`+untilSQL+`
+`+filterSQL+`
 ),
 joined AS (
 	SELECT
@@ -116,7 +118,7 @@ joined AS (
 		o.id AS output_exists_id,
 		o.job_id AS output_job_id
 	FROM base b
-	LEFT JOIN public.video_image_outputs o ON o.id = b.output_id
+	LEFT JOIN %s o ON o.id = b.output_id
 ),
 top_pick_conflict AS (
 	SELECT COUNT(*)::bigint AS users
@@ -141,7 +143,7 @@ SELECT
 	)::bigint AS job_mismatch,
 	COALESCE((SELECT users FROM top_pick_conflict), 0)::bigint AS top_pick_multi_hit_users
 FROM joined
-`
+`, tables.Feedback, tables.Outputs)
 
 	var dbRow row
 	if err := h.db.Raw(query, args...).Scan(&dbRow).Error; err != nil {
@@ -186,8 +188,9 @@ func (h *Handler) loadVideoImageFeedbackIntegrityHealthTrend(
 		TopPickMultiHitUsers int64     `gorm:"column:top_pick_multi_hit_users"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
+	query := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		date_trunc('day', f.created_at) AS bucket_day,
@@ -195,10 +198,10 @@ WITH base AS (
 		f.user_id,
 		f.output_id,
 		LOWER(COALESCE(NULLIF(TRIM(f.action), ''), 'unknown')) AS action
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
 		AND f.created_at <= ?
-` + filterSQL + `
+`+filterSQL+`
 ),
 joined AS (
 	SELECT
@@ -206,7 +209,7 @@ joined AS (
 		o.id AS output_exists_id,
 		o.job_id AS output_job_id
 	FROM base b
-	LEFT JOIN public.video_image_outputs o ON o.id = b.output_id
+	LEFT JOIN %s o ON o.id = b.output_id
 ),
 daily_agg AS (
 	SELECT
@@ -256,7 +259,7 @@ FROM days
 LEFT JOIN daily_agg ON daily_agg.bucket_day = days.bucket_day
 LEFT JOIN daily_top_pick_conflict ON daily_top_pick_conflict.bucket_day = days.bucket_day
 ORDER BY days.bucket_day ASC
-`
+`, tables.Feedback, tables.Outputs)
 	args := []interface{}{since, until}
 	args = append(args, filterArgs...)
 	args = append(args, since, until)
@@ -750,8 +753,9 @@ func (h *Handler) loadVideoImageFeedbackIntegrityRiskJobCounts(
 		TopPickConflictJobs int64 `gorm:"column:top_pick_conflict_jobs"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
+	query := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.id,
@@ -759,9 +763,9 @@ WITH base AS (
 		f.user_id,
 		f.output_id,
 		LOWER(COALESCE(f.action, '')) AS action
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 ),
 joined AS (
 	SELECT
@@ -769,7 +773,7 @@ joined AS (
 		o.id AS output_exists_id,
 		o.job_id AS output_job_id
 	FROM base b
-	LEFT JOIN public.video_image_outputs o ON o.id = b.output_id
+	LEFT JOIN %s o ON o.id = b.output_id
 ),
 anomaly_jobs AS (
 	SELECT COUNT(DISTINCT job_id)::bigint AS jobs
@@ -791,7 +795,7 @@ top_pick_conflict_jobs AS (
 SELECT
 	COALESCE((SELECT jobs FROM anomaly_jobs), 0)::bigint AS anomaly_jobs,
 	COALESCE((SELECT jobs FROM top_pick_conflict_jobs), 0)::bigint AS top_pick_conflict_jobs
-`
+`, tables.Feedback, tables.Outputs)
 	args := []interface{}{since}
 	args = append(args, filterArgs...)
 
@@ -830,17 +834,18 @@ func (h *Handler) loadVideoImageFeedbackIntegrityActionRows(
 		JobMismatch     int64  `gorm:"column:job_mismatch"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
+	query := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		f.id,
 		f.job_id,
 		f.output_id,
 		LOWER(COALESCE(NULLIF(TRIM(f.action), ''), 'unknown')) AS action
-	FROM public.video_image_feedback f
+	FROM %s f
 	WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 ),
 joined AS (
 	SELECT
@@ -848,7 +853,7 @@ joined AS (
 		o.id AS output_exists_id,
 		o.job_id AS output_job_id
 	FROM base b
-	LEFT JOIN public.video_image_outputs o ON o.id = b.output_id
+	LEFT JOIN %s o ON o.id = b.output_id
 )
 SELECT
 	action,
@@ -865,7 +870,7 @@ SELECT
 FROM joined
 GROUP BY action
 ORDER BY samples DESC, action ASC
-`
+`, tables.Feedback, tables.Outputs)
 	args := []interface{}{since}
 	args = append(args, filterArgs...)
 	if limit > 0 {
@@ -915,19 +920,20 @@ func (h *Handler) loadVideoImageFeedbackActionStats(
 		WeightSum *float64 `gorm:"column:weight_sum"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
+	query := fmt.Sprintf(`
 SELECT
 	LOWER(COALESCE(NULLIF(TRIM(action), ''), 'unknown')) AS action,
 	COUNT(*)::bigint AS count,
 	COALESCE(SUM(weight), 0)::double precision AS weight_sum
-FROM public.video_image_feedback f
+FROM %s f
 WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 GROUP BY 1
 ORDER BY count DESC, action ASC
 LIMIT 16
-`
+`, tables.Feedback)
 
 	args := []interface{}{since}
 	args = append(args, filterArgs...)
@@ -971,8 +977,9 @@ func (h *Handler) loadVideoImageFeedbackTopSceneStats(
 		Signals  int64  `gorm:"column:signals"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
+	query := fmt.Sprintf(`
 SELECT
 	COALESCE(
 		NULLIF(LOWER(TRIM(scene_tag)), ''),
@@ -980,13 +987,13 @@ SELECT
 		'uncategorized'
 	) AS scene_tag,
 	COUNT(*)::bigint AS signals
-FROM public.video_image_feedback f
+FROM %s f
 WHERE f.created_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 GROUP BY 1
 ORDER BY signals DESC, scene_tag ASC
 LIMIT 16
-`
+`, tables.Feedback)
 	args := []interface{}{since}
 	args = append(args, filterArgs...)
 
@@ -1027,8 +1034,9 @@ func (h *Handler) loadVideoImageFeedbackTrend(
 		TopPick  int64     `gorm:"column:top_pick"`
 	}
 
-	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQL(filter)
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	filterSQL, filterArgs := buildVideoImageFeedbackFilterSQLWithTables(filter, "f", tables.Jobs)
+	query := fmt.Sprintf(`
 SELECT
 	date_trunc(?, f.created_at) AS bucket_ts,
 	COUNT(*)::bigint AS total,
@@ -1038,13 +1046,13 @@ SELECT
 	COUNT(*) FILTER (WHERE LOWER(COALESCE(action, '')) = 'neutral')::bigint AS neutral,
 	COUNT(*) FILTER (WHERE LOWER(COALESCE(action, '')) = 'dislike')::bigint AS negative,
 	COUNT(*) FILTER (WHERE LOWER(COALESCE(action, '')) = 'top_pick')::bigint AS top_pick
-FROM public.video_image_feedback f
+FROM %s f
 WHERE f.created_at >= ?
 	AND f.created_at <= ?
-` + filterSQL + `
+`+filterSQL+`
 GROUP BY 1
 ORDER BY 1 ASC
-`
+`, tables.Feedback)
 	args := []interface{}{precision, since, until}
 	args = append(args, filterArgs...)
 

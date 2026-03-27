@@ -48,3 +48,11 @@ func TestVideoImageStorageLayoutDefaults(t *testing.T) {
 		t.Fatalf("unexpected shard for user 100: %s", layout.UserShard(100))
 	}
 }
+
+func TestVideoImageStorageLayoutJobPrefixByFormat(t *testing.T) {
+	layout := NewVideoImageStorageLayout("prod")
+	prefix := layout.JobPrefixByFormat(77, 9001, "png")
+	if prefix != "emoji/video-image/prod/f/png/u/77/77/j/9001/" {
+		t.Fatalf("unexpected format prefix: %s", prefix)
+	}
+}

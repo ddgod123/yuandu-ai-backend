@@ -58,11 +58,9 @@ func (p *Processor) requestCloudHighlightFallback(
 		},
 	}
 	finishUsage := func(status, errMessage string, usage *cloudHighlightUsage, extra map[string]interface{}) {
-		if usageInput.Metadata == nil {
-			usageInput.Metadata = map[string]interface{}{}
-		}
+		metadata := normalizeVideoJobAIUsageMetadata(usageInput.Metadata)
 		for key, value := range extra {
-			usageInput.Metadata[key] = value
+			metadata[key] = value
 		}
 		usageInput.RequestDurationMs = clampDurationMillis(startedAt)
 		usageInput.RequestStatus = strings.TrimSpace(status)
@@ -75,7 +73,7 @@ func (p *Processor) requestCloudHighlightFallback(
 			usageInput.ImageTokens = normalizedUsage.ImageTokens
 			usageInput.VideoTokens = normalizedUsage.VideoTokens
 			usageInput.AudioSeconds = normalizedUsage.AudioSeconds
-			usageInput.Metadata["usage"] = map[string]interface{}{
+			metadata["usage"] = map[string]interface{}{
 				"input_tokens":        normalizedUsage.InputTokens,
 				"output_tokens":       normalizedUsage.OutputTokens,
 				"cached_input_tokens": normalizedUsage.CachedInputTokens,
@@ -84,6 +82,7 @@ func (p *Processor) requestCloudHighlightFallback(
 				"audio_seconds":       roundTo(normalizedUsage.AudioSeconds, 3),
 			}
 		}
+		usageInput.Metadata = metadata
 		p.recordVideoJobAIUsage(usageInput)
 	}
 

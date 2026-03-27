@@ -30,9 +30,20 @@ func (l VideoImageStorageLayout) UserShard(userID uint64) string {
 }
 
 func (l VideoImageStorageLayout) JobPrefix(userID, jobID uint64) string {
+	return l.JobPrefixByFormat(userID, jobID, "")
+}
+
+func (l VideoImageStorageLayout) JobPrefixByFormat(userID, jobID uint64, primaryFormat string) string {
+	primaryFormat = NormalizeRequestedFormat(primaryFormat)
 	prefix := path.Join(
 		strings.Trim(l.RootPrefix, "/"),
 		l.Env,
+		func() string {
+			if primaryFormat != "" {
+				return path.Join("f", primaryFormat)
+			}
+			return ""
+		}(),
 		"u",
 		l.UserShard(userID),
 		fmt.Sprintf("%d", userID),

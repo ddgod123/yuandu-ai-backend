@@ -498,13 +498,23 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 		if err := tx.Where("job_id = ? AND type = ?", job.ID, "package").Delete(&models.VideoJobArtifact{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Table("public.video_image_outputs").
-			Where("job_id = ? AND (format = ? OR file_role = ?)", job.ID, "zip", "package").
-			Delete(nil).Error; err != nil {
-			return err
+		for _, tableName := range PublicVideoImageOutputsMirrorTables() {
+			if err := tx.Table(tableName).
+				Where("job_id = ? AND (format = ? OR file_role = ?)", job.ID, "zip", "package").
+				Delete(nil).Error; err != nil {
+				if isMissingTableError(err, tableName) {
+					continue
+				}
+				return err
+			}
 		}
-		if err := tx.Table("public.video_image_packages").Where("job_id = ?", job.ID).Delete(nil).Error; err != nil {
-			return err
+		for _, tableName := range PublicVideoImagePackagesMirrorTables() {
+			if err := tx.Table(tableName).Where("job_id = ?", job.ID).Delete(nil).Error; err != nil {
+				if isMissingTableError(err, tableName) {
+					continue
+				}
+				return err
+			}
 		}
 		if err := tx.Model(&models.VideoJob{}).Where("id = ?", job.ID).Update("metrics", metricsJSON).Error; err != nil {
 			return err

@@ -21,7 +21,12 @@ import (
 const (
 	adminWorkerRoleAll   = "all"
 	adminWorkerRoleGIF   = "gif"
+	adminWorkerRoleImage = "image"
 	adminWorkerRolePNG   = "png"
+	adminWorkerRoleJPG   = "jpg"
+	adminWorkerRoleWEBP  = "webp"
+	adminWorkerRoleLIVE  = "live"
+	adminWorkerRoleMP4   = "mp4"
 	adminWorkerRoleMedia = "media"
 
 	adminWorkerStaleQueueDuration = 2 * time.Minute
@@ -36,6 +41,10 @@ type adminWorkerLaneDefinition struct {
 var adminWorkerLaneDefinitions = []adminWorkerLaneDefinition{
 	{Role: adminWorkerRoleGIF, Label: "GIF", QueueName: videojobs.QueueVideoJobGIF},
 	{Role: adminWorkerRolePNG, Label: "PNG", QueueName: videojobs.QueueVideoJobPNG},
+	{Role: adminWorkerRoleJPG, Label: "JPG", QueueName: videojobs.QueueVideoJobJPG},
+	{Role: adminWorkerRoleWEBP, Label: "WebP", QueueName: videojobs.QueueVideoJobWEBP},
+	{Role: adminWorkerRoleLIVE, Label: "Live", QueueName: videojobs.QueueVideoJobLIVE},
+	{Role: adminWorkerRoleMP4, Label: "MP4", QueueName: videojobs.QueueVideoJobMP4},
 	{Role: adminWorkerRoleMedia, Label: "通用", QueueName: videojobs.QueueVideoJobMedia},
 }
 
@@ -334,7 +343,7 @@ func (h *Handler) buildAdminWorkerHealthSnapshot(now time.Time) AdminWorkerHealt
 // @Tags admin
 // @Accept json
 // @Produce json
-// @Param role query string false "all|gif|png|media"
+// @Param role query string false "all|gif|image|png|jpg|webp|live|mp4|media"
 // @Param force query boolean false "force execute command even when worker is already online"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/admin/system/worker-start [post]
@@ -440,7 +449,7 @@ func (h *Handler) StartAdminWorker(c *gin.Context) {
 // @Tags admin
 // @Accept json
 // @Produce json
-// @Param role query string false "all|gif|png|media"
+// @Param role query string false "all|gif|image|png|jpg|webp|live|mp4|media"
 // @Param force query boolean false "force execute stop command even when worker is already offline"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/admin/system/worker-stop [post]
@@ -583,8 +592,13 @@ func (h *Handler) resolveAdminWorkerStopCapability(role string) (bool, string) {
 func (h *Handler) hasAnyAdminWorkerStartCommand() bool {
 	for _, item := range []string{
 		h.cfg.WorkerStartCommand,
+		h.cfg.WorkerStartCommandImage,
 		h.cfg.WorkerStartCommandGIF,
 		h.cfg.WorkerStartCommandPNG,
+		h.cfg.WorkerStartCommandJPG,
+		h.cfg.WorkerStartCommandWEBP,
+		h.cfg.WorkerStartCommandLIVE,
+		h.cfg.WorkerStartCommandMP4,
 		h.cfg.WorkerStartCommandMedia,
 	} {
 		if strings.TrimSpace(item) != "" {
@@ -597,8 +611,13 @@ func (h *Handler) hasAnyAdminWorkerStartCommand() bool {
 func (h *Handler) hasAnyAdminWorkerStopCommand() bool {
 	for _, item := range []string{
 		h.cfg.WorkerStopCommand,
+		h.cfg.WorkerStopCommandImage,
 		h.cfg.WorkerStopCommandGIF,
 		h.cfg.WorkerStopCommandPNG,
+		h.cfg.WorkerStopCommandJPG,
+		h.cfg.WorkerStopCommandWEBP,
+		h.cfg.WorkerStopCommandLIVE,
+		h.cfg.WorkerStopCommandMP4,
 		h.cfg.WorkerStopCommandMedia,
 	} {
 		if strings.TrimSpace(item) != "" {
@@ -743,8 +762,31 @@ func (h *Handler) resolveAdminWorkerStartCommand(role string) string {
 		if value := strings.TrimSpace(h.cfg.WorkerStartCommandGIF); value != "" {
 			return value
 		}
+	case adminWorkerRoleImage:
+		if value := strings.TrimSpace(h.cfg.WorkerStartCommandImage); value != "" {
+			return value
+		}
+		if value := strings.TrimSpace(h.cfg.WorkerStartCommandPNG); value != "" {
+			return value
+		}
 	case adminWorkerRolePNG:
 		if value := strings.TrimSpace(h.cfg.WorkerStartCommandPNG); value != "" {
+			return value
+		}
+	case adminWorkerRoleJPG:
+		if value := strings.TrimSpace(h.cfg.WorkerStartCommandJPG); value != "" {
+			return value
+		}
+	case adminWorkerRoleWEBP:
+		if value := strings.TrimSpace(h.cfg.WorkerStartCommandWEBP); value != "" {
+			return value
+		}
+	case adminWorkerRoleLIVE:
+		if value := strings.TrimSpace(h.cfg.WorkerStartCommandLIVE); value != "" {
+			return value
+		}
+	case adminWorkerRoleMP4:
+		if value := strings.TrimSpace(h.cfg.WorkerStartCommandMP4); value != "" {
 			return value
 		}
 	case adminWorkerRoleMedia:
@@ -761,8 +803,31 @@ func (h *Handler) resolveAdminWorkerStopCommand(role string) string {
 		if value := strings.TrimSpace(h.cfg.WorkerStopCommandGIF); value != "" {
 			return value
 		}
+	case adminWorkerRoleImage:
+		if value := strings.TrimSpace(h.cfg.WorkerStopCommandImage); value != "" {
+			return value
+		}
+		if value := strings.TrimSpace(h.cfg.WorkerStopCommandPNG); value != "" {
+			return value
+		}
 	case adminWorkerRolePNG:
 		if value := strings.TrimSpace(h.cfg.WorkerStopCommandPNG); value != "" {
+			return value
+		}
+	case adminWorkerRoleJPG:
+		if value := strings.TrimSpace(h.cfg.WorkerStopCommandJPG); value != "" {
+			return value
+		}
+	case adminWorkerRoleWEBP:
+		if value := strings.TrimSpace(h.cfg.WorkerStopCommandWEBP); value != "" {
+			return value
+		}
+	case adminWorkerRoleLIVE:
+		if value := strings.TrimSpace(h.cfg.WorkerStopCommandLIVE); value != "" {
+			return value
+		}
+	case adminWorkerRoleMP4:
+		if value := strings.TrimSpace(h.cfg.WorkerStopCommandMP4); value != "" {
 			return value
 		}
 	case adminWorkerRoleMedia:
@@ -897,7 +962,7 @@ func parseAdminWorkerActionParams(c *gin.Context) (role string, force bool, err 
 	} else {
 		role = normalizeAdminWorkerRole(rawRole)
 		if role == "" {
-			return "", false, fmt.Errorf("invalid role, expect one of: all, gif, png, media")
+			return "", false, fmt.Errorf("invalid role, expect one of: all, gif, image, png, jpg, webp, live, mp4, media")
 		}
 	}
 	force = strings.EqualFold(strings.TrimSpace(c.Query("force")), "1") ||
@@ -915,7 +980,7 @@ func parseAdminWorkerActionParams(c *gin.Context) (role string, force bool, err 
 		if strings.TrimSpace(req.Role) != "" {
 			normalized := normalizeAdminWorkerRole(req.Role)
 			if normalized == "" {
-				return "", false, fmt.Errorf("invalid role, expect one of: all, gif, png, media")
+				return "", false, fmt.Errorf("invalid role, expect one of: all, gif, image, png, jpg, webp, live, mp4, media")
 			}
 			role = normalized
 		}
@@ -930,8 +995,18 @@ func normalizeAdminWorkerRole(raw string) string {
 		return adminWorkerRoleAll
 	case adminWorkerRoleGIF:
 		return adminWorkerRoleGIF
-	case adminWorkerRolePNG, "image":
+	case adminWorkerRoleImage:
+		return adminWorkerRoleImage
+	case adminWorkerRolePNG:
 		return adminWorkerRolePNG
+	case adminWorkerRoleJPG:
+		return adminWorkerRoleJPG
+	case adminWorkerRoleWEBP:
+		return adminWorkerRoleWEBP
+	case adminWorkerRoleLIVE:
+		return adminWorkerRoleLIVE
+	case adminWorkerRoleMP4:
+		return adminWorkerRoleMP4
 	case adminWorkerRoleMedia:
 		return adminWorkerRoleMedia
 	default:
@@ -943,14 +1018,34 @@ func resolveAdminWorkerQueueNamesByRole(role string) []string {
 	switch normalizeAdminWorkerRole(role) {
 	case adminWorkerRoleGIF:
 		return []string{videojobs.QueueVideoJobGIF}
+	case adminWorkerRoleImage:
+		return []string{
+			videojobs.QueueVideoJobPNG,
+			videojobs.QueueVideoJobJPG,
+			videojobs.QueueVideoJobWEBP,
+			videojobs.QueueVideoJobLIVE,
+			videojobs.QueueVideoJobMP4,
+		}
 	case adminWorkerRolePNG:
 		return []string{videojobs.QueueVideoJobPNG}
+	case adminWorkerRoleJPG:
+		return []string{videojobs.QueueVideoJobJPG}
+	case adminWorkerRoleWEBP:
+		return []string{videojobs.QueueVideoJobWEBP}
+	case adminWorkerRoleLIVE:
+		return []string{videojobs.QueueVideoJobLIVE}
+	case adminWorkerRoleMP4:
+		return []string{videojobs.QueueVideoJobMP4}
 	case adminWorkerRoleMedia:
 		return []string{videojobs.QueueVideoJobMedia}
 	default:
 		return []string{
 			videojobs.QueueVideoJobGIF,
 			videojobs.QueueVideoJobPNG,
+			videojobs.QueueVideoJobJPG,
+			videojobs.QueueVideoJobWEBP,
+			videojobs.QueueVideoJobLIVE,
+			videojobs.QueueVideoJobMP4,
 			videojobs.QueueVideoJobMedia,
 		}
 	}
@@ -1021,14 +1116,35 @@ func (h *Handler) loadAdminStaleQueuedVideoJobs(now time.Time) (int64, float64, 
 		Count  int64      `gorm:"column:count"`
 		Oldest *time.Time `gorm:"column:oldest"`
 	}
-	if err := h.db.Raw(`
+	cutoff := now.Add(-adminWorkerStaleQueueDuration)
+	splitTables := videojobs.PublicVideoImageJobsSplitTables()
+	if len(splitTables) == 0 {
+		return 0, 0, fmt.Errorf("video image split tables not configured")
+	}
+	unionParts := make([]string, 0, len(splitTables))
+	args := make([]interface{}, 0, len(splitTables)*2)
+	for _, tableName := range splitTables {
+		clean := strings.TrimSpace(tableName)
+		if clean == "" {
+			continue
+		}
+		unionParts = append(unionParts, fmt.Sprintf("SELECT created_at FROM %s WHERE status = ? AND created_at <= ?", clean))
+		args = append(args, models.VideoJobStatusQueued, cutoff)
+	}
+	if len(unionParts) == 0 {
+		return 0, 0, fmt.Errorf("video image split tables are empty")
+	}
+	query := `
 SELECT
   COUNT(*)::bigint AS count,
   MIN(created_at) AS oldest
-FROM public.video_image_jobs
-WHERE status = ?
-  AND created_at <= ?
-`, models.VideoJobStatusQueued, now.Add(-adminWorkerStaleQueueDuration)).Scan(&row).Error; err != nil {
+FROM (
+` + strings.Join(unionParts, `
+UNION ALL
+`) + `
+) jobs
+`
+	if err := h.db.Raw(query, args...).Scan(&row).Error; err != nil {
 		return 0, 0, err
 	}
 	oldestAgeSec := 0.0

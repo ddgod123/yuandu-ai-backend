@@ -654,6 +654,11 @@ type AdminBatchAssignCollectionIPRequest struct {
 	IPID          *uint64  `json:"ip_id"`
 }
 
+type AdminBatchUpdateCollectionVisibilityRequest struct {
+	CollectionIDs []uint64 `json:"collection_ids"`
+	Visibility    string   `json:"visibility"`
+}
+
 type AdminCollectionIPStatItem struct {
 	IPID   *uint64 `json:"ip_id,omitempty"`
 	IPName string  `json:"ip_name"`
@@ -1017,6 +1022,65 @@ func (h *Handler) AdminBatchUpdateCollectionSample(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"updated_count": result.RowsAffected,
 		"is_sample":     req.IsSample,
+	})
+}
+
+// AdminBatchUpdateCollectionVisibility godoc
+// @Summary Batch update collection visibility (admin)
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param body body AdminBatchUpdateCollectionVisibilityRequest true "batch update visibility"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/admin/collections/batch-visibility [post]
+func (h *Handler) AdminBatchUpdateCollectionVisibility(c *gin.Context) {
+	var req AdminBatchUpdateCollectionVisibilityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.CollectionIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "collection_ids is required"})
+		return
+	}
+	if len(req.CollectionIDs) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too many collection_ids, max 500"})
+		return
+	}
+	visibility, ok := normalizeCollectionVisibility(req.Visibility)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid visibility"})
+		return
+	}
+
+	idSet := make(map[uint64]struct{}, len(req.CollectionIDs))
+	ids := make([]uint64, 0, len(req.CollectionIDs))
+	for _, id := range req.CollectionIDs {
+		if id == 0 {
+			continue
+		}
+		if _, exists := idSet[id]; exists {
+			continue
+		}
+		idSet[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid collection_ids"})
+		return
+	}
+
+	result := h.db.Model(&models.Collection{}).
+		Where("id IN ?", ids).
+		Update("visibility", visibility)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated_count": result.RowsAffected,
+		"visibility":    visibility,
 	})
 }
 

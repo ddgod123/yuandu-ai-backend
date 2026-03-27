@@ -3,6 +3,7 @@ package videojobs
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -44,7 +45,31 @@ func UpsertPublicVideoImageJob(tx *gorm.DB, legacy models.VideoJob) error {
 	if row.Metrics == nil {
 		row.Metrics = datatypes.JSON([]byte("{}"))
 	}
-	return tx.Clauses(clause.OnConflict{
+	if err := upsertPublicVideoImageJobRow(tx, publicVideoImageJobsTable, row); err != nil {
+		return err
+	}
+	splitTable := resolvePublicVideoImageJobsTable(row.RequestedFormat)
+	if splitTable == publicVideoImageJobsTable {
+		return nil
+	}
+	if err := upsertPublicVideoImageJobRow(tx, splitTable, row); err != nil {
+		if ignorePublicSplitTableMissing(err, splitTable, publicVideoImageJobsTable) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func upsertPublicVideoImageJobRow(tx *gorm.DB, tableName string, row models.VideoImageJobPublic) error {
+	if tx == nil {
+		return nil
+	}
+	tableName = strings.TrimSpace(tableName)
+	if tableName == "" {
+		return nil
+	}
+	return tx.Table(tableName).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"user_id":          row.UserID,
@@ -75,11 +100,20 @@ func SyncPublicVideoImageJobUpdates(db *gorm.DB, jobID uint64, updates map[strin
 	}
 	mapped["updated_at"] = time.Now()
 
-	result := db.Model(&models.VideoImageJobPublic{}).Where("id = ?", jobID).Updates(mapped)
+	result := db.Table(publicVideoImageJobsTable).Where("id = ?", jobID).Updates(mapped)
 	if result.Error != nil {
 		return result.Error
 	}
-	if result.RowsAffected > 0 {
+	requestedFormat := resolvePublicVideoImageRequestedFormat(db, jobID)
+	splitTable := resolvePublicVideoImageJobsTable(requestedFormat)
+	if splitTable != publicVideoImageJobsTable {
+		if err := db.Table(splitTable).Where("id = ?", jobID).Updates(mapped).Error; err != nil {
+			if !ignorePublicSplitTableMissing(err, splitTable, publicVideoImageJobsTable) {
+				return err
+			}
+		}
+	}
+	if result.RowsAffected > 0 && requestedFormat != "" {
 		return nil
 	}
 
@@ -91,6 +125,25 @@ func SyncPublicVideoImageJobUpdates(db *gorm.DB, jobID uint64, updates map[strin
 		return err
 	}
 	return UpsertPublicVideoImageJob(db, legacy)
+}
+
+func resolvePublicVideoImageRequestedFormat(db *gorm.DB, jobID uint64) string {
+	if db == nil || jobID == 0 {
+		return ""
+	}
+	var row struct {
+		RequestedFormat string `gorm:"column:requested_format"`
+	}
+	if err := db.Table(publicVideoImageJobsTable).Select("requested_format").Where("id = ?", jobID).First(&row).Error; err == nil {
+		if format := normalizePublicVideoImageSplitFormat(row.RequestedFormat); format != "" {
+			return format
+		}
+	}
+	var legacy models.VideoJob
+	if err := db.Select("output_formats").Where("id = ?", jobID).First(&legacy).Error; err == nil {
+		return normalizePublicVideoImageSplitFormat(requestedFormatFromLegacy(legacy.OutputFormats))
+	}
+	return ""
 }
 
 func CreatePublicVideoImageEvent(tx *gorm.DB, event models.VideoJobEvent) error {
@@ -107,7 +160,50 @@ func CreatePublicVideoImageEvent(tx *gorm.DB, event models.VideoJobEvent) error 
 	if row.Metadata == nil {
 		row.Metadata = datatypes.JSON([]byte("{}"))
 	}
-	return tx.Create(&row).Error
+	if err := tx.Table(publicVideoImageEventsTable).Create(&row).Error; err != nil {
+		return err
+	}
+	requestedFormat := resolvePublicVideoImageRequestedFormat(tx, event.JobID)
+	splitTable := resolvePublicVideoImageEventsTable(requestedFormat)
+	if splitTable == publicVideoImageEventsTable {
+		return nil
+	}
+	if err := tx.Table(splitTable).Create(&row).Error; err != nil {
+		if ignorePublicSplitTableMissing(err, splitTable, publicVideoImageEventsTable) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func CreatePublicVideoImageFeedback(db *gorm.DB, entry models.VideoImageFeedbackPublic) error {
+	if db == nil || entry.JobID == 0 {
+		return nil
+	}
+	return forEachPublicVideoImageFeedbackTableByJob(db, entry.JobID, func(tableName string) error {
+		err := db.Table(tableName).Create(&entry).Error
+		if ignorePublicSplitTableMissing(err, tableName, publicVideoImageFeedbackTable) {
+			return nil
+		}
+		return err
+	})
+}
+
+func DeletePublicVideoImageFeedbackByJobUserAction(db *gorm.DB, jobID uint64, userID uint64, action string) error {
+	if db == nil || jobID == 0 || userID == 0 {
+		return nil
+	}
+	action = strings.TrimSpace(strings.ToLower(action))
+	return forEachPublicVideoImageFeedbackTableByJob(db, jobID, func(tableName string) error {
+		err := db.Table(tableName).
+			Where("job_id = ? AND user_id = ? AND LOWER(COALESCE(action, '')) = ?", jobID, userID, action).
+			Delete(&models.VideoImageFeedbackPublic{}).Error
+		if ignorePublicSplitTableMissing(err, tableName, publicVideoImageFeedbackTable) {
+			return nil
+		}
+		return err
+	})
 }
 
 func UpsertPublicVideoImageOutputByArtifact(tx *gorm.DB, artifact models.VideoJobArtifact) error {
@@ -164,36 +260,22 @@ func UpsertPublicVideoImageOutputByArtifact(tx *gorm.DB, artifact models.VideoJo
 	if row.Metadata == nil {
 		row.Metadata = datatypes.JSON([]byte("{}"))
 	}
-	if err := tx.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "object_key"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"job_id":                          row.JobID,
-			"user_id":                         row.UserID,
-			"format":                          row.Format,
-			"file_role":                       row.FileRole,
-			"mime_type":                       row.MimeType,
-			"size_bytes":                      row.SizeBytes,
-			"width":                           row.Width,
-			"height":                          row.Height,
-			"duration_ms":                     row.DurationMs,
-			"frame_index":                     row.FrameIndex,
-			"proposal_id":                     gorm.Expr("COALESCE(EXCLUDED.proposal_id, public.video_image_outputs.proposal_id)"),
-			"score":                           row.Score,
-			"gif_loop_tune_applied":           row.GIFLoopTuneApplied,
-			"gif_loop_tune_effective_applied": row.GIFLoopTuneEffectiveApplied,
-			"gif_loop_tune_fallback_to_base":  row.GIFLoopTuneFallbackToBase,
-			"gif_loop_tune_score":             row.GIFLoopTuneScore,
-			"gif_loop_tune_loop_closure":      row.GIFLoopTuneLoopClosure,
-			"gif_loop_tune_motion_mean":       row.GIFLoopTuneMotionMean,
-			"gif_loop_tune_effective_sec":     row.GIFLoopTuneEffectiveSec,
-			"is_primary":                      row.IsPrimary,
-			"metadata":                        row.Metadata,
-		}),
-	}).Create(&row).Error; err != nil {
+	if err := upsertPublicVideoImageOutputRow(tx, publicVideoImageOutputsTable, row); err != nil {
 		return err
 	}
+	requestedFormat := normalizePublicVideoImageSplitFormat(requestedFormatFromLegacy(legacyJob.OutputFormats))
+	splitOutputTable := resolvePublicVideoImageOutputsTable(requestedFormat)
+	if splitOutputTable != publicVideoImageOutputsTable {
+		if err := upsertPublicVideoImageOutputRow(tx, splitOutputTable, row); err != nil {
+			if !ignorePublicSplitTableMissing(err, splitOutputTable, publicVideoImageOutputsTable) {
+				return err
+			}
+		}
+	}
+
 	var synced models.VideoImageOutputPublic
 	if err := tx.
+		Table(publicVideoImageOutputsTable).
 		Select("id", "job_id", "format", "file_role", "size_bytes", "width", "height", "duration_ms", "proposal_id", "score",
 			"gif_loop_tune_loop_closure", "gif_loop_tune_motion_mean", "metadata").
 		Where("object_key = ?", row.ObjectKey).
@@ -211,21 +293,100 @@ func UpsertPublicVideoImageOutputByArtifact(tx *gorm.DB, artifact models.VideoJo
 			FileCount:    0,
 			Manifest:     row.Metadata,
 		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "job_id"}},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"user_id":        pkg.UserID,
-				"zip_object_key": pkg.ZipObjectKey,
-				"zip_name":       pkg.ZipName,
-				"zip_size_bytes": pkg.ZipSizeBytes,
-				"manifest":       pkg.Manifest,
-			}),
-		}).Create(&pkg).Error; err != nil {
+		if err := upsertPublicVideoImagePackageRow(tx, publicVideoImagePackagesTable, pkg); err != nil {
 			return err
+		}
+		splitPackageTable := resolvePublicVideoImagePackagesTable(requestedFormat)
+		if splitPackageTable != publicVideoImagePackagesTable {
+			if err := upsertPublicVideoImagePackageRow(tx, splitPackageTable, pkg); err != nil {
+				if !ignorePublicSplitTableMissing(err, splitPackageTable, publicVideoImagePackagesTable) {
+					return err
+				}
+			}
 		}
 	}
 
 	return nil
+}
+
+func upsertPublicVideoImageOutputRow(tx *gorm.DB, tableName string, row models.VideoImageOutputPublic) error {
+	if tx == nil {
+		return nil
+	}
+	tableName = strings.TrimSpace(tableName)
+	if tableName == "" {
+		return nil
+	}
+	proposalExpr := fmt.Sprintf("COALESCE(EXCLUDED.proposal_id, %s.proposal_id)", tableName)
+	return tx.Table(tableName).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "object_key"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"job_id":                          row.JobID,
+			"user_id":                         row.UserID,
+			"format":                          row.Format,
+			"file_role":                       row.FileRole,
+			"mime_type":                       row.MimeType,
+			"size_bytes":                      row.SizeBytes,
+			"width":                           row.Width,
+			"height":                          row.Height,
+			"duration_ms":                     row.DurationMs,
+			"frame_index":                     row.FrameIndex,
+			"proposal_id":                     gorm.Expr(proposalExpr),
+			"score":                           row.Score,
+			"gif_loop_tune_applied":           row.GIFLoopTuneApplied,
+			"gif_loop_tune_effective_applied": row.GIFLoopTuneEffectiveApplied,
+			"gif_loop_tune_fallback_to_base":  row.GIFLoopTuneFallbackToBase,
+			"gif_loop_tune_score":             row.GIFLoopTuneScore,
+			"gif_loop_tune_loop_closure":      row.GIFLoopTuneLoopClosure,
+			"gif_loop_tune_motion_mean":       row.GIFLoopTuneMotionMean,
+			"gif_loop_tune_effective_sec":     row.GIFLoopTuneEffectiveSec,
+			"is_primary":                      row.IsPrimary,
+			"metadata":                        row.Metadata,
+		}),
+	}).Create(&row).Error
+}
+
+func upsertPublicVideoImagePackageRow(tx *gorm.DB, tableName string, pkg models.VideoImagePackagePublic) error {
+	if tx == nil {
+		return nil
+	}
+	tableName = strings.TrimSpace(tableName)
+	if tableName == "" {
+		return nil
+	}
+	return tx.Table(tableName).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "job_id"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"user_id":        pkg.UserID,
+			"zip_object_key": pkg.ZipObjectKey,
+			"zip_name":       pkg.ZipName,
+			"zip_size_bytes": pkg.ZipSizeBytes,
+			"manifest":       pkg.Manifest,
+		}),
+	}).Create(&pkg).Error
+}
+
+func ignorePublicSplitTableMissing(err error, tableName string, baseTable string) bool {
+	if err == nil {
+		return false
+	}
+	current := strings.TrimSpace(tableName)
+	base := strings.TrimSpace(baseTable)
+	if current == "" || base == "" || strings.EqualFold(current, base) {
+		return false
+	}
+	return isMissingTableError(err, current) || isMissingTableError(err, tableOnlyName(current))
+}
+
+func tableOnlyName(tableName string) string {
+	value := strings.TrimSpace(tableName)
+	if value == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(value, "."); idx >= 0 && idx+1 < len(value) {
+		return value[idx+1:]
+	}
+	return value
 }
 
 func mapLegacyVideoJobUpdates(updates map[string]interface{}) map[string]interface{} {

@@ -119,7 +119,8 @@ func (h *Handler) loadVideoJobGIFLoopTuneOverview(since time.Time) (AdminVideoJo
 	}
 
 	var result row
-	err := h.db.Raw(`
+	gifTables := resolveVideoImageReadTables("gif")
+	err := h.db.Raw(fmt.Sprintf(`
 SELECT
 	COUNT(*)::bigint AS samples,
 	COUNT(*) FILTER (WHERE o.gif_loop_tune_applied = TRUE)::bigint AS applied,
@@ -129,13 +130,13 @@ SELECT
 	AVG(o.gif_loop_tune_loop_closure) FILTER (WHERE o.gif_loop_tune_applied = TRUE) AS avg_loop_closure,
 	AVG(o.gif_loop_tune_motion_mean) FILTER (WHERE o.gif_loop_tune_applied = TRUE) AS avg_motion_mean,
 	AVG(o.gif_loop_tune_effective_sec) FILTER (WHERE o.gif_loop_tune_applied = TRUE) AS avg_effective_sec
-FROM public.video_image_outputs o
-JOIN public.video_image_jobs j ON j.id = o.job_id
+FROM %s o
+JOIN %s j ON j.id = o.job_id
 WHERE o.format = 'gif'
 	AND o.file_role = 'main'
 	AND j.status = ?
 	AND j.finished_at >= ?
-`, models.VideoJobStatusDone, since).Scan(&result).Error
+`, gifTables.Outputs, gifTables.Jobs), models.VideoJobStatusDone, since).Scan(&result).Error
 	if err != nil {
 		if isMissingPublicGIFLoopColumnsError(err) {
 			return AdminVideoJobGIFLoopTuneOverview{}, nil
@@ -180,7 +181,8 @@ func (h *Handler) loadVideoJobGIFEvaluationOverview(since time.Time) (AdminVideo
 		AvgOverallScore    *float64 `gorm:"column:avg_overall_score"`
 	}
 	var result row
-	if err := h.db.Raw(`
+	gifTables := resolveVideoImageReadTables("gif")
+	if err := h.db.Raw(fmt.Sprintf(`
 SELECT
 	COUNT(*)::bigint AS samples,
 	AVG(e.emotion_score) AS avg_emotion_score,
@@ -190,10 +192,10 @@ SELECT
 	AVG(e.efficiency_score) AS avg_efficiency_score,
 	AVG(e.overall_score) AS avg_overall_score
 FROM archive.video_job_gif_evaluations e
-JOIN public.video_image_jobs j ON j.id = e.job_id
+JOIN %s j ON j.id = e.job_id
 WHERE j.requested_format = 'gif'
 	AND e.created_at >= ?
-`, since).Scan(&result).Error; err != nil {
+`, gifTables.Jobs), since).Scan(&result).Error; err != nil {
 		if isMissingGIFEvaluationTableError(err) {
 			return AdminVideoJobGIFEvaluationOverview{}, nil
 		}
@@ -326,6 +328,7 @@ func (h *Handler) loadVideoJobGIFEvaluationSamples(
 	if ascending {
 		orderExpr = "e.overall_score ASC, e.id ASC"
 	}
+	gifTables := resolveVideoImageReadTables("gif")
 
 	var rows []row
 	if err := h.db.Raw(fmt.Sprintf(`
@@ -348,13 +351,13 @@ SELECT
 	o.duration_ms,
 	e.created_at
 FROM archive.video_job_gif_evaluations e
-JOIN public.video_image_outputs o ON o.id = e.output_id
-JOIN public.video_image_jobs j ON j.id = e.job_id
+JOIN %s o ON o.id = e.output_id
+JOIN %s j ON j.id = e.job_id
 WHERE j.requested_format = 'gif'
 	AND e.created_at >= ?
 ORDER BY %s
 LIMIT ?
-`, orderExpr), since, limit).Scan(&rows).Error; err != nil {
+`, gifTables.Outputs, gifTables.Jobs, orderExpr), since, limit).Scan(&rows).Error; err != nil {
 		if isMissingGIFEvaluationTableError(err) {
 			return []AdminVideoJobGIFEvaluationSample{}, nil
 		}
@@ -568,7 +571,8 @@ func (h *Handler) loadVideoJobGIFManualScoreDiffSamples(
 		ReviewedAt          time.Time `gorm:"column:reviewed_at"`
 	}
 	rows := make([]row, 0, limit)
-	if err := h.db.Raw(`
+	gifTables := resolveVideoImageReadTables("gif")
+	if err := h.db.Raw(fmt.Sprintf(`
 SELECT
 	m.sample_id,
 	m.baseline_version,
@@ -593,11 +597,11 @@ SELECT
 	m.reviewed_at
 FROM ops.video_job_gif_manual_scores m
 JOIN archive.video_job_gif_evaluations e ON e.output_id = m.output_id
-LEFT JOIN public.video_image_outputs o ON o.id = m.output_id
+LEFT JOIN %s o ON o.id = m.output_id
 WHERE m.reviewed_at >= ?
 ORDER BY ABS(m.overall_score - e.overall_score) DESC, m.reviewed_at DESC
 LIMIT ?
-`, since, limit).Scan(&rows).Error; err != nil {
+`, gifTables.Outputs), since, limit).Scan(&rows).Error; err != nil {
 		if isMissingGIFManualScoreTableError(err) || isMissingGIFEvaluationTableError(err) {
 			return []AdminVideoJobGIFManualScoreDiffSample{}, nil
 		}

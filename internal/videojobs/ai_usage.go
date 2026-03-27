@@ -1,7 +1,9 @@
 package videojobs
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -32,7 +34,7 @@ type videoJobAIUsageInput struct {
 	RequestDurationMs int64
 	RequestStatus     string
 	RequestError      string
-	Metadata          map[string]interface{}
+	Metadata          interface{}
 }
 
 type aiUnitPricing struct {
@@ -83,9 +85,7 @@ func RecordVideoJobAIUsage(db *gorm.DB, in videoJobAIUsageInput) error {
 	normalized := normalizeVideoJobAIUsageInput(in)
 	pricing := lookupAIUnitPricing(normalized.Provider, normalized.Model)
 	costUSD := estimateVideoJobAIUsageCostUSD(normalized, pricing)
-	if normalized.Metadata == nil {
-		normalized.Metadata = map[string]interface{}{}
-	}
+	metadata := normalizeVideoJobAIUsageMetadata(normalized.Metadata)
 
 	row := models.VideoJobAIUsage{
 		JobID:             normalized.JobID,
@@ -111,7 +111,7 @@ func RecordVideoJobAIUsage(db *gorm.DB, in videoJobAIUsageInput) error {
 		Currency:          pricing.Currency,
 		PricingVersion:    pricing.Version,
 		PricingSourceURL:  pricing.SourceURL,
-		Metadata:          mustJSON(normalized.Metadata),
+		Metadata:          mustJSON(metadata),
 	}
 	return db.Create(&row).Error
 }
@@ -158,6 +158,35 @@ func normalizeVideoJobAIUsageInput(in videoJobAIUsageInput) videoJobAIUsageInput
 		out.RequestStatus = "ok"
 	}
 	out.RequestError = strings.TrimSpace(out.RequestError)
+	return out
+}
+
+func normalizeVideoJobAIUsageMetadata(raw interface{}) map[string]interface{} {
+	if raw == nil {
+		return map[string]interface{}{}
+	}
+	if typed, ok := raw.(map[string]interface{}); ok {
+		if typed == nil {
+			return map[string]interface{}{}
+		}
+		return typed
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return map[string]interface{}{
+			"metadata_cast_error": err.Error(),
+			"metadata_type":       fmt.Sprintf("%T", raw),
+		}
+	}
+	out := map[string]interface{}{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&out); err != nil {
+		return map[string]interface{}{
+			"metadata_decode_error": err.Error(),
+			"metadata_json":         string(body),
+		}
+	}
 	return out
 }
 

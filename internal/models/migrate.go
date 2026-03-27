@@ -3,7 +3,7 @@ package models
 import "gorm.io/gorm"
 
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&User{},
 		&AdminRole{},
 		&RefreshToken{},
@@ -56,6 +56,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&VideoJobGIFAIReview{},
 		&VideoJobGIFAIDirective{},
 		&VideoJobAI1Plan{},
+		&VideoJobImageAIReview{},
 		&VideoAIPromptTemplate{},
 		&VideoAIPromptTemplateAudit{},
 		&VideoJobGIFBaseline{},
@@ -85,5 +86,34 @@ func AutoMigrate(db *gorm.DB) error {
 		&VideoImageFeedbackPublic{},
 		&VideoImageQualitySettingPublic{},
 		&VideoImageRolloutAuditPublic{},
-	)
+	); err != nil {
+		return err
+	}
+	return autoMigrateVideoImageFormatSplitTables(db)
+}
+
+func autoMigrateVideoImageFormatSplitTables(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	formats := []string{"gif", "png", "jpg", "webp", "live", "mp4"}
+	for _, format := range formats {
+		suffix := "_" + format
+		if err := db.Table("public.video_image_jobs" + suffix).AutoMigrate(&VideoImageJobPublic{}); err != nil {
+			return err
+		}
+		if err := db.Table("public.video_image_outputs" + suffix).AutoMigrate(&VideoImageOutputPublic{}); err != nil {
+			return err
+		}
+		if err := db.Table("public.video_image_packages" + suffix).AutoMigrate(&VideoImagePackagePublic{}); err != nil {
+			return err
+		}
+		if err := db.Table("public.video_image_events" + suffix).AutoMigrate(&VideoImageEventPublic{}); err != nil {
+			return err
+		}
+		if err := db.Table("public.video_image_feedback" + suffix).AutoMigrate(&VideoImageFeedbackPublic{}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

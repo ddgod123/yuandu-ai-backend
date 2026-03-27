@@ -198,6 +198,21 @@ func TestQualitySettingsModelRoundTrip_LivePortraitWeight(t *testing.T) {
 	if settings.HighlightNegativeGuardMinWeight != 4 {
 		t.Fatalf("expected default negative guard min weight 4, got %.2f", settings.HighlightNegativeGuardMinWeight)
 	}
+	if settings.GIFAIJudgeHardGateMinOverallScore != 0.2 ||
+		settings.GIFAIJudgeHardGateMinClarityScore != 0.2 ||
+		settings.GIFAIJudgeHardGateMinLoopScore != 0.2 ||
+		settings.GIFAIJudgeHardGateMinOutputScore != 0.2 ||
+		settings.GIFAIJudgeHardGateMinDurationMS != 200 ||
+		settings.GIFAIJudgeHardGateSizeMultiplier != 4 {
+		t.Fatalf("expected default hard-gate 0.2/0.2/0.2/0.2/200/4, got %.2f/%.2f/%.2f/%.2f/%d/%d",
+			settings.GIFAIJudgeHardGateMinOverallScore,
+			settings.GIFAIJudgeHardGateMinClarityScore,
+			settings.GIFAIJudgeHardGateMinLoopScore,
+			settings.GIFAIJudgeHardGateMinOutputScore,
+			settings.GIFAIJudgeHardGateMinDurationMS,
+			settings.GIFAIJudgeHardGateSizeMultiplier,
+		)
+	}
 
 	settings.LiveCoverPortraitWeight = 0.12
 	settings.GIFTargetSizeKB = 1024
@@ -225,6 +240,12 @@ func TestQualitySettingsModelRoundTrip_LivePortraitWeight(t *testing.T) {
 	settings.HighlightNegativeGuardMinWeight = 6
 	settings.HighlightNegativePenaltyScale = 0.6
 	settings.HighlightNegativePenaltyWeight = 1.2
+	settings.GIFAIJudgeHardGateMinOverallScore = 0.35
+	settings.GIFAIJudgeHardGateMinClarityScore = 0.4
+	settings.GIFAIJudgeHardGateMinLoopScore = 0.45
+	settings.GIFAIJudgeHardGateMinOutputScore = 0.3
+	settings.GIFAIJudgeHardGateMinDurationMS = 350
+	settings.GIFAIJudgeHardGateSizeMultiplier = 6
 	var row models.VideoQualitySetting
 	applyQualitySettingsToModel(&row, settings)
 	if row.LiveCoverPortraitWeight != 0.12 {
@@ -277,6 +298,21 @@ func TestQualitySettingsModelRoundTrip_LivePortraitWeight(t *testing.T) {
 	}
 	if row.HighlightNegativePenaltyScale != 0.6 || row.HighlightNegativePenaltyWeight != 1.2 {
 		t.Fatalf("expected model negative penalty 0.6/1.2, got %.2f/%.2f", row.HighlightNegativePenaltyScale, row.HighlightNegativePenaltyWeight)
+	}
+	if row.GIFAIJudgeHardGateMinOverallScore != 0.35 ||
+		row.GIFAIJudgeHardGateMinClarityScore != 0.4 ||
+		row.GIFAIJudgeHardGateMinLoopScore != 0.45 ||
+		row.GIFAIJudgeHardGateMinOutputScore != 0.3 ||
+		row.GIFAIJudgeHardGateMinDurationMS != 350 ||
+		row.GIFAIJudgeHardGateSizeMultiplier != 6 {
+		t.Fatalf("expected model hard-gate 0.35/0.4/0.45/0.3/350/6, got %.2f/%.2f/%.2f/%.2f/%d/%d",
+			row.GIFAIJudgeHardGateMinOverallScore,
+			row.GIFAIJudgeHardGateMinClarityScore,
+			row.GIFAIJudgeHardGateMinLoopScore,
+			row.GIFAIJudgeHardGateMinOutputScore,
+			row.GIFAIJudgeHardGateMinDurationMS,
+			row.GIFAIJudgeHardGateSizeMultiplier,
+		)
 	}
 }
 
@@ -382,4 +418,41 @@ func TestValidateVideoQualitySettingRequest(t *testing.T) {
 			t.Fatalf("expected top_pick conflict threshold validation error")
 		}
 	})
+
+	t.Run("invalid ai3 hard gate min output score", func(t *testing.T) {
+		req := makeValidVideoQualitySettingRequest(t)
+		req.GIFAIJudgeHardGateMinOutputScore = 0
+		if err := validateVideoQualitySettingRequest(req); err == nil {
+			t.Fatalf("expected ai3 hard gate score validation error")
+		}
+	})
+
+	t.Run("invalid ai3 hard gate duration", func(t *testing.T) {
+		req := makeValidVideoQualitySettingRequest(t)
+		req.GIFAIJudgeHardGateMinDurationMS = 10
+		if err := validateVideoQualitySettingRequest(req); err == nil {
+			t.Fatalf("expected ai3 hard gate duration validation error")
+		}
+	})
+}
+
+func TestBuildVideoQualitySettingChangedFields(t *testing.T) {
+	before := makeValidVideoQualitySettingRequest(t)
+	after := before
+	after.GIFAIJudgeHardGateMinClarityScore = 0.35
+	after.GIFAIJudgeHardGateMinDurationMS = 320
+
+	changes, err := buildVideoQualitySettingChangedFields(before, after)
+	if err != nil {
+		t.Fatalf("buildVideoQualitySettingChangedFields error: %v", err)
+	}
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changed fields, got %d", len(changes))
+	}
+	if changes[0].Field != "gif_ai_judge_hard_gate_min_clarity_score" {
+		t.Fatalf("unexpected first changed field: %+v", changes[0])
+	}
+	if changes[1].Field != "gif_ai_judge_hard_gate_min_duration_ms" {
+		t.Fatalf("unexpected second changed field: %+v", changes[1])
+	}
 }

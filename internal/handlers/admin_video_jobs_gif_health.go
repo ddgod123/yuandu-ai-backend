@@ -236,7 +236,7 @@ SELECT
     COUNT(*) FILTER (WHERE status = 'failed')::double precision / NULLIF(COUNT(*), 0)::double precision,
     0
   ) AS failed_rate
-FROM public.video_image_jobs
+FROM public.video_image_jobs_gif
 WHERE requested_format = 'gif'
   AND created_at >= ?
 `, since).Scan(&out.Jobs).Error; err != nil {
@@ -252,7 +252,7 @@ SELECT
   COALESCE(PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY size_bytes), 0)::double precision AS p95_size_bytes,
   COALESCE(AVG(width), 0)::double precision AS avg_width,
   COALESCE(AVG(height), 0)::double precision AS avg_height
-FROM public.video_image_outputs
+FROM public.video_image_outputs_gif
 WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
@@ -274,7 +274,7 @@ SELECT
   COALESCE(AVG(gif_loop_tune_loop_closure) FILTER (WHERE gif_loop_tune_applied = TRUE), 0)::double precision AS avg_loop_closure,
   COALESCE(AVG(gif_loop_tune_motion_mean) FILTER (WHERE gif_loop_tune_applied = TRUE), 0)::double precision AS avg_motion_mean,
   COALESCE(AVG(gif_loop_tune_effective_sec) FILTER (WHERE gif_loop_tune_applied = TRUE), 0)::double precision AS avg_effective_sec
-FROM public.video_image_outputs
+FROM public.video_image_outputs_gif
 WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
@@ -308,7 +308,7 @@ SELECT
       FILTER (WHERE COALESCE((metadata->'gif_optimization_v1'->>'applied')::boolean, FALSE) = TRUE),
     0
   ) AS avg_saved_bytes
-FROM public.video_image_outputs
+FROM public.video_image_outputs_gif
 WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
@@ -322,7 +322,7 @@ SELECT
   COUNT(*)::bigint AS total,
   COUNT(*) FILTER (WHERE object_key LIKE 'emoji/video-image/%')::bigint AS new_path_prefix_count,
   COUNT(*) FILTER (
-    WHERE object_key ~ '^emoji/video-image/[^/]+/u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
+    WHERE object_key ~ '^emoji/video-image/[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
   )::bigint AS new_path_strict_count,
   COALESCE(
     COUNT(*) FILTER (WHERE object_key LIKE 'emoji/video-image/%')::double precision / NULLIF(COUNT(*), 0)::double precision,
@@ -330,11 +330,11 @@ SELECT
   ) AS new_path_prefix_rate,
   COALESCE(
     COUNT(*) FILTER (
-      WHERE object_key ~ '^emoji/video-image/[^/]+/u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
+      WHERE object_key ~ '^emoji/video-image/[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
     )::double precision / NULLIF(COUNT(*), 0)::double precision,
     0
   ) AS new_path_strict_rate
-FROM public.video_image_outputs
+FROM public.video_image_outputs_gif
 WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
@@ -348,7 +348,7 @@ SELECT
   COALESCE(NULLIF(error_code, ''), '[empty]') AS error_code,
   COALESCE(NULLIF(error_message, ''), '[empty]') AS error_message,
   COUNT(*)::bigint AS count
-FROM public.video_image_jobs
+FROM public.video_image_jobs_gif
 WHERE requested_format = 'gif'
   AND status = 'failed'
   AND created_at >= ?
@@ -363,12 +363,12 @@ LIMIT 10
 	if err := h.db.Raw(`
 WITH gif_jobs AS (
   SELECT id, status
-  FROM public.video_image_jobs
+  FROM public.video_image_jobs_gif
   WHERE requested_format = 'gif'
     AND created_at >= ?
 ), gif_main_outputs AS (
   SELECT DISTINCT job_id
-  FROM public.video_image_outputs
+  FROM public.video_image_outputs_gif
   WHERE format = 'gif'
     AND file_role = 'main'
     AND created_at >= ?
@@ -391,7 +391,7 @@ SELECT
   COUNT(*) FILTER (WHERE size_bytes <= 0)::bigint AS non_positive_size,
   COUNT(*) FILTER (WHERE width <= 0 OR height <= 0)::bigint AS invalid_dimension,
   COUNT(*) FILTER (WHERE gif_loop_tune_applied = TRUE AND gif_loop_tune_score = 0)::bigint AS tune_applied_but_zero_score
-FROM public.video_image_outputs
+FROM public.video_image_outputs_gif
 WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
@@ -405,7 +405,7 @@ WITH base AS (
   SELECT
     LOWER(TRIM(COALESCE(c.reject_reason, ''))) AS reject_reason
   FROM archive.video_job_gif_candidates c
-  JOIN public.video_image_jobs j ON j.id = c.job_id
+  JOIN public.video_image_jobs_gif j ON j.id = c.job_id
   WHERE j.requested_format = 'gif'
     AND c.created_at >= ?
 ),
@@ -470,7 +470,7 @@ WITH base AS (
   SELECT
     LOWER(TRIM(COALESCE(c.reject_reason, ''))) AS reject_reason
   FROM archive.video_job_gif_candidates c
-  JOIN public.video_image_jobs j ON j.id = c.job_id
+  JOIN public.video_image_jobs_gif j ON j.id = c.job_id
   WHERE j.requested_format = 'gif'
     AND c.created_at >= ?
     AND COALESCE(c.reject_reason, '') <> ''
@@ -698,7 +698,7 @@ job_agg AS (
     COUNT(*) FILTER (WHERE status = 'failed')::bigint AS jobs_failed,
     COUNT(*) FILTER (WHERE status = 'running')::bigint AS jobs_running,
     COUNT(*) FILTER (WHERE status = 'queued')::bigint AS jobs_queued
-  FROM public.video_image_jobs
+  FROM public.video_image_jobs_gif
   WHERE requested_format = 'gif'
     AND created_at >= ?
     AND created_at <= ?
@@ -711,11 +711,11 @@ output_agg AS (
     COUNT(*) FILTER (WHERE gif_loop_tune_applied = TRUE)::bigint AS loop_applied,
     COUNT(*) FILTER (WHERE gif_loop_tune_fallback_to_base = TRUE)::bigint AS loop_fallback,
     COUNT(*) FILTER (
-      WHERE object_key ~ '^emoji/video-image/[^/]+/u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
+      WHERE object_key ~ '^emoji/video-image/[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
     )::bigint AS new_path_strict,
     COALESCE(AVG(size_bytes), 0)::double precision AS avg_size_bytes,
     COALESCE(AVG(gif_loop_tune_score) FILTER (WHERE gif_loop_tune_applied = TRUE), 0)::double precision AS avg_loop_score
-  FROM public.video_image_outputs
+  FROM public.video_image_outputs_gif
   WHERE format = 'gif'
     AND file_role = 'main'
     AND created_at >= ?

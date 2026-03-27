@@ -148,6 +148,7 @@ func (h *Handler) ExportAdminVideoJobsGIFEvaluationsCSV(c *gin.Context) {
 	}
 
 	since := time.Now().Add(-windowDuration)
+	gifTables := resolveVideoImageReadTables("gif")
 	orderClause := fmt.Sprintf("e.overall_score %s, e.id DESC", sortDirection)
 	type row struct {
 		ID              uint64         `gorm:"column:id"`
@@ -195,13 +196,13 @@ SELECT
 	COALESCE(o.duration_ms, 0) AS duration_ms,
 	e.created_at
 FROM archive.video_job_gif_evaluations e
-JOIN public.video_image_jobs j ON j.id = e.job_id
-LEFT JOIN public.video_image_outputs o ON o.id = e.output_id
+JOIN %s j ON j.id = e.job_id
+LEFT JOIN %s o ON o.id = e.output_id
 WHERE j.requested_format = 'gif'
 	AND e.created_at >= ?
 ORDER BY %s
 LIMIT ?
-`, orderClause)
+`, gifTables.Jobs, gifTables.Outputs, orderClause)
 	if err := h.db.Raw(query, since, limit).Scan(&rows).Error; err != nil {
 		if !isMissingGIFEvaluationTableError(err) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

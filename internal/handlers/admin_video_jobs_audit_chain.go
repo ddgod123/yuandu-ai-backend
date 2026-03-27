@@ -243,8 +243,9 @@ func (h *Handler) loadAdminVideoJobAuditEvents(jobID uint64, limit int) ([]Admin
 	if limit > 2000 {
 		limit = 2000
 	}
+	gifTables := resolveVideoImageReadTables("gif")
 	var rows []models.VideoImageEventPublic
-	if err := h.db.Where("job_id = ?", jobID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := h.db.Table(gifTables.Events).Where("job_id = ?", jobID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]AdminVideoJobEventItem, 0, len(rows))
@@ -268,8 +269,9 @@ func (h *Handler) loadAdminVideoJobAuditOutputs(jobID uint64, limit int) ([]Admi
 	if limit > 4000 {
 		limit = 4000
 	}
+	gifTables := resolveVideoImageReadTables("gif")
 	var rows []models.VideoImageOutputPublic
-	if err := h.db.Where("job_id = ?", jobID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := h.db.Table(gifTables.Outputs).Where("job_id = ?", jobID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, nil, err
 	}
 	out := make([]AdminVideoJobArtifactItem, 0, len(rows))
@@ -626,8 +628,9 @@ func (h *Handler) loadAdminVideoJobAuditFeedbacks(
 	if limit > 5000 {
 		limit = 5000
 	}
+	gifTables := resolveVideoImageReadTables("gif")
 	var rows []models.VideoImageFeedbackPublic
-	if err := h.db.Where("job_id = ?", jobID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := h.db.Table(gifTables.Feedback).Where("job_id = ?", jobID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
 		msg := strings.ToLower(strings.TrimSpace(err.Error()))
 		if strings.Contains(msg, "public.video_image_feedback") && strings.Contains(msg, "does not exist") {
 			return nil, nil

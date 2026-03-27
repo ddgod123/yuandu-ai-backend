@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"emoji/internal/models"
+	"emoji/internal/videojobs"
 
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -303,7 +304,7 @@ func (h *Handler) recordVideoImageFeedbackByEmojiID(
 	}
 	id := outputID
 	entry.OutputID = &id
-	_ = h.db.Create(&entry).Error
+	_ = videojobs.CreatePublicVideoImageFeedback(h.db, entry)
 }
 
 func resolveVideoImageFeedbackSceneTag(jobMetrics, outputMetadata datatypes.JSON) string {

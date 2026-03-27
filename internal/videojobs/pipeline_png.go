@@ -24,11 +24,36 @@ type imageAI1ExecutablePlan struct {
 	DirectorSnapshot map[string]interface{}
 }
 
+func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) error {
+	return p.processImagePipelineCore(ctx, jobID, "")
+}
+
+func (p *Processor) processPNGPipeline(ctx context.Context, jobID uint64) error {
+	return p.processImagePipelineCore(ctx, jobID, "png")
+}
+
+func (p *Processor) processJPGPipeline(ctx context.Context, jobID uint64) error {
+	return p.processImagePipelineCore(ctx, jobID, "jpg")
+}
+
+func (p *Processor) processWebPPipeline(ctx context.Context, jobID uint64) error {
+	return p.processImagePipelineCore(ctx, jobID, "webp")
+}
+
+func (p *Processor) processLivePipeline(ctx context.Context, jobID uint64) error {
+	return p.processImagePipelineCore(ctx, jobID, "live")
+}
+
+func (p *Processor) processMP4Pipeline(ctx context.Context, jobID uint64) error {
+	return p.processImagePipelineCore(ctx, jobID, "mp4")
+}
+
 // processImagePipeline is the dedicated execution lane for still/image-first jobs
 // (png/jpg/webp/live/mp4). It is intentionally decoupled from GIF-specific
 // AI2/AI3 stages and metrics.
-func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) error {
-	executionLane := "image"
+func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, forcedFormat string) error {
+	forcedFormat = NormalizeRequestedFormat(forcedFormat)
+	executionLane := resolveImageExecutionLane(forcedFormat)
 
 	var job models.VideoJob
 	if err := p.db.First(&job, jobID).Error; err != nil {
@@ -69,10 +94,26 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 
 	requestedFormats := normalizeOutputFormats(job.OutputFormats)
 	primaryFormat := firstRequestedFormat(requestedFormats)
+	if forcedFormat != "" {
+		if primaryFormat == "" {
+			primaryFormat = forcedFormat
+			requestedFormats = []string{forcedFormat}
+		} else if primaryFormat != forcedFormat {
+			p.appendJobEvent(job.ID, models.VideoJobStagePreprocessing, "warn", "image pipeline format override applied", map[string]interface{}{
+				"requested_format": primaryFormat,
+				"forced_format":    forcedFormat,
+			})
+			primaryFormat = forcedFormat
+			requestedFormats = []string{forcedFormat}
+		}
+	}
+	executionLane = resolveImageExecutionLane(primaryFormat)
 	metricPrefix := resolveImagePipelineMetricPrefix(primaryFormat)
 	pipelineMetricKey := fmt.Sprintf("%s_pipeline_v1", metricPrefix)
 	stageStatusKey := fmt.Sprintf("%s_pipeline_stage_status_v1", metricPrefix)
 	ai1MetricKey := fmt.Sprintf("%s_ai1_plan_v1", metricPrefix)
+	ai2MetricKey := fmt.Sprintf("%s_ai2_instruction_v1", metricPrefix)
+	ai3MetricKey := fmt.Sprintf("%s_ai3_review_v1", metricPrefix)
 	extractionMetricKey := fmt.Sprintf("%s_extraction_v1", metricPrefix)
 
 	p.appendJobEvent(job.ID, models.VideoJobStagePreprocessing, "info", "execution lane resolved", map[string]interface{}{
@@ -127,6 +168,9 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 
 	pipelineStageStatus := map[string]string{
 		"ai1":        "pending",
+		"ai2":        "pending",
+		"worker":     "pending",
+		"ai3":        "pending",
 		"extraction": "pending",
 		"delivery":   "pending",
 	}
@@ -267,11 +311,7 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 	}
 
 	appliedPlanPatch := applyImageAI1ExecutablePlan(existingPlan, meta, &options, optionsPayload, schemaVersion)
-	if len(appliedPlanPatch) > 0 || planGenerated {
-		p.updateVideoJob(job.ID, map[string]interface{}{
-			"options": mustJSON(optionsPayload),
-		})
-	}
+	optionsUpdated := len(appliedPlanPatch) > 0 || planGenerated
 
 	ai1Metric := map[string]interface{}{
 		"schema_version":   schemaVersion,
@@ -291,6 +331,9 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 	metrics[ai1MetricKey] = ai1Metric
 
 	if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) {
+		pipelineStageStatus["ai2"] = "awaiting_user_confirm"
+		pipelineStageStatus["worker"] = "awaiting_user_confirm"
+		pipelineStageStatus["ai3"] = "awaiting_user_confirm"
 		pipelineStageStatus["extraction"] = "awaiting_user_confirm"
 		pipelineStageStatus["delivery"] = "awaiting_user_confirm"
 		if p.pauseForAI1Confirmation(job.ID, metrics, optionsPayload, map[string]interface{}{
@@ -301,6 +344,41 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 		}
 	}
 
+	ai2Instruction := buildImageAI2Instruction(schemaVersion, existingPlan, planMeta)
+	if len(ai2Instruction) > 0 {
+		optionsPayload["ai2_instruction_v1"] = ai2Instruction
+		optionsPayload["ai2_instruction_generated_at"] = time.Now().Format(time.RFC3339)
+		optionsUpdated = true
+	}
+	pipelineStageStatus["ai2"] = "running"
+	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "sub-stage planning started", map[string]interface{}{
+		"requested_format": primaryFormat,
+		"source":           "ai1_executable_plan",
+	})
+	ai2EventMeta := map[string]interface{}{
+		"requested_format": strings.ToUpper(primaryFormat),
+		"mode":             strings.TrimSpace(stringFromAny(existingPlan["mode"])),
+		"selected_count":   intFromAny(existingPlan["target_count"]),
+		"selected_score":   roundTo(floatFromAny(planMeta["local_focus_score"]), 4),
+	}
+	if focus := mapFromAny(existingPlan["focus_window"]); len(focus) > 0 {
+		ai2EventMeta["selected_start_sec"] = roundTo(floatFromAny(focus["start_sec"]), 3)
+		ai2EventMeta["selected_end_sec"] = roundTo(floatFromAny(focus["end_sec"]), 3)
+	}
+	if objective := strings.TrimSpace(stringFromAny(ai2Instruction["objective"])); objective != "" {
+		ai2EventMeta["objective"] = objective
+	}
+	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai planner suggestion applied", ai2EventMeta)
+	pipelineStageStatus["ai2"] = "done"
+	metrics[ai2MetricKey] = ai2Instruction
+
+	if optionsUpdated {
+		p.updateVideoJob(job.ID, map[string]interface{}{
+			"options": mustJSON(optionsPayload),
+		})
+	}
+
+	pipelineStageStatus["worker"] = "running"
 	pipelineStageStatus["extraction"] = "running"
 	extractOptions := applyStillProfileDefaults(options, requestedFormats, qualitySettings)
 
@@ -357,6 +435,7 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 		"effective_duration": roundTo(effectiveDurationSec, 3),
 	}
 
+	pipelineStageStatus["worker"] = "done"
 	pipelineStageStatus["extraction"] = "done"
 	p.updateVideoJob(job.ID, map[string]interface{}{
 		"stage":    models.VideoJobStageRendering,
@@ -381,6 +460,22 @@ func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) erro
 		p.cleanupSourceVideo(job.ID, "cancelled")
 		return nil
 	}
+
+	pipelineStageStatus["ai3"] = "running"
+	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "sub-stage reviewing started", map[string]interface{}{
+		"requested_format": primaryFormat,
+		"review_type":      "image_quality_gate",
+	})
+	ai3Review := buildImageAI3ReviewSummary(primaryFormat, qualityReport, len(framePaths), candidateBudget, effectiveDurationSec)
+	if err := p.persistImageAI3Review(job, primaryFormat, ai3Review); err != nil {
+		p.appendJobEvent(job.ID, models.VideoJobStageRendering, "warn", "ai image review persistence failed", map[string]interface{}{
+			"requested_format": primaryFormat,
+			"error":            err.Error(),
+		})
+	}
+	metrics[ai3MetricKey] = ai3Review
+	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "ai judge completed", ai3Review)
+	pipelineStageStatus["ai3"] = "done"
 
 	pipelineStageStatus["delivery"] = "running"
 	p.updateVideoJob(job.ID, map[string]interface{}{
@@ -486,6 +581,23 @@ func resolveImagePipelineMetricPrefix(primaryFormat string) string {
 	}
 }
 
+func resolveImageExecutionLane(primaryFormat string) string {
+	switch NormalizeRequestedFormat(primaryFormat) {
+	case "png":
+		return "png"
+	case "jpg":
+		return "jpg"
+	case "webp":
+		return "webp"
+	case "live":
+		return "live"
+	case "mp4":
+		return "mp4"
+	default:
+		return "image"
+	}
+}
+
 func resolveImageAI1PlanSchemaVersion(primaryFormat string) string {
 	switch NormalizeRequestedFormat(primaryFormat) {
 	case "png":
@@ -504,6 +616,83 @@ func imagePipelineEventMessage(primaryFormat, suffix string) string {
 		return "png " + suffix
 	}
 	return suffix
+}
+
+func buildImageAI3ReviewSummary(
+	primaryFormat string,
+	qualityReport frameQualityReport,
+	reviewedOutputs int,
+	candidateBudget int,
+	effectiveDurationSec float64,
+) map[string]interface{} {
+	if reviewedOutputs < 0 {
+		reviewedOutputs = 0
+	}
+	deliverCount := reviewedOutputs
+	rejectCount := 0
+	if qualityReport.TotalFrames > 0 {
+		rejectCount = qualityReport.TotalFrames - reviewedOutputs
+		if rejectCount < 0 {
+			rejectCount = 0
+		}
+	}
+
+	recommendation := "deliver"
+	summaryNote := "质量筛选通过，输出可交付。"
+	if reviewedOutputs == 0 {
+		recommendation = "need_manual_review"
+		summaryNote = "未筛选到可交付帧，建议人工复核源视频质量。"
+	} else if qualityReport.FallbackApplied {
+		recommendation = "deliver_with_fallback"
+		summaryNote = "已启用质量回退策略补足样本，建议抽检结果。"
+	}
+
+	return map[string]interface{}{
+		"requested_format":                strings.ToUpper(NormalizeRequestedFormat(primaryFormat)),
+		"reviewed_outputs":                reviewedOutputs,
+		"deliver_count":                   deliverCount,
+		"keep_internal_count":             0,
+		"reject_count":                    rejectCount,
+		"manual_review_count":             0,
+		"hard_gate_reject_count":          0,
+		"hard_gate_manual_review_count":   0,
+		"recommendation":                  recommendation,
+		"candidate_budget":                candidateBudget,
+		"effective_duration_sec":          roundTo(effectiveDurationSec, 3),
+		"quality_report_selector_version": qualityReport.SelectorVersion,
+		"quality_fallback":                qualityReport.FallbackApplied,
+		"summary": map[string]interface{}{
+			"note": summaryNote,
+		},
+	}
+}
+
+func (p *Processor) persistImageAI3Review(job models.VideoJob, primaryFormat string, summary map[string]interface{}) error {
+	if p == nil || p.db == nil || job.ID == 0 || len(summary) == 0 {
+		return nil
+	}
+	reviewSummary := mapFromAny(summary["summary"])
+	row := models.VideoJobImageAIReview{
+		JobID:                     job.ID,
+		UserID:                    job.UserID,
+		TargetFormat:              NormalizeRequestedFormat(primaryFormat),
+		Stage:                     "ai3",
+		Recommendation:            strings.TrimSpace(strings.ToLower(stringFromAny(summary["recommendation"]))),
+		ReviewedOutputs:           intFromAny(summary["reviewed_outputs"]),
+		DeliverCount:              intFromAny(summary["deliver_count"]),
+		RejectCount:               intFromAny(summary["reject_count"]),
+		ManualReviewCount:         intFromAny(summary["manual_review_count"]),
+		HardGateRejectCount:       intFromAny(summary["hard_gate_reject_count"]),
+		HardGateManualReviewCount: intFromAny(summary["hard_gate_manual_review_count"]),
+		CandidateBudget:           intFromAny(summary["candidate_budget"]),
+		EffectiveDurationSec:      roundTo(floatFromAny(summary["effective_duration_sec"]), 3),
+		QualityFallback:           boolFromAny(summary["quality_fallback"]),
+		QualitySelectorVersion:    strings.TrimSpace(stringFromAny(summary["quality_report_selector_version"])),
+		SummaryNote:               strings.TrimSpace(stringFromAny(reviewSummary["note"])),
+		SummaryJSON:               mustJSON(reviewSummary),
+		Metadata:                  mustJSON(summary),
+	}
+	return UpsertVideoJobImageAIReview(p.db, row)
 }
 
 func sanitizeTextList(items []string, maxItems int) []string {
@@ -757,6 +946,15 @@ func (p *Processor) buildImageAI1ExecutablePlan(
 		if list := sanitizeTextList(directive.Avoid, 12); len(list) > 0 {
 			plan.EventMeta["avoid"] = list
 		}
+		if list := sanitizeTextList(directive.RiskFlags, 12); len(list) > 0 {
+			plan.EventMeta["risk_flags"] = list
+		}
+		if len(directive.QualityWeights) > 0 {
+			plan.EventMeta["quality_weights"] = directive.QualityWeights
+		}
+		if directive.LoopPreference > 0 {
+			plan.EventMeta["loop_preference"] = roundTo(directive.LoopPreference, 4)
+		}
 		if text := strings.TrimSpace(directive.StyleDirection); text != "" {
 			plan.EventMeta["style_direction"] = text
 		}
@@ -921,8 +1119,36 @@ func (p *Processor) persistImageAI1Plan(
 	if inputSource := strings.TrimSpace(stringFromAny(directorSnapshot["director_input_source"])); inputSource != "" {
 		trace["director_input_source"] = inputSource
 	}
-	userReply := buildImageAI1UserReply(eventMeta, meta, requestedFormats)
-	ai2Instruction := buildImageAI2Instruction(schemaVersion, executablePlan, eventMeta)
+
+	ai1OutputV2 := buildAI1OutputV2(
+		schemaVersion,
+		requestedFormats,
+		meta,
+		eventMeta,
+		executablePlan,
+		trace,
+	)
+	ai1OutputV2 = validateAndRepairAI1OutputV2(
+		ai1OutputV2,
+		schemaVersion,
+		requestedFormats,
+		meta,
+		eventMeta,
+		executablePlan,
+		trace,
+	)
+	traceV2 := mapFromAny(ai1OutputV2["trace"])
+	if len(traceV2) > 0 {
+		trace = traceV2
+	}
+	userFeedbackV2 := mapFromAny(ai1OutputV2["user_feedback"])
+	ai2DirectiveV2 := mapFromAny(ai1OutputV2["ai2_directive"])
+	if len(userFeedbackV2) == 0 {
+		userFeedbackV2 = buildImageAI1UserReply(eventMeta, meta, requestedFormats)
+	}
+	if len(ai2DirectiveV2) == 0 {
+		ai2DirectiveV2 = buildImageAI2Instruction(schemaVersion, executablePlan, eventMeta)
+	}
 
 	planPayload := map[string]interface{}{
 		"schema_version":    schemaVersion,
@@ -943,10 +1169,11 @@ func (p *Processor) persistImageAI1Plan(
 		"director_snapshot": buildAI1PlanDirectorSnapshot(directorSnapshot),
 		"executable_schema": cloneMapStringKey(executableSchema),
 		"executable_plan":   cloneMapStringKey(executablePlan),
+		"ai1_output_v2":     ai1OutputV2,
 		"ai1_output_v1": map[string]interface{}{
 			"schema_version":  schemaVersion,
-			"user_reply":      userReply,
-			"ai2_instruction": ai2Instruction,
+			"user_reply":      userFeedbackV2,
+			"ai2_instruction": ai2DirectiveV2,
 		},
 	}
 

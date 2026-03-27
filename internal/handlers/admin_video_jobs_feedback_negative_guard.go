@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -124,7 +125,8 @@ func (h *Handler) loadVideoJobFeedbackNegativeGuardReasonStats(
 		AvgWeight   *float64 `gorm:"column:avg_weight"`
 	}
 	filterSQL, filterArgs := buildVideoJobFilterClause(filter, "j")
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	query := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		j.id AS job_id,
@@ -136,7 +138,7 @@ WITH base AS (
 		END AS reason_weight,
 		LOWER(COALESCE(NULLIF(TRIM(j.metrics->'highlight_feedback_v1'->'selected_before'->>'reason'), ''), '')) AS before_reason,
 		LOWER(COALESCE(NULLIF(TRIM(j.metrics->'highlight_feedback_v1'->'selected_after'->>'reason'), ''), '')) AS after_reason
-	FROM public.video_image_jobs j
+	FROM %s j
 	CROSS JOIN LATERAL jsonb_each_text(
 		CASE
 			WHEN jsonb_typeof(j.metrics->'highlight_feedback_v1'->'reason_negative_guard') = 'object'
@@ -146,7 +148,7 @@ WITH base AS (
 	) AS reason_entry(key, value)
 	WHERE j.status = ?
 		AND j.finished_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 )
 SELECT
 	reason,
@@ -163,7 +165,7 @@ WHERE group_name = 'treatment'
 GROUP BY reason
 ORDER BY blocked_jobs DESC, jobs DESC, reason ASC
 LIMIT ?
-`
+`, tables.Jobs)
 
 	args := []interface{}{models.VideoJobStatusDone, since}
 	args = append(args, filterArgs...)
@@ -225,7 +227,8 @@ func (h *Handler) loadVideoJobFeedbackNegativeGuardJobRows(
 	}
 
 	filterSQL, filterArgs := buildVideoJobFilterClause(filter, "j")
-	query := `
+	tables := resolveVideoImageReadTablesByFilter(filter)
+	query := fmt.Sprintf(`
 WITH base AS (
 	SELECT
 		j.id AS job_id,
@@ -240,10 +243,10 @@ WITH base AS (
 		NULLIF(j.metrics->'highlight_feedback_v1'->'selected_after'->>'start_sec', '')::double precision AS after_start_sec,
 		NULLIF(j.metrics->'highlight_feedback_v1'->'selected_after'->>'end_sec', '')::double precision AS after_end_sec,
 		j.finished_at AS finished_at
-	FROM public.video_image_jobs j
+	FROM %s j
 	WHERE j.status = ?
 		AND j.finished_at >= ?
-` + filterSQL + `
+`+filterSQL+`
 )
 SELECT
 	job_id,
@@ -290,7 +293,7 @@ WHERE group_name = 'treatment'
 	)
 ORDER BY blocked_reason DESC, finished_at DESC NULLS LAST, job_id DESC
 LIMIT ?
-`
+`, tables.Jobs)
 
 	args := []interface{}{models.VideoJobStatusDone, since}
 	args = append(args, filterArgs...)

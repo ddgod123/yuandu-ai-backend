@@ -126,8 +126,18 @@ func normalizeWorkerRole(raw string) string {
 		return "all"
 	case "gif":
 		return "gif"
-	case "png", "image":
+	case "png":
 		return "png"
+	case "jpg":
+		return "jpg"
+	case "webp":
+		return "webp"
+	case "live":
+		return "live"
+	case "mp4":
+		return "mp4"
+	case "image":
+		return "image"
 	case "media":
 		return "media"
 	default:

@@ -185,6 +185,8 @@ type AdminVideoJobDetailResponse struct {
 	AIGIFDirectives         []AdminVideoJobAIGIFDirectiveItem   `json:"ai_gif_directives,omitempty"`
 	AIGIFProposals          []AdminVideoJobAIGIFProposalItem    `json:"ai_gif_proposals,omitempty"`
 	AIGIFReviews            []AdminVideoJobAIGIFReviewItem      `json:"ai_gif_reviews,omitempty"`
+	AIImageReviews          []AdminVideoJobAIImageReviewItem    `json:"ai_image_reviews,omitempty"`
+	AI1Debug                *AdminVideoJobAI1DebugItem          `json:"ai1_debug,omitempty"`
 	ProposalChains          []AdminVideoJobGIFProposalChainItem `json:"proposal_chains,omitempty"`
 	AIGIFReviewStatusCounts map[string]int64                    `json:"ai_gif_review_status_counts,omitempty"`
 	AIGIFReviewStatusFilter []string                            `json:"ai_gif_review_status_filter,omitempty"`
@@ -246,6 +248,48 @@ type AdminVideoJobAIGIFReviewItem struct {
 	PromptVersion       string                 `json:"prompt_version,omitempty"`
 	Metadata            map[string]interface{} `json:"metadata,omitempty"`
 	CreatedAt           string                 `json:"created_at"`
+}
+
+type AdminVideoJobAIImageReviewItem struct {
+	ID                        uint64                 `json:"id"`
+	TargetFormat              string                 `json:"target_format"`
+	Stage                     string                 `json:"stage"`
+	Recommendation            string                 `json:"recommendation"`
+	ReviewedOutputs           int                    `json:"reviewed_outputs"`
+	DeliverCount              int                    `json:"deliver_count"`
+	RejectCount               int                    `json:"reject_count"`
+	ManualReviewCount         int                    `json:"manual_review_count"`
+	HardGateRejectCount       int                    `json:"hard_gate_reject_count"`
+	HardGateManualReviewCount int                    `json:"hard_gate_manual_review_count"`
+	CandidateBudget           int                    `json:"candidate_budget"`
+	EffectiveDurationSec      float64                `json:"effective_duration_sec"`
+	QualityFallback           bool                   `json:"quality_fallback"`
+	QualitySelectorVersion    string                 `json:"quality_selector_version,omitempty"`
+	SummaryNote               string                 `json:"summary_note,omitempty"`
+	Summary                   map[string]interface{} `json:"summary,omitempty"`
+	Metadata                  map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt                 string                 `json:"created_at"`
+}
+
+type AdminVideoJobAI1DebugItem struct {
+	RequestedFormat string                           `json:"requested_format"`
+	FlowMode        string                           `json:"flow_mode"`
+	SourcePrompt    string                           `json:"source_prompt,omitempty"`
+	FieldAudit      []AdminVideoJobAI1FieldAuditItem `json:"field_audit,omitempty"`
+	Input           map[string]interface{}           `json:"input,omitempty"`
+	ModelRequest    map[string]interface{}           `json:"model_request,omitempty"`
+	ModelResponse   map[string]interface{}           `json:"model_response,omitempty"`
+	Output          map[string]interface{}           `json:"output,omitempty"`
+	Trace           map[string]interface{}           `json:"trace,omitempty"`
+}
+
+type AdminVideoJobAI1FieldAuditItem struct {
+	Stage     string      `json:"stage"`
+	FieldPath string      `json:"field_path"`
+	Label     string      `json:"label"`
+	Source    string      `json:"source"`
+	Value     interface{} `json:"value,omitempty"`
+	Detail    string      `json:"detail,omitempty"`
 }
 
 type AdminVideoJobAIGIFDirectiveItem struct {
@@ -1603,7 +1647,11 @@ LIMIT 24
 	return out, nil
 }
 
-func buildVideoJobGIFSubStageRowsBaseCTE() string {
+func buildVideoJobGIFSubStageRowsBaseCTE(jobsTable string) string {
+	jobsTable = strings.TrimSpace(jobsTable)
+	if jobsTable == "" {
+		jobsTable = videojobs.PublicVideoImageBaseJobsTable()
+	}
 	return fmt.Sprintf(`
 WITH stage_rows AS (
 	SELECT
@@ -1629,7 +1677,7 @@ WITH stage_rows AS (
 		COALESCE(NULLIF(TRIM(stage_entry.value->>'finished_at'), ''), '') AS sub_stage_finished_at,
 		j.created_at AS job_created_at,
 		j.updated_at AS job_updated_at
-	FROM public.video_image_jobs j
+	FROM %s j
 	CROSS JOIN LATERAL jsonb_each(
 		CASE
 			WHEN jsonb_typeof(j.metrics->'gif_pipeline_sub_stages_v1') = 'object'
@@ -1641,7 +1689,7 @@ WITH stage_rows AS (
 		AND %s
 		AND LOWER(TRIM(stage_entry.key)) IN ('briefing', 'planning', 'scoring', 'reviewing')
 )
-`, buildVideoJobFormatFilterPredicate("j"))
+`, jobsTable, buildVideoJobFormatFilterPredicate("j"))
 }
 
 func (h *Handler) loadVideoJobGIFSubStageAnomalyOverview(
@@ -1666,7 +1714,7 @@ func (h *Handler) loadVideoJobGIFSubStageAnomalyOverview(
 		Count int64 `gorm:"column:count"`
 	}
 
-	baseCTE := buildVideoJobGIFSubStageRowsBaseCTE()
+	baseCTE := buildVideoJobGIFSubStageRowsBaseCTE(resolveVideoImageReadTables("gif").Jobs)
 	baseArgs := []interface{}{since, "gif", "gif"}
 
 	var rows []row
@@ -1779,7 +1827,7 @@ func (h *Handler) loadVideoJobGIFSubStageAnomalyReasons(
 		limit = 100
 	}
 
-	baseCTE := buildVideoJobGIFSubStageRowsBaseCTE()
+	baseCTE := buildVideoJobGIFSubStageRowsBaseCTE(resolveVideoImageReadTables("gif").Jobs)
 	baseArgs := []interface{}{since, "gif", "gif", limit}
 
 	var rows []row
@@ -1846,7 +1894,7 @@ func (h *Handler) loadVideoJobGIFSubStageAnomalyExportRows(
 		filterArgs = append(filterArgs, subStatus)
 	}
 	whereSQL := strings.Join(clauses, " AND ")
-	baseCTE := buildVideoJobGIFSubStageRowsBaseCTE()
+	baseCTE := buildVideoJobGIFSubStageRowsBaseCTE(resolveVideoImageReadTables("gif").Jobs)
 	baseArgs := []interface{}{since, "gif", "gif"}
 
 	countArgs := make([]interface{}, 0, len(baseArgs)+len(filterArgs))
@@ -2948,7 +2996,7 @@ func parseVideoImageFeedbackFilter(c *gin.Context) (*videoImageFeedbackFilter, e
 		filter.UserID = userID
 	}
 
-	if format := normalizeVideoJobFormat(c.Query("format")); format != "" && format != "all" {
+	if format := normalizeVideoImageFormatFilter(c.Query("format")); format != "" {
 		filter.Format = format
 	}
 	if assetDomain := strings.ToLower(strings.TrimSpace(c.Query("asset_domain"))); assetDomain != "" && assetDomain != "all" {
@@ -2970,8 +3018,20 @@ func parseVideoImageFeedbackFilter(c *gin.Context) (*videoImageFeedbackFilter, e
 }
 
 func buildVideoImageFeedbackFilterSQL(filter *videoImageFeedbackFilter) (string, []interface{}) {
+	return buildVideoImageFeedbackFilterSQLWithTables(filter, "f", videojobs.PublicVideoImageBaseJobsTable())
+}
+
+func buildVideoImageFeedbackFilterSQLWithTables(filter *videoImageFeedbackFilter, feedbackAlias string, jobsTable string) (string, []interface{}) {
 	if filter == nil {
 		return "", nil
+	}
+	feedbackAlias = strings.TrimSpace(feedbackAlias)
+	if feedbackAlias == "" {
+		feedbackAlias = "f"
+	}
+	jobsTable = strings.TrimSpace(jobsTable)
+	if jobsTable == "" {
+		jobsTable = videojobs.PublicVideoImageBaseJobsTable()
 	}
 
 	clauses := make([]string, 0, 4)
@@ -3008,7 +3068,7 @@ EXISTS (
 	if len(clauses) == 0 {
 		return "", nil
 	}
-	return " AND EXISTS (SELECT 1 FROM public.video_image_jobs j WHERE j.id = f.job_id AND " + strings.Join(clauses, " AND ") + ")", args
+	return " AND EXISTS (SELECT 1 FROM " + jobsTable + " j WHERE j.id = " + feedbackAlias + ".job_id AND " + strings.Join(clauses, " AND ") + ")", args
 }
 
 func buildVideoJobFormatFilterPredicate(alias string) string {

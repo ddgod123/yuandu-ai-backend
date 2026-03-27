@@ -1,6 +1,7 @@
 package videojobs
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -52,5 +53,27 @@ func TestLookupAIUnitPricing_Override(t *testing.T) {
 	}
 	if item.Version != "test_v1" {
 		t.Fatalf("unexpected version: %s", item.Version)
+	}
+}
+
+func TestNormalizeVideoJobAIUsageMetadata_StructInput(t *testing.T) {
+	type meta struct {
+		SchemaVersion string `json:"schema_version"`
+		Count         int    `json:"count"`
+	}
+	got := normalizeVideoJobAIUsageMetadata(meta{
+		SchemaVersion: "v1",
+		Count:         3,
+	})
+	if got["schema_version"] != "v1" {
+		t.Fatalf("schema_version mismatch: %+v", got)
+	}
+	switch v := got["count"].(type) {
+	case json.Number:
+		if v.String() != "3" {
+			t.Fatalf("count mismatch: %v", v)
+		}
+	default:
+		t.Fatalf("count should be json.Number, got %T", got["count"])
 	}
 }

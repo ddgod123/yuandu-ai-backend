@@ -232,6 +232,10 @@ func (p *Processor) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskTypeProcessVideoJob, p.HandleProcessVideoJob)
 	mux.HandleFunc(TaskTypeProcessVideoJobGIF, p.HandleProcessVideoJobGIF)
 	mux.HandleFunc(TaskTypeProcessVideoJobPNG, p.HandleProcessVideoJobPNG)
+	mux.HandleFunc(TaskTypeProcessVideoJobJPG, p.HandleProcessVideoJobJPG)
+	mux.HandleFunc(TaskTypeProcessVideoJobWEBP, p.HandleProcessVideoJobWEBP)
+	mux.HandleFunc(TaskTypeProcessVideoJobLIVE, p.HandleProcessVideoJobLIVE)
+	mux.HandleFunc(TaskTypeProcessVideoJobMP4, p.HandleProcessVideoJobMP4)
 }
 
 func (p *Processor) loadQualitySettings() QualitySettings {
@@ -408,6 +412,12 @@ func (p *Processor) loadQualitySettings() QualitySettings {
 		AIDirectorDurationExpandRatio:        row.AIDirectorDurationExpandRatio,
 		AIDirectorCountAbsoluteCap:           row.AIDirectorCountAbsoluteCap,
 		AIDirectorDurationAbsoluteCapSec:     row.AIDirectorDurationAbsoluteCapSec,
+		GIFAIJudgeHardGateMinOverallScore:    row.GIFAIJudgeHardGateMinOverallScore,
+		GIFAIJudgeHardGateMinClarityScore:    row.GIFAIJudgeHardGateMinClarityScore,
+		GIFAIJudgeHardGateMinLoopScore:       row.GIFAIJudgeHardGateMinLoopScore,
+		GIFAIJudgeHardGateMinOutputScore:     row.GIFAIJudgeHardGateMinOutputScore,
+		GIFAIJudgeHardGateMinDurationMS:      row.GIFAIJudgeHardGateMinDurationMS,
+		GIFAIJudgeHardGateSizeMultiplier:     row.GIFAIJudgeHardGateSizeMultiplier,
 	})
 }
 
@@ -447,7 +457,44 @@ func (p *Processor) HandleProcessVideoJobGIF(ctx context.Context, t *asynq.Task)
 }
 
 func (p *Processor) HandleProcessVideoJobPNG(ctx context.Context, t *asynq.Task) error {
-	return p.handleProcessVideoJob(ctx, t, p.processImagePipeline)
+	return p.handleProcessVideoJob(ctx, t, p.processImagePipelineDispatch)
+}
+
+func (p *Processor) HandleProcessVideoJobJPG(ctx context.Context, t *asynq.Task) error {
+	return p.handleProcessVideoJob(ctx, t, p.processJPGPipeline)
+}
+
+func (p *Processor) HandleProcessVideoJobWEBP(ctx context.Context, t *asynq.Task) error {
+	return p.handleProcessVideoJob(ctx, t, p.processWebPPipeline)
+}
+
+func (p *Processor) HandleProcessVideoJobLIVE(ctx context.Context, t *asynq.Task) error {
+	return p.handleProcessVideoJob(ctx, t, p.processLivePipeline)
+}
+
+func (p *Processor) HandleProcessVideoJobMP4(ctx context.Context, t *asynq.Task) error {
+	return p.handleProcessVideoJob(ctx, t, p.processMP4Pipeline)
+}
+
+func (p *Processor) processImagePipelineDispatch(ctx context.Context, jobID uint64) error {
+	format, err := p.resolvePrimaryRequestedFormat(jobID)
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "png":
+		return p.processPNGPipeline(ctx, jobID)
+	case "jpg":
+		return p.processJPGPipeline(ctx, jobID)
+	case "webp":
+		return p.processWebPPipeline(ctx, jobID)
+	case "live":
+		return p.processLivePipeline(ctx, jobID)
+	case "mp4":
+		return p.processMP4Pipeline(ctx, jobID)
+	default:
+		return p.processImagePipeline(ctx, jobID)
+	}
 }
 
 func (p *Processor) acquireVideoJobRun(jobID uint64, startedAt time.Time) (bool, error) {
@@ -1906,7 +1953,8 @@ func (p *Processor) resolveCollectionPrefix(job models.VideoJob) (string, error)
 		return "", errors.New("invalid job for collection prefix")
 	}
 	layout := NewVideoImageStorageLayout(p.cfg.Env)
-	return layout.JobPrefix(job.UserID, job.ID), nil
+	primaryFormat := PrimaryRequestedFormat(job.OutputFormats)
+	return layout.JobPrefixByFormat(job.UserID, job.ID, primaryFormat), nil
 }
 
 func (p *Processor) buildObjectReadURL(key string) (string, error) {

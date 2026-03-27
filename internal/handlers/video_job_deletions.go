@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"emoji/internal/models"
+	"emoji/internal/videojobs"
 
 	"github.com/gin-gonic/gin"
 	qiniustorage "github.com/qiniu/go-sdk/v7/storage"
@@ -358,17 +359,27 @@ func (h *Handler) hardDeleteCollectionWithDomain(collection models.Collection, a
 			}
 			result.DeletedArtifacts = resArtifacts.RowsAffected
 
-			resOutputs := tx.Table("public.video_image_outputs").Where("job_id IN ?", jobIDs).Delete(nil)
-			if resOutputs.Error != nil {
-				return resOutputs.Error
+			for _, tableName := range videojobs.PublicVideoImageOutputsMirrorTables() {
+				resOutputs := tx.Table(tableName).Where("job_id IN ?", jobIDs).Delete(nil)
+				if resOutputs.Error != nil {
+					if isMissingTableError(resOutputs.Error, tableName) {
+						continue
+					}
+					return resOutputs.Error
+				}
+				result.DeletedPublicOutputs += resOutputs.RowsAffected
 			}
-			result.DeletedPublicOutputs = resOutputs.RowsAffected
 
-			resPackages := tx.Table("public.video_image_packages").Where("job_id IN ?", jobIDs).Delete(nil)
-			if resPackages.Error != nil {
-				return resPackages.Error
+			for _, tableName := range videojobs.PublicVideoImagePackagesMirrorTables() {
+				resPackages := tx.Table(tableName).Where("job_id IN ?", jobIDs).Delete(nil)
+				if resPackages.Error != nil {
+					if isMissingTableError(resPackages.Error, tableName) {
+						continue
+					}
+					return resPackages.Error
+				}
+				result.DeletedPackages += resPackages.RowsAffected
 			}
-			result.DeletedPackages = resPackages.RowsAffected
 
 			if err := tx.Model(&models.VideoJob{}).Where("id IN ?", jobIDs).Updates(map[string]interface{}{
 				"result_collection_id": nil,
@@ -505,11 +516,16 @@ func (h *Handler) hardDeleteEmojiOutputWithDomain(
 			}
 			result.DeletedArtifacts += resArtifact.RowsAffected
 
-			resPublic := tx.Table("public.video_image_outputs").Where("object_key IN ?", deleteKeys).Delete(nil)
-			if resPublic.Error != nil {
-				return resPublic.Error
+			for _, tableName := range videojobs.PublicVideoImageOutputsMirrorTables() {
+				resPublic := tx.Table(tableName).Where("object_key IN ?", deleteKeys).Delete(nil)
+				if resPublic.Error != nil {
+					if isMissingTableError(resPublic.Error, tableName) {
+						continue
+					}
+					return resPublic.Error
+				}
+				result.DeletedPublicOutputs += resPublic.RowsAffected
 			}
-			result.DeletedPublicOutputs += resPublic.RowsAffected
 		}
 
 		if removeZip {
@@ -526,11 +542,21 @@ func (h *Handler) hardDeleteEmojiOutputWithDomain(
 				if err := tx.Unscoped().Where("job_id IN ? AND (type = ? OR qiniu_key LIKE '%.zip')", jobIDs, "package").Delete(&models.VideoJobArtifact{}).Error; err != nil {
 					return err
 				}
-				if err := tx.Table("public.video_image_outputs").Where("job_id IN ? AND (file_role = ? OR format = 'zip')", jobIDs, "package").Delete(nil).Error; err != nil {
-					return err
+				for _, tableName := range videojobs.PublicVideoImageOutputsMirrorTables() {
+					if err := tx.Table(tableName).Where("job_id IN ? AND (file_role = ? OR format = 'zip')", jobIDs, "package").Delete(nil).Error; err != nil {
+						if isMissingTableError(err, tableName) {
+							continue
+						}
+						return err
+					}
 				}
-				if err := tx.Table("public.video_image_packages").Where("job_id IN ?", jobIDs).Delete(nil).Error; err != nil {
-					return err
+				for _, tableName := range videojobs.PublicVideoImagePackagesMirrorTables() {
+					if err := tx.Table(tableName).Where("job_id IN ?", jobIDs).Delete(nil).Error; err != nil {
+						if isMissingTableError(err, tableName) {
+							continue
+						}
+						return err
+					}
 				}
 			}
 

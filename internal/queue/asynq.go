@@ -56,7 +56,11 @@ func defaultAsynqQueueWeights() map[string]int {
 	return map[string]int{
 		"default":                    4,
 		videojobs.QueueVideoJobGIF:   4,
-		videojobs.QueueVideoJobPNG:   4,
+		videojobs.QueueVideoJobPNG:   3,
+		videojobs.QueueVideoJobJPG:   3,
+		videojobs.QueueVideoJobWEBP:  3,
+		videojobs.QueueVideoJobLIVE:  2,
+		videojobs.QueueVideoJobMP4:   2,
 		videojobs.QueueVideoJobMedia: 2,
 	}
 }
@@ -111,8 +115,18 @@ func resolveVideoWorkerRole(raw string) string {
 		return "all"
 	case "gif":
 		return "gif"
-	case "png", "image":
+	case "png":
 		return "png"
+	case "jpg":
+		return "jpg"
+	case "webp":
+		return "webp"
+	case "live":
+		return "live"
+	case "mp4":
+		return "mp4"
+	case "image":
+		return "image"
 	case "media":
 		return "media"
 	default:
@@ -135,12 +149,44 @@ func applyVideoWorkerRoleFilter(queues map[string]int, role string) map[string]i
 		}
 		return map[string]int{name: weight}
 	}
+	pickMany := func(names ...string) map[string]int {
+		out := make(map[string]int, len(names))
+		for _, name := range names {
+			if strings.TrimSpace(name) == "" {
+				continue
+			}
+			weight := 1
+			if queues != nil {
+				if value, ok := queues[name]; ok && value > 0 {
+					weight = value
+				}
+			}
+			out[name] = weight
+		}
+		return out
+	}
 
 	switch role {
 	case "gif":
 		return pick(videojobs.QueueVideoJobGIF)
 	case "png":
 		return pick(videojobs.QueueVideoJobPNG)
+	case "jpg":
+		return pick(videojobs.QueueVideoJobJPG)
+	case "webp":
+		return pick(videojobs.QueueVideoJobWEBP)
+	case "live":
+		return pick(videojobs.QueueVideoJobLIVE)
+	case "mp4":
+		return pick(videojobs.QueueVideoJobMP4)
+	case "image":
+		return pickMany(
+			videojobs.QueueVideoJobPNG,
+			videojobs.QueueVideoJobJPG,
+			videojobs.QueueVideoJobWEBP,
+			videojobs.QueueVideoJobLIVE,
+			videojobs.QueueVideoJobMP4,
+		)
 	case "media":
 		return pick(videojobs.QueueVideoJobMedia)
 	default:

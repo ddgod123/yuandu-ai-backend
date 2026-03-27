@@ -40,12 +40,22 @@ type Config struct {
 	AsynqRedisPassword          string
 	AsynqRedisDB                int
 	WorkerStartCommand          string
+	WorkerStartCommandImage     string
 	WorkerStartCommandGIF       string
 	WorkerStartCommandPNG       string
+	WorkerStartCommandJPG       string
+	WorkerStartCommandWEBP      string
+	WorkerStartCommandLIVE      string
+	WorkerStartCommandMP4       string
 	WorkerStartCommandMedia     string
 	WorkerStopCommand           string
+	WorkerStopCommandImage      string
 	WorkerStopCommandGIF        string
 	WorkerStopCommandPNG        string
+	WorkerStopCommandJPG        string
+	WorkerStopCommandWEBP       string
+	WorkerStopCommandLIVE       string
+	WorkerStopCommandMP4        string
 	WorkerStopCommandMedia      string
 	WorkerStartTimeout          int
 	WorkerGuardEnabled          bool
@@ -234,12 +244,22 @@ func Load() Config {
 	cfg.AsynqRedisPassword = getEnv("ASYNQ_REDIS_PASSWORD", cfg.RedisPassword)
 	cfg.AsynqRedisDB = getEnvAsInt("ASYNQ_REDIS_DB", cfg.RedisDB)
 	cfg.WorkerStartCommand = getEnv("WORKER_START_COMMAND", "")
+	cfg.WorkerStartCommandImage = getEnv("WORKER_START_COMMAND_IMAGE", "")
 	cfg.WorkerStartCommandGIF = getEnv("WORKER_START_COMMAND_GIF", "")
 	cfg.WorkerStartCommandPNG = getEnv("WORKER_START_COMMAND_PNG", "")
+	cfg.WorkerStartCommandJPG = getEnv("WORKER_START_COMMAND_JPG", "")
+	cfg.WorkerStartCommandWEBP = getEnv("WORKER_START_COMMAND_WEBP", "")
+	cfg.WorkerStartCommandLIVE = getEnv("WORKER_START_COMMAND_LIVE", "")
+	cfg.WorkerStartCommandMP4 = getEnv("WORKER_START_COMMAND_MP4", "")
 	cfg.WorkerStartCommandMedia = getEnv("WORKER_START_COMMAND_MEDIA", "")
 	cfg.WorkerStopCommand = getEnv("WORKER_STOP_COMMAND", "")
+	cfg.WorkerStopCommandImage = getEnv("WORKER_STOP_COMMAND_IMAGE", "")
 	cfg.WorkerStopCommandGIF = getEnv("WORKER_STOP_COMMAND_GIF", "")
 	cfg.WorkerStopCommandPNG = getEnv("WORKER_STOP_COMMAND_PNG", "")
+	cfg.WorkerStopCommandJPG = getEnv("WORKER_STOP_COMMAND_JPG", "")
+	cfg.WorkerStopCommandWEBP = getEnv("WORKER_STOP_COMMAND_WEBP", "")
+	cfg.WorkerStopCommandLIVE = getEnv("WORKER_STOP_COMMAND_LIVE", "")
+	cfg.WorkerStopCommandMP4 = getEnv("WORKER_STOP_COMMAND_MP4", "")
 	cfg.WorkerStopCommandMedia = getEnv("WORKER_STOP_COMMAND_MEDIA", "")
 	cfg.WorkerStartTimeout = getEnvAsInt("WORKER_START_TIMEOUT_SECONDS", 20)
 	cfg.WorkerGuardEnabled = getEnvAsBool("WORKER_GUARD_ENABLED", true)

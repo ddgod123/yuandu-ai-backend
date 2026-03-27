@@ -412,3 +412,32 @@ func TestNormalizeQualitySettings_AIDirectorInputMode(t *testing.T) {
 		t.Fatalf("expected zero-value settings default ai_director_input_mode=hybrid, got %q", defaults.AIDirectorInputMode)
 	}
 }
+
+func TestNormalizeQualitySettings_AIJudgeHardGateFields(t *testing.T) {
+	defaults := NormalizeQualitySettings(QualitySettings{})
+	if defaults.GIFAIJudgeHardGateMinOverallScore != 0.2 ||
+		defaults.GIFAIJudgeHardGateMinClarityScore != 0.2 ||
+		defaults.GIFAIJudgeHardGateMinLoopScore != 0.2 ||
+		defaults.GIFAIJudgeHardGateMinOutputScore != 0.2 ||
+		defaults.GIFAIJudgeHardGateMinDurationMS != 200 ||
+		defaults.GIFAIJudgeHardGateSizeMultiplier != 4 {
+		t.Fatalf("unexpected default ai judge hard-gate: %+v", defaults)
+	}
+
+	settings := NormalizeQualitySettings(QualitySettings{
+		GIFAIJudgeHardGateMinOverallScore: 0.5,
+		GIFAIJudgeHardGateMinClarityScore: 0.6,
+		GIFAIJudgeHardGateMinLoopScore:    0.7,
+		GIFAIJudgeHardGateMinOutputScore:  0.8,
+		GIFAIJudgeHardGateMinDurationMS:   500,
+		GIFAIJudgeHardGateSizeMultiplier:  8,
+	})
+	if settings.GIFAIJudgeHardGateMinOverallScore != 0.5 ||
+		settings.GIFAIJudgeHardGateMinClarityScore != 0.6 ||
+		settings.GIFAIJudgeHardGateMinLoopScore != 0.7 ||
+		settings.GIFAIJudgeHardGateMinOutputScore != 0.8 ||
+		settings.GIFAIJudgeHardGateMinDurationMS != 500 ||
+		settings.GIFAIJudgeHardGateSizeMultiplier != 8 {
+		t.Fatalf("expected hard-gate values preserved, got %+v", settings)
+	}
+}

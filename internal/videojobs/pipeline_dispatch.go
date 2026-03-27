@@ -15,8 +15,16 @@ func (p *Processor) process(ctx context.Context, jobID uint64) error {
 	switch format {
 	case "gif":
 		return p.processGIFPipeline(ctx, jobID)
-	case "png", "jpg", "webp", "live", "mp4":
-		return p.processImagePipeline(ctx, jobID)
+	case "png":
+		return p.processPNGPipeline(ctx, jobID)
+	case "jpg":
+		return p.processJPGPipeline(ctx, jobID)
+	case "webp":
+		return p.processWebPPipeline(ctx, jobID)
+	case "live":
+		return p.processLivePipeline(ctx, jobID)
+	case "mp4":
+		return p.processMP4Pipeline(ctx, jobID)
 	default:
 		return p.processUnified(ctx, jobID)
 	}

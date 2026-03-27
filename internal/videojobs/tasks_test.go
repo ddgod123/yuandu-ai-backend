@@ -27,9 +27,30 @@ func TestResolveVideoJobExecutionTarget(t *testing.T) {
 		{
 			name:        "jpg alias",
 			output:      "jpeg",
-			wantQueue:   QueueVideoJobPNG,
-			wantTask:    TaskTypeProcessVideoJobPNG,
+			wantQueue:   QueueVideoJobJPG,
+			wantTask:    TaskTypeProcessVideoJobJPG,
 			wantPrimary: "jpg",
+		},
+		{
+			name:        "webp",
+			output:      "webp",
+			wantQueue:   QueueVideoJobWEBP,
+			wantTask:    TaskTypeProcessVideoJobWEBP,
+			wantPrimary: "webp",
+		},
+		{
+			name:        "live",
+			output:      "live",
+			wantQueue:   QueueVideoJobLIVE,
+			wantTask:    TaskTypeProcessVideoJobLIVE,
+			wantPrimary: "live",
+		},
+		{
+			name:        "mp4",
+			output:      "mp4",
+			wantQueue:   QueueVideoJobMP4,
+			wantTask:    TaskTypeProcessVideoJobMP4,
+			wantPrimary: "mp4",
 		},
 		{
 			name:        "fallback",

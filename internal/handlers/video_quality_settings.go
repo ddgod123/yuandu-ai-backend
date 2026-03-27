@@ -182,6 +182,12 @@ type VideoQualitySettingRequest struct {
 	AIDirectorDurationExpandRatio        float64 `json:"ai_director_duration_expand_ratio"`
 	AIDirectorCountAbsoluteCap           int     `json:"ai_director_count_absolute_cap"`
 	AIDirectorDurationAbsoluteCapSec     float64 `json:"ai_director_duration_absolute_cap_sec"`
+	GIFAIJudgeHardGateMinOverallScore    float64 `json:"gif_ai_judge_hard_gate_min_overall_score"`
+	GIFAIJudgeHardGateMinClarityScore    float64 `json:"gif_ai_judge_hard_gate_min_clarity_score"`
+	GIFAIJudgeHardGateMinLoopScore       float64 `json:"gif_ai_judge_hard_gate_min_loop_score"`
+	GIFAIJudgeHardGateMinOutputScore     float64 `json:"gif_ai_judge_hard_gate_min_output_score"`
+	GIFAIJudgeHardGateMinDurationMS      int     `json:"gif_ai_judge_hard_gate_min_duration_ms"`
+	GIFAIJudgeHardGateSizeMultiplier     int     `json:"gif_ai_judge_hard_gate_size_multiplier"`
 	GIFHealthAlertThresholdSettings
 	FeedbackIntegrityAlertThresholdSettings
 }
@@ -689,6 +695,24 @@ func validateVideoQualitySettingRequest(req VideoQualitySettingRequest) error {
 	if req.AIDirectorCountAbsoluteCap < req.GIFCandidateMaxOutputs {
 		return errors.New("invalid ai_director_count_absolute_cap: expected >= gif_candidate_max_outputs")
 	}
+	if req.GIFAIJudgeHardGateMinOverallScore <= 0 || req.GIFAIJudgeHardGateMinOverallScore > 1 {
+		return errors.New("invalid gif_ai_judge_hard_gate_min_overall_score: expected (0,1]")
+	}
+	if req.GIFAIJudgeHardGateMinClarityScore <= 0 || req.GIFAIJudgeHardGateMinClarityScore > 1 {
+		return errors.New("invalid gif_ai_judge_hard_gate_min_clarity_score: expected (0,1]")
+	}
+	if req.GIFAIJudgeHardGateMinLoopScore <= 0 || req.GIFAIJudgeHardGateMinLoopScore > 1 {
+		return errors.New("invalid gif_ai_judge_hard_gate_min_loop_score: expected (0,1]")
+	}
+	if req.GIFAIJudgeHardGateMinOutputScore <= 0 || req.GIFAIJudgeHardGateMinOutputScore > 1 {
+		return errors.New("invalid gif_ai_judge_hard_gate_min_output_score: expected (0,1]")
+	}
+	if req.GIFAIJudgeHardGateMinDurationMS < 50 || req.GIFAIJudgeHardGateMinDurationMS > 10000 {
+		return errors.New("invalid gif_ai_judge_hard_gate_min_duration_ms: expected 50..10000")
+	}
+	if req.GIFAIJudgeHardGateSizeMultiplier < 1 || req.GIFAIJudgeHardGateSizeMultiplier > 20 {
+		return errors.New("invalid gif_ai_judge_hard_gate_size_multiplier: expected 1..20")
+	}
 
 	if err := validateLowRateThreshold("gif_health_done_rate", req.GIFHealthDoneRateWarn, req.GIFHealthDoneRateCritical); err != nil {
 		return err
@@ -937,6 +961,12 @@ func qualitySettingsFromModel(setting models.VideoQualitySetting) videojobs.Qual
 		AIDirectorDurationExpandRatio:        setting.AIDirectorDurationExpandRatio,
 		AIDirectorCountAbsoluteCap:           setting.AIDirectorCountAbsoluteCap,
 		AIDirectorDurationAbsoluteCapSec:     setting.AIDirectorDurationAbsoluteCapSec,
+		GIFAIJudgeHardGateMinOverallScore:    setting.GIFAIJudgeHardGateMinOverallScore,
+		GIFAIJudgeHardGateMinClarityScore:    setting.GIFAIJudgeHardGateMinClarityScore,
+		GIFAIJudgeHardGateMinLoopScore:       setting.GIFAIJudgeHardGateMinLoopScore,
+		GIFAIJudgeHardGateMinOutputScore:     setting.GIFAIJudgeHardGateMinOutputScore,
+		GIFAIJudgeHardGateMinDurationMS:      setting.GIFAIJudgeHardGateMinDurationMS,
+		GIFAIJudgeHardGateSizeMultiplier:     setting.GIFAIJudgeHardGateSizeMultiplier,
 	})
 }
 
@@ -1107,6 +1137,12 @@ func applyQualitySettingsToModel(dst *models.VideoQualitySetting, settings video
 	dst.AIDirectorDurationExpandRatio = settings.AIDirectorDurationExpandRatio
 	dst.AIDirectorCountAbsoluteCap = settings.AIDirectorCountAbsoluteCap
 	dst.AIDirectorDurationAbsoluteCapSec = settings.AIDirectorDurationAbsoluteCapSec
+	dst.GIFAIJudgeHardGateMinOverallScore = settings.GIFAIJudgeHardGateMinOverallScore
+	dst.GIFAIJudgeHardGateMinClarityScore = settings.GIFAIJudgeHardGateMinClarityScore
+	dst.GIFAIJudgeHardGateMinLoopScore = settings.GIFAIJudgeHardGateMinLoopScore
+	dst.GIFAIJudgeHardGateMinOutputScore = settings.GIFAIJudgeHardGateMinOutputScore
+	dst.GIFAIJudgeHardGateMinDurationMS = settings.GIFAIJudgeHardGateMinDurationMS
+	dst.GIFAIJudgeHardGateSizeMultiplier = settings.GIFAIJudgeHardGateSizeMultiplier
 }
 
 func toVideoQualitySettingResponse(setting models.VideoQualitySetting, withMeta bool) VideoQualitySettingResponse {
@@ -1366,6 +1402,12 @@ func videoQualitySettingRequestFromModel(setting models.VideoQualitySetting) Vid
 		AIDirectorDurationExpandRatio:           quality.AIDirectorDurationExpandRatio,
 		AIDirectorCountAbsoluteCap:              quality.AIDirectorCountAbsoluteCap,
 		AIDirectorDurationAbsoluteCapSec:        quality.AIDirectorDurationAbsoluteCapSec,
+		GIFAIJudgeHardGateMinOverallScore:       quality.GIFAIJudgeHardGateMinOverallScore,
+		GIFAIJudgeHardGateMinClarityScore:       quality.GIFAIJudgeHardGateMinClarityScore,
+		GIFAIJudgeHardGateMinLoopScore:          quality.GIFAIJudgeHardGateMinLoopScore,
+		GIFAIJudgeHardGateMinOutputScore:        quality.GIFAIJudgeHardGateMinOutputScore,
+		GIFAIJudgeHardGateMinDurationMS:         quality.GIFAIJudgeHardGateMinDurationMS,
+		GIFAIJudgeHardGateSizeMultiplier:        quality.GIFAIJudgeHardGateSizeMultiplier,
 		GIFHealthAlertThresholdSettings:         gifThresholds,
 		FeedbackIntegrityAlertThresholdSettings: feedbackThresholds,
 	}
@@ -1473,16 +1515,30 @@ func (h *Handler) UpdateAdminVideoQualitySetting(c *gin.Context) {
 	}
 
 	if formatScope == videoQualitySettingFormatAll {
+		beforeSetting, err := h.loadVideoQualitySetting()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		beforeReq := videoQualitySettingRequestFromModel(beforeSetting)
 		saved, err := h.saveVideoQualitySetting(req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		h.recordVideoQualitySettingAudit(c, formatScope, []string{videoQualitySettingFormatAll}, "put", beforeReq, videoQualitySettingRequestFromModel(saved))
 		resp := toVideoQualitySettingResponse(saved, true)
 		attachVideoQualitySettingScopeMeta(&resp, formatScope, []string{videoQualitySettingFormatAll}, nil)
 		c.JSON(http.StatusOK, resp)
 		return
 	}
+
+	beforeScopedSetting, _, _, err := h.resolveVideoQualitySettingByFormat(formatScope)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	beforeScopedReq := videoQualitySettingRequestFromModel(beforeScopedSetting)
 
 	base, err := h.loadVideoQualitySetting()
 	if err != nil {
@@ -1512,6 +1568,7 @@ func (h *Handler) UpdateAdminVideoQualitySetting(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.recordVideoQualitySettingAudit(c, formatScope, resolvedFrom, "put", beforeScopedReq, videoQualitySettingRequestFromModel(effective))
 	resp := toVideoQualitySettingResponse(effective, true)
 	attachVideoQualitySettingScopeMeta(&resp, formatScope, resolvedFrom, scopeRow)
 	c.JSON(http.StatusOK, resp)
@@ -1534,6 +1591,12 @@ func (h *Handler) PatchAdminVideoQualitySetting(c *gin.Context) {
 	}
 
 	if formatScope == videoQualitySettingFormatAll {
+		beforeSetting, err := h.loadVideoQualitySetting()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		beforeReq := videoQualitySettingRequestFromModel(beforeSetting)
 		req, err := h.bindVideoQualitySettingPatch(c)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1548,6 +1611,7 @@ func (h *Handler) PatchAdminVideoQualitySetting(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		h.recordVideoQualitySettingAudit(c, formatScope, []string{videoQualitySettingFormatAll}, "patch", beforeReq, videoQualitySettingRequestFromModel(saved))
 		resp := toVideoQualitySettingResponse(saved, true)
 		attachVideoQualitySettingScopeMeta(&resp, formatScope, []string{videoQualitySettingFormatAll}, nil)
 		c.JSON(http.StatusOK, resp)
@@ -1559,6 +1623,7 @@ func (h *Handler) PatchAdminVideoQualitySetting(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	beforeScopedReq := videoQualitySettingRequestFromModel(effective)
 	req, err := h.bindVideoQualitySettingPatchWithBase(c, videoQualitySettingRequestFromModel(effective))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1596,6 +1661,7 @@ func (h *Handler) PatchAdminVideoQualitySetting(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.recordVideoQualitySettingAudit(c, formatScope, resolvedFrom, "patch", beforeScopedReq, videoQualitySettingRequestFromModel(resolvedSetting))
 	resp := toVideoQualitySettingResponse(resolvedSetting, true)
 	attachVideoQualitySettingScopeMeta(&resp, formatScope, resolvedFrom, scopeRow)
 	c.JSON(http.StatusOK, resp)
@@ -1850,33 +1916,34 @@ func (h *Handler) loadVideoQualityRolloutEffectMetrics(start, end time.Time) (Vi
 	}
 
 	var jobs jobsRow
-	if err := h.db.Raw(`
+	gifTables := resolveVideoImageReadTables("gif")
+	if err := h.db.Raw(fmt.Sprintf(`
 SELECT
 	COUNT(*) AS jobs_total,
 	COUNT(*) FILTER (WHERE status = 'done') AS jobs_done,
 	COUNT(*) FILTER (WHERE status = 'failed') AS jobs_failed
-FROM public.video_image_jobs
+FROM %s
 WHERE requested_format = 'gif'
 	AND created_at >= ?
 	AND created_at < ?
-`, start, end).Scan(&jobs).Error; err != nil {
+`, gifTables.Jobs), start, end).Scan(&jobs).Error; err != nil {
 		return VideoQualityRolloutEffectMetric{}, err
 	}
 
 	var outputs outputsRow
-	if err := h.db.Raw(`
+	if err := h.db.Raw(fmt.Sprintf(`
 SELECT
 	COUNT(*) AS output_samples,
 	COALESCE(AVG(score), 0) AS avg_output_score,
 	COALESCE(AVG(gif_loop_tune_loop_closure), 0) AS avg_loop_closure,
 	COALESCE(AVG(CASE WHEN gif_loop_tune_effective_applied THEN 1 ELSE 0 END), 0) AS loop_effective_rate,
 	COALESCE(AVG(CASE WHEN gif_loop_tune_fallback_to_base THEN 1 ELSE 0 END), 0) AS loop_fallback_rate
-FROM public.video_image_outputs
+FROM %s
 WHERE format = 'gif'
 	AND file_role = 'main'
 	AND created_at >= ?
 	AND created_at < ?
-`, start, end).Scan(&outputs).Error; err != nil {
+`, gifTables.Outputs), start, end).Scan(&outputs).Error; err != nil {
 		return VideoQualityRolloutEffectMetric{}, err
 	}
 

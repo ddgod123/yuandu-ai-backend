@@ -131,7 +131,7 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 	}
 
 	var parsed gifAIPlannerResponse
-	if err := json.Unmarshal([]byte(sanitizeModelJSON(modelText)), &parsed); err != nil {
+	if err := unmarshalModelJSONWithRepair(modelText, &parsed); err != nil {
 		info["applied"] = false
 		info["error"] = "parse planner response: " + err.Error()
 		return local, info, err

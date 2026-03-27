@@ -156,7 +156,7 @@ func (p *Processor) runAIGIFJudgeReview(ctx context.Context, job models.VideoJob
 	}
 
 	var parsed gifAIJudgeResponse
-	if err := json.Unmarshal([]byte(sanitizeModelJSON(modelText)), &parsed); err != nil {
+	if err := unmarshalModelJSONWithRepair(modelText, &parsed); err != nil {
 		result.Error = "parse judge response: " + err.Error()
 		return normalizeVideoJobAIUsageMetadata(result), err
 	}

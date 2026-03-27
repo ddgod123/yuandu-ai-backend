@@ -77,3 +77,17 @@ func TestValidateAIGIFDirectiveContract_InvalidLoopPreference(t *testing.T) {
 		t.Fatalf("expected invalid contract due to loop_preference")
 	}
 }
+
+func TestParseAIGIFDirectiveResponse_RepairTruncatedJSON(t *testing.T) {
+	modelText := `{"directive":{"business_goal":"social_spread","audience":"通用用户","must_capture":["笑点"],"avoid":["黑屏"],"clip_count_min":2,"clip_count_max":4,"duration_pref_min_sec":1.2,"duration_pref_max_sec":2.8,"loop_preference":0.4,"style_direction":"balanced_reaction","risk_flags":["low_light"],"quality_weights":{"semantic":0.35,"clarity":0.2,"loop":0.25,"efficiency":0.2},"directive_text":"优先抓取笑点镜头"}`
+	got, shape, err := parseAIGIFDirectiveResponse(modelText)
+	if err != nil {
+		t.Fatalf("parseAIGIFDirectiveResponse failed after repair: %v", err)
+	}
+	if shape != "directive" {
+		t.Fatalf("unexpected response shape: %s", shape)
+	}
+	if got.BusinessGoal != "social_spread" || got.ClipCountMin != 2 || got.ClipCountMax != 4 {
+		t.Fatalf("unexpected directive parsed: %+v", got)
+	}
+}

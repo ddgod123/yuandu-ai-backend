@@ -2,7 +2,6 @@ package videojobs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,9 +11,8 @@ import (
 )
 
 func parseAIGIFDirectiveResponse(modelText string) (gifAIDirectiveProfile, string, error) {
-	rawText := sanitizeModelJSON(modelText)
 	var canonical gifAIDirectorResponse
-	if err := json.Unmarshal([]byte(rawText), &canonical); err == nil {
+	if err := unmarshalModelJSONWithRepair(modelText, &canonical); err == nil {
 		if strings.TrimSpace(canonical.Directive.BusinessGoal) != "" ||
 			strings.TrimSpace(canonical.Directive.Audience) != "" ||
 			len(canonical.Directive.MustCapture) > 0 ||
@@ -29,7 +27,7 @@ func parseAIGIFDirectiveResponse(modelText string) (gifAIDirectiveProfile, strin
 	}
 
 	var brief gifAIDirectorBriefV2Response
-	if err := json.Unmarshal([]byte(rawText), &brief); err == nil {
+	if err := unmarshalModelJSONWithRepair(modelText, &brief); err == nil {
 		directive := gifAIDirectiveProfile{
 			BusinessGoal:   strings.TrimSpace(brief.BusinessGoal),
 			Audience:       strings.TrimSpace(brief.Audience),

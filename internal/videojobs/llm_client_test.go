@@ -85,3 +85,25 @@ func TestCallOpenAICompatJSONChat_RawPayloadUseNumber(t *testing.T) {
 		t.Fatalf("prompt_tokens should be json.Number, got=%T", usage["prompt_tokens"])
 	}
 }
+
+func TestUnmarshalModelJSONWithRepair_MissingClosers(t *testing.T) {
+	raw := `{"directive":{"business_goal":"social_spread","clip_count_min":2,"clip_count_max":4,"duration_pref_min_sec":1.2,"duration_pref_max_sec":2.6}`
+	var parsed map[string]interface{}
+	if err := unmarshalModelJSONWithRepair(raw, &parsed); err != nil {
+		t.Fatalf("unmarshalModelJSONWithRepair failed: %v", err)
+	}
+	if _, ok := parsed["directive"]; !ok {
+		t.Fatalf("directive field missing after repair: %+v", parsed)
+	}
+}
+
+func TestUnmarshalModelJSONWithRepair_TrailingComma(t *testing.T) {
+	raw := `{"a":1,"b":{"c":2,},}`
+	var parsed map[string]interface{}
+	if err := unmarshalModelJSONWithRepair(raw, &parsed); err != nil {
+		t.Fatalf("unmarshalModelJSONWithRepair failed: %v", err)
+	}
+	if _, ok := parsed["b"]; !ok {
+		t.Fatalf("nested field missing after repair: %+v", parsed)
+	}
+}

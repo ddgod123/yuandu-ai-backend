@@ -377,3 +377,78 @@ func sanitizeModelJSON(raw string) string {
 	}
 	return text
 }
+
+func unmarshalModelJSONWithRepair(raw string, out interface{}) error {
+	text := sanitizeModelJSON(raw)
+	if err := json.Unmarshal([]byte(text), out); err == nil {
+		return nil
+	}
+	repaired := repairModelJSONText(text)
+	return json.Unmarshal([]byte(repaired), out)
+}
+
+func repairModelJSONText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return text
+	}
+	text = trimLooseTrailingCommas(text)
+	if !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
+		return text
+	}
+	stack := make([]rune, 0, 16)
+	inString := false
+	escaped := false
+	for _, ch := range text {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) == 0 {
+				continue
+			}
+			expected := stack[len(stack)-1]
+			if ch == expected {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+	var builder strings.Builder
+	builder.Grow(len(text) + len(stack) + 2)
+	builder.WriteString(text)
+	if inString {
+		builder.WriteRune('"')
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		builder.WriteRune(stack[i])
+	}
+	return trimLooseTrailingCommas(strings.TrimSpace(builder.String()))
+}
+
+func trimLooseTrailingCommas(text string) string {
+	for {
+		trimmed := strings.ReplaceAll(strings.ReplaceAll(text, ",}", "}"), ",]", "]")
+		if trimmed == text {
+			return text
+		}
+		text = trimmed
+	}
+}

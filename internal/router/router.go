@@ -97,6 +97,7 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 			auth.POST("/me/collection-download-code/validate", h.ValidateCollectionDownloadCodeForMe)
 			auth.POST("/me/collection-download-code/redeem", h.RedeemCollectionDownloadCodeForMe)
 			auth.GET("/me/collection-download-entitlements", h.ListMyCollectionDownloadEntitlements)
+			auth.GET("/my/works", h.ListMyWorks)
 			auth.POST("/video-jobs", h.CreateVideoJob)
 			auth.GET("/video-jobs", h.ListMyVideoJobs)
 			auth.GET("/video-jobs/capabilities", h.GetVideoJobCapabilities)

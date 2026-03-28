@@ -114,6 +114,36 @@ func (VideoImageFeedbackPublic) TableName() string {
 	return "public.video_image_feedback"
 }
 
+type VideoWorkCardPublic struct {
+	JobID                 uint64         `gorm:"column:job_id;primaryKey"`
+	UserID                uint64         `gorm:"column:user_id;index"`
+	RequestedFormat       string         `gorm:"column:requested_format;size:16;index"`
+	Title                 string         `gorm:"column:title;size:255"`
+	Status                string         `gorm:"column:status;size:32;index"`
+	Stage                 string         `gorm:"column:stage;size:32;index"`
+	Progress              int            `gorm:"column:progress"`
+	ResultCollectionID    *uint64        `gorm:"column:result_collection_id;index"`
+	FileCount             int            `gorm:"column:file_count"`
+	PreviewImages         datatypes.JSON `gorm:"column:preview_images;type:jsonb"`
+	FormatSummary         datatypes.JSON `gorm:"column:format_summary;type:jsonb"`
+	PackageStatus         string         `gorm:"column:package_status;size:32;index"`
+	PackageName           string         `gorm:"column:package_name;size:255"`
+	PackageSizeBytes      int64          `gorm:"column:package_size_bytes"`
+	QualitySampleCount    int            `gorm:"column:quality_sample_count"`
+	QualityTopScore       float64        `gorm:"column:quality_top_score"`
+	QualityAvgScore       float64        `gorm:"column:quality_avg_score"`
+	QualityAvgLoopClosure float64        `gorm:"column:quality_avg_loop_closure"`
+	Options               datatypes.JSON `gorm:"column:options;type:jsonb"`
+	Metrics               datatypes.JSON `gorm:"column:metrics;type:jsonb"`
+	SourceUpdatedAt       *time.Time     `gorm:"column:source_updated_at"`
+	CreatedAt             time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt             time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (VideoWorkCardPublic) TableName() string {
+	return "public.video_work_cards"
+}
+
 type VideoImageQualitySettingPublic struct {
 	ID                                   int16     `gorm:"primaryKey;default:1"`
 	MinBrightness                        float64   `gorm:"column:min_brightness"`

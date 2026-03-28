@@ -84,6 +84,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&VideoImagePackagePublic{},
 		&VideoImageEventPublic{},
 		&VideoImageFeedbackPublic{},
+		&VideoWorkCardPublic{},
 		&VideoImageQualitySettingPublic{},
 		&VideoImageRolloutAuditPublic{},
 	); err != nil {

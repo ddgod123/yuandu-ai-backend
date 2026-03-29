@@ -101,6 +101,24 @@ func TestBuildFrameFilters_UsesRequestedStillFormatsForClarityEnhancement(t *tes
 	}
 }
 
+func TestBuildFrameFilters_AppliesRiskStrategyFilters(t *testing.T) {
+	meta := videoProbeMeta{Width: 1280, Height: 720}
+	opts := jobOptions{
+		RequestedPNG:   true,
+		RiskLowLight:   true,
+		RiskFastMotion: true,
+		AIAvoidDark:    true,
+	}
+	filters := buildFrameFilters(meta, opts, 1.0, DefaultQualitySettings())
+	joined := strings.Join(filters, ",")
+	if !strings.Contains(joined, "hqdn3d=") {
+		t.Fatalf("expected low_light denoise filter, got %s", joined)
+	}
+	if !strings.Contains(joined, "unsharp=") {
+		t.Fatalf("expected fast_motion sharpen filter, got %s", joined)
+	}
+}
+
 func TestApplyStillProfileDefaults_DoesNotForceGlobalScaleWhenMixedProfiles(t *testing.T) {
 	settings := DefaultQualitySettings()
 	settings.JPGProfile = QualityProfileClarity

@@ -97,6 +97,18 @@ func resolvePublicVideoImageFeedbackTable(format string) string {
 	return resolvePublicVideoImageTableWithBase(publicVideoImageFeedbackTable, format)
 }
 
+func resolvePublicVideoImageWriteTables(baseTable string, format string) []string {
+	baseTable = strings.TrimSpace(baseTable)
+	if baseTable == "" {
+		return nil
+	}
+	format = normalizePublicVideoImageSplitFormat(format)
+	if format == "" {
+		return []string{baseTable}
+	}
+	return []string{baseTable + "_" + format}
+}
+
 func resolvePublicVideoImageTableWithBase(baseTable string, format string) string {
 	baseTable = strings.TrimSpace(baseTable)
 	if baseTable == "" {
@@ -169,17 +181,25 @@ func forEachPublicVideoImageFeedbackTableByJob(db *gorm.DB, jobID uint64, fn fun
 	if fn == nil {
 		return nil
 	}
-	baseTable := publicVideoImageFeedbackTable
-	if err := fn(baseTable); err != nil {
-		return err
+	requestedFormat := ""
+	if db != nil && jobID > 0 {
+		requestedFormat = resolvePublicVideoImageRequestedFormat(db, jobID)
 	}
-	if db == nil || jobID == 0 {
-		return nil
+	for _, tableName := range resolvePublicVideoImageWriteTables(publicVideoImageFeedbackTable, requestedFormat) {
+		tableName = strings.TrimSpace(tableName)
+		if tableName == "" {
+			continue
+		}
+		if tableName != publicVideoImageFeedbackTable && !publicVideoImageTableExists(db, tableName) {
+			return fn(publicVideoImageFeedbackTable)
+		}
+		if err := fn(tableName); err != nil {
+			if tableName != publicVideoImageFeedbackTable &&
+				(isMissingTableError(err, tableName) || isMissingTableError(err, tableOnlyName(tableName))) {
+				return fn(publicVideoImageFeedbackTable)
+			}
+			return err
+		}
 	}
-	requestedFormat := resolvePublicVideoImageRequestedFormat(db, jobID)
-	splitTable := resolvePublicVideoImageFeedbackTable(requestedFormat)
-	if splitTable == "" || splitTable == baseTable {
-		return nil
-	}
-	return fn(splitTable)
+	return nil
 }

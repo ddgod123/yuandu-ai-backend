@@ -46,7 +46,7 @@ func (h *Handler) StreamVideoJobEvents(c *gin.Context) {
 	}
 
 	var job models.VideoJob
-	if err := h.db.Select("id, status, stage").Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+	if err := h.db.Select("id, status, stage, output_formats").Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
 			return
@@ -114,17 +114,29 @@ func (h *Handler) StreamVideoJobEvents(c *gin.Context) {
 	heartbeatTicker := time.NewTicker(time.Duration(heartbeatSec) * time.Second)
 	defer heartbeatTicker.Stop()
 
+	requestedFormat := normalizeVideoImageFormatFilter(strings.Split(strings.ToLower(strings.TrimSpace(job.OutputFormats)), ",")[0])
+	routedTables := resolveVideoImageReadTables(requestedFormat)
+	baseEventsTable := models.VideoImageEventPublic{}.TableName()
+	activeEventsTable := strings.TrimSpace(routedTables.Events)
+	if activeEventsTable == "" {
+		activeEventsTable = baseEventsTable
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-pollTicker.C:
 			var rows []models.VideoImageEventPublic
-			query := h.db.Model(&models.VideoImageEventPublic{}).
+			query := h.db.Table(activeEventsTable).
 				Where("job_id = ? AND id > ?", jobID, sinceID).
 				Order("id ASC").
 				Limit(120)
 			if err := query.Find(&rows).Error; err != nil {
+				if activeEventsTable != baseEventsTable && isMissingTableError(err, activeEventsTable) {
+					activeEventsTable = baseEventsTable
+					continue
+				}
 				_ = writeSSE("stream_error", videoJobStreamEnvelope{
 					Type:        "error",
 					Message:     err.Error(),

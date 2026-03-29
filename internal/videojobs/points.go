@@ -19,6 +19,7 @@ const (
 	minReservePoints     int64   = 10
 	maxReservePoints     int64   = 800
 	pointPerCNY          float64 = 100 // 1 point = 0.01 CNY
+	costMarkupMultiplier float64 = 2.0 // 实际成本 1 元 => 用户侧计费 2 元
 	initialPointsFree    int64   = 300
 	initialPointsSub     int64   = 1200
 	initialPointsPro     int64   = 3000
@@ -36,6 +37,10 @@ func (e InsufficientPointsError) Error() string {
 
 func PointPerCNY() float64 {
 	return pointPerCNY
+}
+
+func CostMarkupMultiplier() float64 {
+	return costMarkupMultiplier
 }
 
 func EstimateReservationPoints(sourceBytes int64, outputFormats []string, options map[string]interface{}) int64 {
@@ -285,13 +290,41 @@ func SettleReservedPointsForJob(db *gorm.DB, jobID uint64, finalStatus string) e
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		var hold models.ComputePointHold
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("job_id = ?", jobID).First(&hold).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil
-			}
-			return err
+		holdErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("job_id = ?", jobID).First(&hold).Error
+		if holdErr != nil && !errors.Is(holdErr, gorm.ErrRecordNotFound) {
+			return holdErr
 		}
-		if !strings.EqualFold(strings.TrimSpace(hold.Status), "held") {
+
+		var cost models.VideoJobCost
+		_ = tx.Where("job_id = ?", jobID).First(&cost).Error
+		billableCostCNY, billableCostSource, aiCostCNY := resolveBillableCostCNY(cost)
+		finalStatus = strings.ToLower(strings.TrimSpace(finalStatus))
+
+		if errors.Is(holdErr, gorm.ErrRecordNotFound) {
+			return settlePointsWithoutHoldTx(
+				tx,
+				jobID,
+				finalStatus,
+				cost,
+				billableCostCNY,
+				billableCostSource,
+				aiCostCNY,
+			)
+		}
+
+		holdStatus := strings.ToLower(strings.TrimSpace(hold.Status))
+		if holdStatus == "settled" {
+			return reconcileSettledPointsForHoldTx(
+				tx,
+				hold,
+				finalStatus,
+				cost,
+				billableCostCNY,
+				billableCostSource,
+				aiCostCNY,
+			)
+		}
+		if holdStatus != "held" {
 			return nil
 		}
 
@@ -299,10 +332,7 @@ func SettleReservedPointsForJob(db *gorm.DB, jobID uint64, finalStatus string) e
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", hold.AccountID).First(&account).Error; err != nil {
 			return err
 		}
-
-		var cost models.VideoJobCost
-		_ = tx.Where("job_id = ?", jobID).First(&cost).Error
-		actual := computeActualPointsFromCost(strings.ToLower(strings.TrimSpace(finalStatus)), cost.EstimatedCost, hold.ReservedPoints)
+		actual := computeActualPointsFromCost(finalStatus, billableCostCNY, hold.ReservedPoints)
 
 		reserved := hold.ReservedPoints
 		if reserved < 0 {
@@ -364,78 +394,311 @@ func SettleReservedPointsForJob(db *gorm.DB, jobID uint64, finalStatus string) e
 			DebtAfter:       account.DebtPoints,
 			Remark:          finalStatus,
 			Metadata: mustJSONOrEmpty(map[string]interface{}{
-				"reserved_points": reserved,
-				"estimated_cost":  cost.EstimatedCost,
+				"reserved_points":        reserved,
+				"estimated_cost":         cost.EstimatedCost,
+				"billable_cost_cny":      billableCostCNY,
+				"billable_cost_source":   billableCostSource,
+				"ai_cost_cny":            aiCostCNY,
+				"currency":               strings.TrimSpace(cost.Currency),
+				"pricing_version":        strings.TrimSpace(cost.PricingVersion),
+				"point_per_cny":          pointPerCNY,
+				"cost_markup_multiplier": costMarkupMultiplier,
+				"hold_status":            "settled",
+				"final_status":           strings.ToLower(strings.TrimSpace(finalStatus)),
 			}),
 		}
 		return tx.Create(&ledger).Error
 	})
 }
 
-func AdjustComputePoints(db *gorm.DB, userID uint64, delta int64, reason string, metadata map[string]interface{}) error {
-	if db == nil || userID == 0 || delta == 0 {
-		return errors.New("invalid compute account adjust input")
+func settlePointsWithoutHoldTx(
+	tx *gorm.DB,
+	jobID uint64,
+	finalStatus string,
+	cost models.VideoJobCost,
+	billableCostCNY float64,
+	billableCostSource string,
+	aiCostCNY float64,
+) error {
+	if tx == nil || jobID == 0 {
+		return nil
 	}
 
-	return db.Transaction(func(tx *gorm.DB) error {
-		account, err := ensureComputeAccountTx(tx, userID, true)
-		if err != nil {
-			return err
+	userID := cost.UserID
+	if userID == 0 {
+		var job models.VideoJob
+		if err := tx.Select("id", "user_id").Where("id = ?", jobID).First(&job).Error; err == nil {
+			userID = job.UserID
 		}
+	}
+	if userID == 0 {
+		return nil
+	}
 
-		beforeAvail := account.AvailablePoints
-		beforeFrozen := account.FrozenPoints
-		beforeDebt := account.DebtPoints
+	account, err := ensureComputeAccountTx(tx, userID, true)
+	if err != nil {
+		return err
+	}
 
-		if delta > 0 {
-			credit := delta
-			if account.DebtPoints > 0 {
-				repay := credit
-				if repay > account.DebtPoints {
-					repay = account.DebtPoints
-				}
-				account.DebtPoints -= repay
-				credit -= repay
+	actual := computeActualPointsFromCost(finalStatus, billableCostCNY, 0)
+
+	beforeAvail := account.AvailablePoints
+	beforeFrozen := account.FrozenPoints
+	beforeDebt := account.DebtPoints
+
+	applySettleDeltaWithoutHold(account, actual)
+	account.TotalConsumedPoints += actual
+	if account.TotalConsumedPoints < 0 {
+		account.TotalConsumedPoints = 0
+	}
+
+	if err := tx.Model(&models.ComputeAccount{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
+		"available_points":      account.AvailablePoints,
+		"frozen_points":         account.FrozenPoints,
+		"debt_points":           account.DebtPoints,
+		"total_consumed_points": account.TotalConsumedPoints,
+	}).Error; err != nil {
+		return err
+	}
+
+	now := time.Now()
+	hold := models.ComputePointHold{
+		JobID:          jobID,
+		UserID:         userID,
+		AccountID:      account.ID,
+		ReservedPoints: 0,
+		SettledPoints:  actual,
+		Status:         "settled",
+		Remark:         finalStatus,
+		SettledAt:      &now,
+	}
+	if err := tx.Create(&hold).Error; err != nil {
+		return err
+	}
+
+	ledger := models.ComputeLedger{
+		AccountID:       account.ID,
+		UserID:          userID,
+		JobID:           &jobID,
+		Type:            "settle",
+		Points:          actual,
+		AvailableBefore: beforeAvail,
+		AvailableAfter:  account.AvailablePoints,
+		FrozenBefore:    beforeFrozen,
+		FrozenAfter:     account.FrozenPoints,
+		DebtBefore:      beforeDebt,
+		DebtAfter:       account.DebtPoints,
+		Remark:          finalStatus,
+		Metadata: mustJSONOrEmpty(map[string]interface{}{
+			"reserved_points":        0,
+			"estimated_cost":         cost.EstimatedCost,
+			"billable_cost_cny":      billableCostCNY,
+			"billable_cost_source":   billableCostSource,
+			"ai_cost_cny":            aiCostCNY,
+			"currency":               strings.TrimSpace(cost.Currency),
+			"pricing_version":        strings.TrimSpace(cost.PricingVersion),
+			"point_per_cny":          pointPerCNY,
+			"cost_markup_multiplier": costMarkupMultiplier,
+			"hold_status":            "missing_auto_settled",
+			"final_status":           finalStatus,
+		}),
+	}
+	return tx.Create(&ledger).Error
+}
+
+func reconcileSettledPointsForHoldTx(
+	tx *gorm.DB,
+	hold models.ComputePointHold,
+	finalStatus string,
+	cost models.VideoJobCost,
+	billableCostCNY float64,
+	billableCostSource string,
+	aiCostCNY float64,
+) error {
+	if tx == nil || hold.JobID == 0 {
+		return nil
+	}
+	target := computeActualPointsFromCost(finalStatus, billableCostCNY, hold.ReservedPoints)
+	if target == hold.SettledPoints {
+		return nil
+	}
+
+	var account models.ComputeAccount
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", hold.AccountID).First(&account).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) && hold.UserID > 0 {
+			found, ensureErr := ensureComputeAccountTx(tx, hold.UserID, true)
+			if ensureErr != nil {
+				return ensureErr
 			}
-			account.AvailablePoints += credit
-			account.TotalRechargedPoints += delta
+			account = *found
 		} else {
-			cost := -delta
-			if account.AvailablePoints >= cost {
-				account.AvailablePoints -= cost
-			} else {
-				deficit := cost - account.AvailablePoints
-				account.AvailablePoints = 0
-				account.DebtPoints += deficit
-			}
-		}
-		if err := tx.Model(&models.ComputeAccount{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
-			"available_points":       account.AvailablePoints,
-			"debt_points":            account.DebtPoints,
-			"total_recharged_points": account.TotalRechargedPoints,
-		}).Error; err != nil {
 			return err
 		}
+	}
 
-		ledger := models.ComputeLedger{
-			AccountID:       account.ID,
-			UserID:          userID,
-			Type:            "adjust",
-			Points:          delta,
-			AvailableBefore: beforeAvail,
-			AvailableAfter:  account.AvailablePoints,
-			FrozenBefore:    beforeFrozen,
-			FrozenAfter:     account.FrozenPoints,
-			DebtBefore:      beforeDebt,
-			DebtAfter:       account.DebtPoints,
-			Remark:          strings.TrimSpace(reason),
-			Metadata:        mustJSONOrEmpty(metadata),
+	beforeAvail := account.AvailablePoints
+	beforeFrozen := account.FrozenPoints
+	beforeDebt := account.DebtPoints
+
+	delta := target - hold.SettledPoints
+	applySettleDeltaWithoutHold(&account, delta)
+	account.TotalConsumedPoints += delta
+	if account.TotalConsumedPoints < 0 {
+		account.TotalConsumedPoints = 0
+	}
+
+	if err := tx.Model(&models.ComputeAccount{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
+		"available_points":      account.AvailablePoints,
+		"frozen_points":         account.FrozenPoints,
+		"debt_points":           account.DebtPoints,
+		"total_consumed_points": account.TotalConsumedPoints,
+	}).Error; err != nil {
+		return err
+	}
+
+	now := time.Now()
+	if err := tx.Model(&models.ComputePointHold{}).Where("id = ?", hold.ID).Updates(map[string]interface{}{
+		"account_id":      account.ID,
+		"settled_points":  target,
+		"remark":          finalStatus,
+		"settled_at":      now,
+		"updated_at":      now,
+		"status":          "settled",
+		"reserved_points": hold.ReservedPoints,
+	}).Error; err != nil {
+		return err
+	}
+
+	ledger := models.ComputeLedger{
+		AccountID:       account.ID,
+		UserID:          hold.UserID,
+		JobID:           &hold.JobID,
+		Type:            "settle_adjust",
+		Points:          delta,
+		AvailableBefore: beforeAvail,
+		AvailableAfter:  account.AvailablePoints,
+		FrozenBefore:    beforeFrozen,
+		FrozenAfter:     account.FrozenPoints,
+		DebtBefore:      beforeDebt,
+		DebtAfter:       account.DebtPoints,
+		Remark:          finalStatus,
+		Metadata: mustJSONOrEmpty(map[string]interface{}{
+			"previous_settled_points": hold.SettledPoints,
+			"settled_points":          target,
+			"reserved_points":         hold.ReservedPoints,
+			"estimated_cost":          cost.EstimatedCost,
+			"billable_cost_cny":       billableCostCNY,
+			"billable_cost_source":    billableCostSource,
+			"ai_cost_cny":             aiCostCNY,
+			"currency":                strings.TrimSpace(cost.Currency),
+			"pricing_version":         strings.TrimSpace(cost.PricingVersion),
+			"point_per_cny":           pointPerCNY,
+			"cost_markup_multiplier":  costMarkupMultiplier,
+			"hold_status":             "settled_reconciled",
+			"final_status":            finalStatus,
+		}),
+	}
+	return tx.Create(&ledger).Error
+}
+
+func applySettleDeltaWithoutHold(account *models.ComputeAccount, delta int64) {
+	if account == nil || delta == 0 {
+		return
+	}
+	if delta > 0 {
+		if account.AvailablePoints >= delta {
+			account.AvailablePoints -= delta
+			return
 		}
-		return tx.Create(&ledger).Error
+		deficit := delta - account.AvailablePoints
+		account.AvailablePoints = 0
+		account.DebtPoints += deficit
+		return
+	}
+
+	refund := -delta
+	if account.DebtPoints > 0 {
+		repay := refund
+		if repay > account.DebtPoints {
+			repay = account.DebtPoints
+		}
+		account.DebtPoints -= repay
+		refund -= repay
+	}
+	account.AvailablePoints += refund
+}
+
+func AdjustComputePoints(db *gorm.DB, userID uint64, delta int64, reason string, metadata map[string]interface{}) error {
+	if db == nil {
+		return errors.New("invalid compute account adjust input")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		return AdjustComputePointsTx(tx, userID, delta, reason, metadata)
 	})
 }
 
-func computeActualPointsFromCost(finalStatus string, estimatedCost float64, reserved int64) int64 {
+func AdjustComputePointsTx(tx *gorm.DB, userID uint64, delta int64, reason string, metadata map[string]interface{}) error {
+	if tx == nil || userID == 0 || delta == 0 {
+		return errors.New("invalid compute account adjust input")
+	}
+
+	account, err := ensureComputeAccountTx(tx, userID, true)
+	if err != nil {
+		return err
+	}
+
+	beforeAvail := account.AvailablePoints
+	beforeFrozen := account.FrozenPoints
+	beforeDebt := account.DebtPoints
+
+	if delta > 0 {
+		credit := delta
+		if account.DebtPoints > 0 {
+			repay := credit
+			if repay > account.DebtPoints {
+				repay = account.DebtPoints
+			}
+			account.DebtPoints -= repay
+			credit -= repay
+		}
+		account.AvailablePoints += credit
+		account.TotalRechargedPoints += delta
+	} else {
+		cost := -delta
+		if account.AvailablePoints >= cost {
+			account.AvailablePoints -= cost
+		} else {
+			deficit := cost - account.AvailablePoints
+			account.AvailablePoints = 0
+			account.DebtPoints += deficit
+		}
+	}
+	if err := tx.Model(&models.ComputeAccount{}).Where("id = ?", account.ID).Updates(map[string]interface{}{
+		"available_points":       account.AvailablePoints,
+		"debt_points":            account.DebtPoints,
+		"total_recharged_points": account.TotalRechargedPoints,
+	}).Error; err != nil {
+		return err
+	}
+
+	ledger := models.ComputeLedger{
+		AccountID:       account.ID,
+		UserID:          userID,
+		Type:            "adjust",
+		Points:          delta,
+		AvailableBefore: beforeAvail,
+		AvailableAfter:  account.AvailablePoints,
+		FrozenBefore:    beforeFrozen,
+		FrozenAfter:     account.FrozenPoints,
+		DebtBefore:      beforeDebt,
+		DebtAfter:       account.DebtPoints,
+		Remark:          strings.TrimSpace(reason),
+		Metadata:        mustJSONOrEmpty(metadata),
+	}
+	return tx.Create(&ledger).Error
+}
+
+func computeActualPointsFromCost(finalStatus string, billableCostCNY float64, reserved int64) int64 {
 	switch finalStatus {
 	case models.VideoJobStatusCancelled:
 		return 0
@@ -445,7 +708,7 @@ func computeActualPointsFromCost(finalStatus string, estimatedCost float64, rese
 		}
 		return 1
 	default:
-		points := pointsFromEstimatedCost(estimatedCost)
+		points := pointsFromEstimatedCost(billableCostCNY)
 		if points <= 0 {
 			if reserved > 0 {
 				return 1
@@ -456,11 +719,23 @@ func computeActualPointsFromCost(finalStatus string, estimatedCost float64, rese
 	}
 }
 
+func resolveBillableCostCNY(cost models.VideoJobCost) (billableCostCNY float64, source string, aiCostCNY float64) {
+	details := parseJSONMap(cost.Details)
+	aiCostCNY = parseOptionFloat(details, "ai_cost_cny")
+	if aiCostCNY > 0 {
+		return aiCostCNY, "ai_cost_cny", aiCostCNY
+	}
+	if strings.EqualFold(strings.TrimSpace(cost.Currency), "cny") && cost.EstimatedCost > 0 {
+		return cost.EstimatedCost, "estimated_cost", aiCostCNY
+	}
+	return 0, "none", aiCostCNY
+}
+
 func pointsFromEstimatedCost(cost float64) int64 {
 	if cost <= 0 {
 		return 0
 	}
-	return int64(math.Ceil(cost * pointPerCNY))
+	return int64(math.Ceil(cost * pointPerCNY * costMarkupMultiplier))
 }
 
 func ensureComputeAccountTx(tx *gorm.DB, userID uint64, forUpdate bool) (*models.ComputeAccount, error) {

@@ -27,6 +27,9 @@ func UpsertVideoJobAI1Plan(db *gorm.DB, row models.VideoJobAI1Plan) error {
 	if db == nil || row.JobID == 0 {
 		return nil
 	}
+	if !hasVideoJobAI1PlanTable(db) {
+		return nil
+	}
 	row.RequestedFormat = strings.ToLower(strings.TrimSpace(row.RequestedFormat))
 	if row.SchemaVersion == "" {
 		row.SchemaVersion = VideoJobAI1PlanSchemaV1
@@ -67,6 +70,9 @@ func ConfirmVideoJobAI1Plan(db *gorm.DB, jobID, userID uint64, at time.Time) err
 	if db == nil || jobID == 0 {
 		return nil
 	}
+	if !hasVideoJobAI1PlanTable(db) {
+		return nil
+	}
 	if at.IsZero() {
 		at = time.Now()
 	}
@@ -85,4 +91,25 @@ func ConfirmVideoJobAI1Plan(db *gorm.DB, jobID, userID uint64, at time.Time) err
 		return nil
 	}
 	return err
+}
+
+func hasVideoJobAI1PlanTable(db *gorm.DB) bool {
+	if db == nil {
+		return false
+	}
+	tableName := models.VideoJobAI1Plan{}.TableName()
+	if db.Migrator().HasTable(tableName) {
+		return true
+	}
+	if db.Migrator().HasTable(tableOnlyName(tableName)) {
+		return true
+	}
+	dialect := strings.ToLower(strings.TrimSpace(db.Dialector.Name()))
+	if dialect == "postgres" || dialect == "postgresql" {
+		var exists bool
+		if err := db.Raw("SELECT to_regclass(?) IS NOT NULL", tableName).Scan(&exists).Error; err == nil {
+			return exists
+		}
+	}
+	return false
 }

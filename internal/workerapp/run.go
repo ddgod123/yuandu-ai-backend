@@ -20,6 +20,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 )
 
 func Run(videoWorkerRole string) {
@@ -65,6 +66,12 @@ func Run(videoWorkerRole string) {
 		)
 	}
 
+	if isComputeRedeemExpireSweepEnabled() {
+		interval := parsePositiveDuration("COMPUTE_REDEEM_EXPIRE_SWEEP_INTERVAL", 10*time.Minute)
+		batchSize := parsePositiveInt("COMPUTE_REDEEM_EXPIRE_SWEEP_BATCH", 100)
+		go startComputeRedeemExpireSweepLoop(dbConn, interval, batchSize)
+	}
+
 	log.Printf(
 		"video worker started (redis=%s db=%d role=%s queues=%s)",
 		cfg.AsynqRedisAddr,
@@ -74,6 +81,77 @@ func Run(videoWorkerRole string) {
 	)
 	if err := server.Run(mux); err != nil {
 		log.Fatalf("worker failed: %v", err)
+	}
+}
+
+func isComputeRedeemExpireSweepEnabled() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("COMPUTE_REDEEM_EXPIRE_SWEEP_ENABLED")))
+	if raw == "" {
+		return true
+	}
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func parsePositiveInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
+}
+
+func parsePositiveDuration(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
+func startComputeRedeemExpireSweepLoop(dbConn *gorm.DB, interval time.Duration, batchSize int) {
+	if dbConn == nil {
+		return
+	}
+	log.Printf("compute redeem expire sweep enabled (interval=%s batch=%d)", interval, batchSize)
+	sweep := func() {
+		result, err := videojobs.SweepExpiredComputeRedeemPoints(dbConn, time.Now(), batchSize)
+		if err != nil {
+			log.Printf("compute redeem expire sweep failed: %v", err)
+			return
+		}
+		if result.Scanned > 0 || result.Cleared > 0 || result.Errors > 0 {
+			log.Printf(
+				"compute redeem expire sweep done (scanned=%d cleared=%d skipped=%d errors=%d cleared_points=%d last_error=%s)",
+				result.Scanned,
+				result.Cleared,
+				result.Skipped,
+				result.Errors,
+				result.TotalClearedPoint,
+				result.LastError,
+			)
+		}
+	}
+
+	sweep()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		sweep()
 	}
 }
 

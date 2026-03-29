@@ -32,6 +32,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&SiteFooterSetting{},
 		&RedeemCode{},
 		&RedeemCodeRedemption{},
+		&ComputeRedeemCode{},
+		&ComputeRedeemRedemption{},
 		&CollectionDownloadCode{},
 		&CollectionDownloadEntitlement{},
 		&CollectionDownloadRedemption{},
@@ -87,6 +89,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&VideoWorkCardPublic{},
 		&VideoImageQualitySettingPublic{},
 		&VideoImageRolloutAuditPublic{},
+		&VideoImageSplitBackfillRun{},
 	); err != nil {
 		return err
 	}

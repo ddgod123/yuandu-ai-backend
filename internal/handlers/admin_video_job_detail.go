@@ -404,10 +404,12 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 		planModelName = strings.TrimSpace(planRow.ModelName)
 		planPromptVersion = strings.TrimSpace(planRow.PromptVersion)
 	}
+	planEventMeta := mapFromAnyValue(planJSON["event_meta"])
 
 	ai1OutputV2 := mapFromAnyValue(planJSON["ai1_output_v2"])
 	ai1OutputContract := buildAI1OutputContractReport(ai1OutputV2)
 	userReply, ai2Instruction := buildAI1DebugOutput(planJSON)
+	ai2Instruction = enrichAI2InstructionForDebug(ai2Instruction, requestedFormat, options, metrics, planEventMeta)
 
 	usageMetadata := map[string]interface{}{}
 	if usageFound {
@@ -512,6 +514,37 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 		usageFound,
 		usageRow,
 	)
+	advancedOptions := mapFromAnyValue(options["ai1_advanced_options_v1"])
+	if len(advancedOptions) == 0 {
+		advancedOptions = mapFromAnyValue(planEventMeta["advanced_options_v1"])
+	}
+	appliedStrategyProfile := mapFromAnyValue(options["ai1_strategy_profile_v1"])
+	if len(appliedStrategyProfile) == 0 {
+		appliedStrategyProfile = mapFromAnyValue(planEventMeta["strategy_profile_v1"])
+	}
+	appliedStrategyTrace := mapFromAnyValue(options["ai1_strategy_profile_trace_v1"])
+	if len(appliedStrategyTrace) == 0 {
+		appliedStrategyTrace = mapFromAnyValue(planEventMeta["strategy_profile_trace_v1"])
+	}
+	appliedSceneGuard := mapFromAnyValue(options["ai1_advanced_scene_guard_v1"])
+	if len(appliedSceneGuard) == 0 {
+		appliedSceneGuard = mapFromAnyValue(planEventMeta["advanced_scene_guard_v1"])
+	}
+	appliedStrategyOverrideReport := mapFromAnyValue(options["ai1_strategy_override_report_v1"])
+	if len(appliedStrategyOverrideReport) == 0 {
+		appliedStrategyOverrideReport = mapFromAnyValue(planEventMeta["strategy_override_report_v1"])
+	}
+	directorSnapshot := mapFromAnyValue(options["ai1_director_snapshot_v1"])
+	if len(directorSnapshot) == 0 {
+		directorSnapshot = mapFromAnyValue(planJSON["director_snapshot"])
+	}
+	directorDebugCtx := mapFromAnyValue(usageMetadata["director_debug_context_v1"])
+	visualSamples := buildAdminAI1VisualSamples(
+		directorSnapshot["sample_frame_previews_v1"],
+		directorDebugCtx["sample_frame_previews_v1"],
+		directorSnapshot["sample_frame_manifest_v1"],
+		directorDebugCtx["frame_manifest"],
+	)
 
 	input := map[string]interface{}{
 		"user": map[string]interface{}{
@@ -532,6 +565,24 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 		},
 		"developer_rules": developerRules,
 	}
+	if len(advancedOptions) > 0 {
+		input["advanced_options"] = advancedOptions
+	}
+	if len(appliedStrategyProfile) > 0 {
+		input["applied_strategy_profile"] = appliedStrategyProfile
+	}
+	if len(appliedStrategyTrace) > 0 {
+		input["applied_strategy_trace"] = appliedStrategyTrace
+	}
+	if len(appliedSceneGuard) > 0 {
+		input["advanced_scene_guard_v1"] = appliedSceneGuard
+	}
+	if len(appliedStrategyOverrideReport) > 0 {
+		input["strategy_override_report_v1"] = appliedStrategyOverrideReport
+	}
+	if len(visualSamples) > 0 {
+		input["visual_samples"] = visualSamples
+	}
 
 	rowTrace := map[string]interface{}{
 		"video_job_id":     job.ID,
@@ -550,18 +601,23 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 
 	trace := map[string]interface{}{
 		"options": map[string]interface{}{
-			"execution_queue":       stringFromAny(options["execution_queue"]),
-			"execution_task_type":   stringFromAny(options["execution_task_type"]),
-			"ai1_plan_schema":       stringFromAny(options["ai1_plan_schema_version"]),
-			"ai1_plan_mode":         stringFromAny(options["ai1_plan_mode"]),
-			"ai1_plan_applied":      boolFromAny(options["ai1_plan_applied"]),
-			"ai1_plan_generated":    boolFromAny(options["ai1_plan_generated"]),
-			"ai1_pending":           boolFromAny(options["ai1_pending"]),
-			"ai1_confirmed":         boolFromAny(options["ai1_confirmed"]),
-			"ai1_pause_consumed":    boolFromAny(options["ai1_pause_consumed"]),
-			"requested_format":      stringFromAny(options["requested_format"]),
-			"quality_overrides":     mapFromAnyValue(options["quality_profile_overrides"]),
-			"source_video_probe_v1": mapFromAnyValue(options["source_video_probe"]),
+			"execution_queue":             stringFromAny(options["execution_queue"]),
+			"execution_task_type":         stringFromAny(options["execution_task_type"]),
+			"ai1_plan_schema":             stringFromAny(options["ai1_plan_schema_version"]),
+			"ai1_plan_mode":               stringFromAny(options["ai1_plan_mode"]),
+			"ai1_plan_applied":            boolFromAny(options["ai1_plan_applied"]),
+			"ai1_plan_generated":          boolFromAny(options["ai1_plan_generated"]),
+			"ai1_pending":                 boolFromAny(options["ai1_pending"]),
+			"ai1_confirmed":               boolFromAny(options["ai1_confirmed"]),
+			"ai1_pause_consumed":          boolFromAny(options["ai1_pause_consumed"]),
+			"requested_format":            stringFromAny(options["requested_format"]),
+			"quality_overrides":           mapFromAnyValue(options["quality_profile_overrides"]),
+			"source_video_probe_v1":       mapFromAnyValue(options["source_video_probe"]),
+			"advanced_options_v1":         mapFromAnyValue(options["ai1_advanced_options_v1"]),
+			"strategy_profile_v1":         mapFromAnyValue(options["ai1_strategy_profile_v1"]),
+			"strategy_profile_trace_v1":   mapFromAnyValue(options["ai1_strategy_profile_trace_v1"]),
+			"advanced_scene_guard_v1":     mapFromAnyValue(options["ai1_advanced_scene_guard_v1"]),
+			"strategy_override_report_v1": mapFromAnyValue(options["ai1_strategy_override_report_v1"]),
 		},
 		"plan": map[string]interface{}{
 			"schema_version": planSchemaVersion,
@@ -577,6 +633,49 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 		"ai2_instruction": ai2Instruction,
 		"contract_report": ai1OutputContract,
 	}
+	if len(advancedOptions) > 0 {
+		output["advanced_options"] = advancedOptions
+	}
+	if len(appliedStrategyProfile) > 0 {
+		output["applied_strategy_profile"] = appliedStrategyProfile
+	}
+	if len(appliedStrategyTrace) > 0 {
+		output["applied_strategy_trace"] = appliedStrategyTrace
+	}
+	if len(appliedSceneGuard) > 0 {
+		output["advanced_scene_guard_v1"] = appliedSceneGuard
+	}
+	if len(appliedStrategyOverrideReport) > 0 {
+		output["strategy_override_report_v1"] = appliedStrategyOverrideReport
+	}
+	ai2ExecutionObservability := buildAI2ExecutionObservability(requestedFormat, options, metrics, ai2Instruction)
+	if len(ai2ExecutionObservability) > 0 {
+		output["ai2_execution_observability_v1"] = ai2ExecutionObservability
+		trace["ai2_execution_observability_v1"] = ai2ExecutionObservability
+	}
+	if len(appliedSceneGuard) > 0 {
+		trace["advanced_scene_guard_v1"] = appliedSceneGuard
+	}
+	pipelineAlignmentReport := buildPipelineAlignmentReportV1(
+		requestedFormat,
+		sourcePrompt,
+		advancedOptions,
+		appliedStrategyProfile,
+		appliedStrategyOverrideReport,
+		appliedSceneGuard,
+		userReply,
+		ai2Instruction,
+		ai2ExecutionObservability,
+		options,
+		metrics,
+	)
+	if len(pipelineAlignmentReport) > 0 {
+		output["pipeline_alignment_report_v1"] = pipelineAlignmentReport
+		trace["pipeline_alignment_report_v1"] = pipelineAlignmentReport
+	}
+	if len(appliedStrategyOverrideReport) > 0 {
+		trace["strategy_override_report_v1"] = appliedStrategyOverrideReport
+	}
 	if len(ai1OutputV2) > 0 {
 		output["ai1_output_v2"] = ai1OutputV2
 	}
@@ -588,6 +687,7 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 		modelResponse,
 		output,
 		ai1OutputContract,
+		ai2ExecutionObservability,
 	)
 
 	fieldAudit := make([]AdminVideoJobAI1FieldAuditItem, 0, 48)
@@ -621,6 +721,12 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 	appendAudit("input", "video.probe.width", "探针宽度(px)", "video_probe", probe["width"], "from options.source_video_probe.width")
 	appendAudit("input", "video.probe.height", "探针高度(px)", "video_probe", probe["height"], "from options.source_video_probe.height")
 	appendAudit("input", "video.probe.fps", "探针帧率", "video_probe", probe["fps"], "from options.source_video_probe.fps")
+	appendAudit("input", "advanced_options", "高级处理选项", "user_input", advancedOptions, "from options.ai1_advanced_options_v1 / plan.event_meta.advanced_options_v1")
+	appendAudit("input", "advanced_scene_guard_v1", "PNG主线场景收敛", "system_validation", appliedSceneGuard, "from options.ai1_advanced_scene_guard_v1 / plan.event_meta.advanced_scene_guard_v1")
+	appendAudit("input", "applied_strategy_profile", "命中策略组", "developer_rule", appliedStrategyProfile, "from options.ai1_strategy_profile_v1 / plan.event_meta.strategy_profile_v1")
+	appendAudit("input", "applied_strategy_trace", "策略命中追踪", "system_runtime", appliedStrategyTrace, "from options.ai1_strategy_profile_trace_v1 / plan.event_meta.strategy_profile_trace_v1")
+	appendAudit("input", "strategy_override_report_v1", "策略强约束覆盖报告", "system_runtime", appliedStrategyOverrideReport, "from options.ai1_strategy_override_report_v1 / plan.event_meta.strategy_override_report_v1")
+	appendAudit("input", "visual_samples", "视觉采样缩略图", "video_probe", visualSamples, "from ai1_director_snapshot_v1.sample_frame_previews_v1 / director_debug_context_v1.frame_manifest")
 	for _, key := range sortedMapKeys(developerRules) {
 		appendAudit(
 			"input",
@@ -643,6 +749,12 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 	outputAI2Instruction := mapFromAnyValue(output["ai2_instruction"])
 	appendAudit("output", "user_reply", "用户可读理解", "model_output", outputUserReply, "from ai1_output_v2.user_feedback (fallback ai1_output_v1)")
 	appendAudit("output", "ai2_instruction", "AI2执行指令", "model_output", outputAI2Instruction, "from ai1_output_v2.ai2_directive (fallback ai1_output_v1)")
+	appendAudit("output", "ai2_instruction.advanced_options", "AI2高级选项透传", "model_output", mapFromAnyValue(outputAI2Instruction["advanced_options"]), "from ai2_directive.advanced_options")
+	appendAudit("output", "ai2_instruction.strategy_profile", "AI2命中策略组", "model_output", mapFromAnyValue(outputAI2Instruction["strategy_profile"]), "from ai2_directive.strategy_profile")
+	appendAudit("output", "applied_strategy_trace", "策略命中追踪", "system_runtime", appliedStrategyTrace, "from output.applied_strategy_trace")
+	appendAudit("output", "strategy_override_report_v1", "策略强约束覆盖报告", "system_runtime", appliedStrategyOverrideReport, "from output.strategy_override_report_v1")
+	appendAudit("output", "pipeline_alignment_report_v1", "AI1→AI2→Worker→AI3 对照报告", "system_runtime", pipelineAlignmentReport, "from buildPipelineAlignmentReportV1")
+	appendAudit("output", "ai2_instruction.postprocess", "AI2后处理指令", "model_output", mapFromAnyValue(outputAI2Instruction["postprocess"]), "from ai2_directive.postprocess")
 	appendAudit("output", "contract_report", "AI1输出协议校验", "system_validation", output["contract_report"], "from buildAI1OutputContractReport")
 	appendAudit("output", "model_response.response_summary_v2", "模型响应摘要", "system_runtime", modelResponse["response_summary_v2"], "from buildAI1ModelResponseSummary")
 	appendAudit("output", "trace.options.ai1_plan_schema", "AI1计划 schema", "system_runtime", stringFromAny(options["ai1_plan_schema_version"]), "from options.ai1_plan_schema_version")
@@ -660,4 +772,82 @@ func (h *Handler) buildAdminVideoJobAI1Debug(
 		Output:          output,
 		Trace:           trace,
 	}, nil
+}
+
+func buildAdminAI1VisualSamples(rawPreviews ...interface{}) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, 6)
+	seen := map[string]struct{}{}
+	appendSample := func(entry map[string]interface{}) {
+		if len(out) >= 6 || len(entry) == 0 {
+			return
+		}
+		key := strings.TrimSpace(stringFromAny(entry["image_data_url"]))
+		if key == "" {
+			key = strings.TrimSpace(stringFromAny(entry["image_url"]))
+		}
+		if key == "" {
+			key = strings.TrimSpace(stringFromAny(entry["timestamp_sec"]))
+		}
+		if key == "" {
+			key = strings.TrimSpace(stringFromAny(entry["index"]))
+		}
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+
+		item := map[string]interface{}{
+			"index":         intFromAny(entry["index"]),
+			"timestamp_sec": floatFromAnyValue(entry["timestamp_sec"]),
+			"bytes":         intFromAny(entry["bytes"]),
+		}
+		if imageData := strings.TrimSpace(stringFromAny(entry["image_data_url"])); imageData != "" {
+			item["image_data_url"] = imageData
+		}
+		if imageURL := strings.TrimSpace(stringFromAny(entry["image_url"])); imageURL != "" {
+			item["image_url"] = imageURL
+		}
+		out = append(out, item)
+	}
+
+	for _, raw := range rawPreviews {
+		for _, item := range parseAdminAI1VisualSampleEntries(raw) {
+			appendSample(item)
+			if len(out) >= 6 {
+				return out
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseAdminAI1VisualSampleEntries(raw interface{}) []map[string]interface{} {
+	switch value := raw.(type) {
+	case []map[string]interface{}:
+		return value
+	case []interface{}:
+		out := make([]map[string]interface{}, 0, len(value))
+		for _, item := range value {
+			entry := mapFromAnyValue(item)
+			if len(entry) == 0 {
+				continue
+			}
+			out = append(out, entry)
+		}
+		return out
+	case map[string]interface{}:
+		manifest := mapFromAnyValue(value["frame_manifest"])
+		if len(manifest) > 0 {
+			return []map[string]interface{}{manifest}
+		}
+		return []map[string]interface{}{value}
+	default:
+		return nil
+	}
 }

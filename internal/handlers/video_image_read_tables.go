@@ -42,12 +42,23 @@ func setVideoImageReadRouteDebugEnabled(enabled bool) {
 
 func resolveVideoImageReadTables(format string) videoImageReadTables {
 	normalized := videojobs.NormalizePublicVideoImageSplitFormat(format)
-	tables := videoImageReadTables{
-		Jobs:     videojobs.ResolvePublicVideoImageJobsTable(normalized),
-		Outputs:  videojobs.ResolvePublicVideoImageOutputsTable(normalized),
-		Packages: videojobs.ResolvePublicVideoImagePackagesTable(normalized),
-		Events:   videojobs.ResolvePublicVideoImageEventsTable(normalized),
-		Feedback: videojobs.ResolvePublicVideoImageFeedbackTable(normalized),
+	tables := videoImageReadTables{}
+	if normalized == "" {
+		tables = videoImageReadTables{
+			Jobs:     buildVideoImageReadUnionTableExpr(videojobs.PublicVideoImageJobsSplitTables()),
+			Outputs:  buildVideoImageReadUnionTableExpr(videojobs.PublicVideoImageOutputsSplitTables()),
+			Packages: buildVideoImageReadUnionTableExpr(videojobs.PublicVideoImagePackagesSplitTables()),
+			Events:   buildVideoImageReadUnionTableExpr(videojobs.PublicVideoImageEventsSplitTables()),
+			Feedback: buildVideoImageReadUnionTableExpr(videojobs.PublicVideoImageFeedbackSplitTables()),
+		}
+	} else {
+		tables = videoImageReadTables{
+			Jobs:     videojobs.ResolvePublicVideoImageJobsTable(normalized),
+			Outputs:  videojobs.ResolvePublicVideoImageOutputsTable(normalized),
+			Packages: videojobs.ResolvePublicVideoImagePackagesTable(normalized),
+			Events:   videojobs.ResolvePublicVideoImageEventsTable(normalized),
+			Feedback: videojobs.ResolvePublicVideoImageFeedbackTable(normalized),
+		}
 	}
 	if isVideoImageReadRouteDebugEnabled() {
 		log.Printf(
@@ -77,4 +88,31 @@ func normalizeVideoImageFormatFilter(raw string) string {
 		return ""
 	}
 	return strings.TrimSpace(value)
+}
+
+func buildVideoImageReadUnionTableExpr(tables []string) string {
+	cleaned := make([]string, 0, len(tables))
+	seen := make(map[string]struct{}, len(tables))
+	for _, table := range tables {
+		table = strings.TrimSpace(table)
+		if table == "" {
+			continue
+		}
+		if _, ok := seen[table]; ok {
+			continue
+		}
+		seen[table] = struct{}{}
+		cleaned = append(cleaned, table)
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	if len(cleaned) == 1 {
+		return cleaned[0]
+	}
+	parts := make([]string, 0, len(cleaned))
+	for _, table := range cleaned {
+		parts = append(parts, "SELECT * FROM "+table)
+	}
+	return "(" + strings.Join(parts, " UNION ALL ") + ")"
 }

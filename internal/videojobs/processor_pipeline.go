@@ -561,6 +561,8 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 					"selected_end_sec":   suggestion.Selected.EndSec,
 					"selected_score":     suggestion.Selected.Score,
 					"selected_count":     len(suggestion.Candidates),
+					"score_formula":      stringFromAny(plannerSnapshot["planner_score_formula"]),
+					"scoring_summary_v1": mapFromAny(plannerSnapshot["scoring_summary_v1"]),
 					"sub_stage":          gifSubStagePlanning,
 					"mode":               pipelineMode,
 				})
@@ -1172,6 +1174,8 @@ func shouldPauseAtAI1(flowMode string, ai1Confirmed, ai1PauseConsumed bool) bool
 	return true
 }
 
+const ai1NeedClarifyConfidenceThreshold = 0.62
+
 func buildGenericAI1Reply(title string, requestedFormats []string, meta videoProbeMeta) string {
 	formatLabel := "-"
 	if len(requestedFormats) > 0 {
@@ -1206,6 +1210,10 @@ func (p *Processor) pauseForAI1Confirmation(jobID uint64, metrics map[string]int
 	optionsPayload["ai1_confirmed"] = false
 	optionsPayload["ai1_pause_consumed"] = true
 	optionsPayload["ai1_paused_at"] = time.Now().Format(time.RFC3339)
+	optionsPayload["flow_mode"] = "ai1_confirm"
+	if pauseReason := strings.TrimSpace(stringFromAny(extra["pause_reason"])); pauseReason != "" {
+		optionsPayload["ai1_pause_reason"] = pauseReason
+	}
 	metrics["ai1_confirm_flow_v1"] = map[string]interface{}{
 		"pending": true,
 		"status":  "awaiting_user_confirm",
@@ -1342,6 +1350,8 @@ func buildAI1PlanDirectorSnapshot(snapshot map[string]interface{}) map[string]in
 		"director_input_mode_applied",
 		"director_input_source",
 		"response_shape",
+		"sample_frame_manifest_v1",
+		"sample_frame_previews_v1",
 		"error",
 	} {
 		value, ok := snapshot[key]
@@ -1459,6 +1469,90 @@ func buildAI1RiskWarning(eventMeta map[string]interface{}, meta videoProbeMeta) 
 	}
 }
 
+func estimateAI1Confidence(
+	eventMeta map[string]interface{},
+	executablePlan map[string]interface{},
+	requestedFormats []string,
+	meta videoProbeMeta,
+) float64 {
+	confidence := 0.86
+	if strings.TrimSpace(stringFromAny(eventMeta["error"])) != "" {
+		confidence -= 0.42
+	}
+	if value, exists := eventMeta["director_applied"]; exists && !boolFromAny(value) {
+		confidence -= 0.12
+	}
+	if strings.TrimSpace(stringFromAny(eventMeta["business_goal"])) == "" {
+		confidence -= 0.10
+	}
+	if len(stringSliceFromAny(eventMeta["must_capture"])) == 0 {
+		confidence -= 0.08
+	}
+	if len(stringSliceFromAny(eventMeta["avoid"])) == 0 {
+		confidence -= 0.06
+	}
+	if meta.Width > 0 && meta.Height > 0 && meta.Width*meta.Height <= 640*360 {
+		confidence -= 0.12
+	}
+	if meta.DurationSec >= 180 {
+		confidence -= 0.06
+	}
+	if focus := mapFromAny(executablePlan["focus_window"]); len(focus) > 0 {
+		if floatFromAny(focus["end_sec"]) > floatFromAny(focus["start_sec"]) {
+			confidence += 0.05
+		}
+	}
+	if score := floatFromAny(eventMeta["local_focus_score"]); score > 0 {
+		confidence += clampFloat(score*0.05, 0.01, 0.06)
+	}
+	format := firstRequestedFormat(requestedFormats)
+	if format == "png" || format == "jpg" || format == "webp" {
+		confidence += 0.02
+	}
+	return roundTo(clampFloat(confidence, 0.05, 0.98), 3)
+}
+
+func buildAI1ClarifyQuestions(
+	eventMeta map[string]interface{},
+	executablePlan map[string]interface{},
+	requestedFormats []string,
+	meta videoProbeMeta,
+	confidence float64,
+	hasRisk bool,
+) []string {
+	out := make([]string, 0, 4)
+	appendQuestion := func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" || containsString(out, text) {
+			return
+		}
+		out = append(out, text)
+	}
+
+	if strings.TrimSpace(stringFromAny(eventMeta["business_goal"])) == "" {
+		appendQuestion("你更希望抓取哪类画面（例如进球瞬间、人物表情、特定动作）？")
+	}
+	if len(stringSliceFromAny(eventMeta["must_capture"])) == 0 {
+		appendQuestion("是否有必须保留的主体、动作或关键词？")
+	}
+	if len(stringSliceFromAny(eventMeta["avoid"])) == 0 {
+		appendQuestion("是否有明确要避开的内容（如黑场、模糊、水印）？")
+	}
+	if meta.DurationSec >= 120 && len(mapFromAny(executablePlan["focus_window"])) == 0 {
+		appendQuestion("视频较长，是否限定一个优先处理的时间范围？")
+	}
+	if hasRisk && meta.Width > 0 && meta.Height > 0 && meta.Width*meta.Height <= 640*360 {
+		appendQuestion("检测到清晰度较低，是否接受画质增强后继续输出？")
+	}
+	if confidence < ai1NeedClarifyConfidenceThreshold && len(out) == 0 {
+		appendQuestion("当前意图理解置信度较低，是否补充更具体的处理要求？")
+	}
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return out
+}
+
 func estimateAI1ETASeconds(meta videoProbeMeta, requestedFormats []string, eventMeta map[string]interface{}) int {
 	format := firstRequestedFormat(requestedFormats)
 	base := 22.0
@@ -1501,6 +1595,15 @@ func buildAI1UserFeedbackV2(
 	}
 	riskWarning := buildAI1RiskWarning(eventMeta, meta)
 	hasRisk := boolFromAny(riskWarning["has_risk"])
+	confidence := estimateAI1Confidence(eventMeta, executablePlan, requestedFormats, meta)
+	clarifyQuestions := buildAI1ClarifyQuestions(eventMeta, executablePlan, requestedFormats, meta, confidence, hasRisk)
+	if len(clarifyQuestions) == 0 {
+		clarifyQuestions = []string{}
+	}
+	interactiveAction := "proceed"
+	if confidence < ai1NeedClarifyConfidenceThreshold || len(clarifyQuestions) > 0 || (hasRisk && strings.TrimSpace(stringFromAny(eventMeta["error"])) != "") {
+		interactiveAction = "need_clarify"
+	}
 
 	out := map[string]interface{}{
 		"schema_version":       AI1UserFeedbackSchemaV2,
@@ -1509,21 +1612,20 @@ func buildAI1UserFeedbackV2(
 		"strategy_summary":     buildAI1StrategySummary(eventMeta, executablePlan),
 		"detected_tags":        buildAI1DetectedTags(eventMeta, requestedFormats),
 		"risk_warning":         riskWarning,
+		"confidence":           confidence,
+		"clarify_questions":    clarifyQuestions,
 		"estimated_eta_seconds": estimateAI1ETASeconds(
 			meta,
 			requestedFormats,
 			eventMeta,
 		),
-		"interactive_action": "proceed",
+		"interactive_action": interactiveAction,
 		"video_meta": map[string]interface{}{
 			"duration_sec": roundTo(meta.DurationSec, 3),
 			"width":        meta.Width,
 			"height":       meta.Height,
 			"fps":          roundTo(meta.FPS, 3),
 		},
-	}
-	if hasRisk && strings.TrimSpace(stringFromAny(eventMeta["error"])) != "" {
-		out["interactive_action"] = "need_clarify"
 	}
 	return out
 }
@@ -1608,13 +1710,14 @@ func buildAI2DirectiveV2(
 		"rhythm_trajectory": rhythmTrajectory,
 		"source":            "ai1_executable_plan",
 	}
+	out["quality_weights"] = normalizeDirectiveQualityWeights(map[string]float64{})
 	if len(executablePlan) == 0 {
 		out["source"] = "ai1_directive"
 	}
-	if qualityWeights := mapFromAny(eventMeta["quality_weights"]); len(qualityWeights) > 0 {
+	if qualityWeights := normalizeAI2QualityWeightsAny(eventMeta["quality_weights"]); len(qualityWeights) > 0 {
 		out["quality_weights"] = qualityWeights
 	}
-	if riskFlags := stringSliceFromAny(eventMeta["risk_flags"]); len(riskFlags) > 0 {
+	if riskFlags := normalizeAI2RiskFlags(stringSliceFromAny(eventMeta["risk_flags"])); len(riskFlags) > 0 {
 		out["risk_flags"] = riskFlags
 	}
 	if clipMin := intFromAny(eventMeta["clip_count_min"]); clipMin > 0 {
@@ -1754,6 +1857,39 @@ func validateAndRepairAI1UserFeedbackV2(
 	}
 	out["risk_warning"] = riskWarning
 
+	defaultConfidence := floatFromAny(defaultValue["confidence"])
+	if defaultConfidence <= 0 {
+		defaultConfidence = 0.8
+	}
+	confidence := floatFromAny(out["confidence"])
+	if confidence <= 0 {
+		confidence = defaultConfidence
+		repairs = appendRepairItem(repairs, "user_feedback.confidence")
+	}
+	clampedConfidence := roundTo(clampFloat(confidence, 0, 1), 3)
+	if roundTo(confidence, 3) != clampedConfidence {
+		repairs = appendRepairItem(repairs, "user_feedback.confidence.clamped")
+	}
+	out["confidence"] = clampedConfidence
+
+	clarifyQuestions := normalizeStringSlice(stringSliceFromAny(out["clarify_questions"]), 4)
+	if _, exists := out["clarify_questions"]; !exists {
+		repairs = appendRepairItem(repairs, "user_feedback.clarify_questions")
+	}
+	if len(clarifyQuestions) == 0 {
+		clarifyQuestions = buildAI1ClarifyQuestions(
+			eventMeta,
+			executablePlan,
+			requestedFormats,
+			meta,
+			clampedConfidence,
+			boolFromAny(riskWarning["has_risk"]),
+		)
+		if len(clarifyQuestions) > 0 {
+			repairs = appendRepairItem(repairs, "user_feedback.clarify_questions.auto_generated")
+		}
+	}
+
 	defaultETA := intFromAny(defaultValue["estimated_eta_seconds"])
 	eta := intFromAny(out["estimated_eta_seconds"])
 	if eta <= 0 {
@@ -1768,10 +1904,25 @@ func validateAndRepairAI1UserFeedbackV2(
 
 	hasSystemError := strings.TrimSpace(stringFromAny(eventMeta["error"])) != ""
 	action := normalizeAI1InteractiveAction(stringFromAny(out["interactive_action"]), hasSystemError)
-	if action != strings.ToLower(strings.TrimSpace(stringFromAny(out["interactive_action"]))) {
+	shouldNeedClarify := hasSystemError || clampedConfidence < ai1NeedClarifyConfidenceThreshold || len(clarifyQuestions) > 0
+	if shouldNeedClarify && action != "need_clarify" {
+		action = "need_clarify"
+		repairs = appendRepairItem(repairs, "user_feedback.interactive_action")
+	} else if !shouldNeedClarify && action != "proceed" {
+		action = "proceed"
+		repairs = appendRepairItem(repairs, "user_feedback.interactive_action")
+	} else if action != strings.ToLower(strings.TrimSpace(stringFromAny(out["interactive_action"]))) {
 		repairs = appendRepairItem(repairs, "user_feedback.interactive_action")
 	}
 	out["interactive_action"] = action
+	if action == "need_clarify" && len(clarifyQuestions) == 0 {
+		clarifyQuestions = []string{"请补充你希望优先抓取的关键画面或动作。"}
+		repairs = appendRepairItem(repairs, "user_feedback.clarify_questions.need_clarify_default")
+	}
+	if len(clarifyQuestions) == 0 {
+		clarifyQuestions = []string{}
+	}
+	out["clarify_questions"] = clarifyQuestions
 
 	if len(stringSliceFromAny(out["detected_tags"])) == 0 {
 		out["detected_tags"] = buildAI1DetectedTags(eventMeta, requestedFormats)
@@ -1889,6 +2040,27 @@ func validateAndRepairAI2DirectiveV2(
 	}
 	out["technical_reject"] = technicalReject
 
+	qualityWeights := normalizeAI2QualityWeightsAny(out["quality_weights"])
+	if len(qualityWeights) == 0 {
+		qualityWeights = normalizeAI2QualityWeightsAny(defaultValue["quality_weights"])
+		repairs = appendRepairItem(repairs, "ai2_directive.quality_weights")
+	}
+	if len(qualityWeights) == 0 {
+		qualityWeights = normalizeDirectiveQualityWeights(map[string]float64{})
+		repairs = appendRepairItem(repairs, "ai2_directive.quality_weights.defaulted")
+	}
+	out["quality_weights"] = qualityWeights
+
+	riskFlags := normalizeAI2RiskFlags(stringSliceFromAny(out["risk_flags"]))
+	defaultRiskFlags := normalizeAI2RiskFlags(stringSliceFromAny(defaultValue["risk_flags"]))
+	if len(riskFlags) == 0 && len(defaultRiskFlags) > 0 {
+		riskFlags = defaultRiskFlags
+		repairs = appendRepairItem(repairs, "ai2_directive.risk_flags")
+	}
+	if len(riskFlags) > 0 {
+		out["risk_flags"] = riskFlags
+	}
+
 	rhythm := normalizeAI1RhythmTrajectory(stringFromAny(out["rhythm_trajectory"]), targetFormat)
 	if rhythm != strings.ToLower(strings.TrimSpace(stringFromAny(out["rhythm_trajectory"]))) {
 		repairs = appendRepairItem(repairs, "ai2_directive.rhythm_trajectory")
@@ -1926,6 +2098,20 @@ func hasRequiredAI1UserFeedbackV2(raw map[string]interface{}) bool {
 	if _, ok := risk["has_risk"]; !ok {
 		return false
 	}
+	if _, exists := raw["confidence"]; !exists {
+		return false
+	}
+	confidence := floatFromAny(raw["confidence"])
+	if confidence < 0 || confidence > 1 {
+		return false
+	}
+	questions := stringSliceFromAny(raw["clarify_questions"])
+	if _, exists := raw["clarify_questions"]; !exists {
+		return false
+	}
+	if action == "need_clarify" && len(questions) == 0 {
+		return false
+	}
 	return true
 }
 
@@ -1950,6 +2136,9 @@ func hasRequiredAI2DirectiveV2(raw map[string]interface{}) bool {
 		return false
 	}
 	if strings.TrimSpace(stringFromAny(technicalReject["max_blur_tolerance"])) == "" {
+		return false
+	}
+	if len(normalizeAI2QualityWeightsAny(raw["quality_weights"])) == 0 {
 		return false
 	}
 	return true
@@ -2181,6 +2370,7 @@ func (p *Processor) persistAI1Plan(
 	ai2DirectiveV2 := mapFromAny(ai1OutputV2["ai2_directive"])
 
 	planPayload := map[string]interface{}{
+		"plan_revision":     1,
 		"schema_version":    VideoJobAI1PlanSchemaV1,
 		"requested_format":  requestedFormat,
 		"requested_formats": requestedFormats,

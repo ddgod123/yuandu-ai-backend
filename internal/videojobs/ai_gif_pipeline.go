@@ -42,6 +42,32 @@ const (
   }
 }`
 
+	defaultAIImageDirectorFixedCorePrompt = `你是视频转图片任务（PNG/JPG/WEBP/LIVE）的“需求甲方（Prompt Director）”。
+你的职责是：在正式抽帧执行前，输出结构化任务指令，指导后续Planner/Worker更稳定地产出高质量静态图片。
+你不是最终渲染执行器，不要输出 ffmpeg 参数或最终文件路径。
+仅返回JSON（不要markdown）：
+{
+  "directive": {
+    "business_goal": "entertainment|news|design_asset|social_spread",
+    "audience": "简短描述",
+    "must_capture": ["必须抓取的瞬间/主体特征"],
+    "avoid": ["应避免片段/质量风险"],
+    "clip_count_min": 3,
+    "clip_count_max": 12,
+    "duration_pref_min_sec": 0.8,
+    "duration_pref_max_sec": 2.4,
+    "loop_preference": 0.0,
+    "style_direction": "画面风格方向（简短）",
+    "risk_flags": ["low_light","fast_motion","low_resolution","watermark_risk"],
+    "quality_weights": {"semantic":0.40,"clarity":0.35,"loop":0.05,"efficiency":0.20},
+    "directive_text": "给Planner/Worker的自然语言摘要，50~120字"
+  }
+}
+补充要求：
+1) 面向静态图时，优先“清晰度、主体完整、语义命中”；
+2) 尽量减少无效过渡帧、模糊帧、黑场帧；
+3) 若用户需求不清晰，仍需给出保守可执行指令，并在 risk_flags 中标记。`
+
 	defaultAIGIFDirectorFixedContractTailPrompt = `最终输出契约（必须严格遵守）：
 1) 只允许输出 JSON，不允许 markdown，不允许额外解释文字；
 2) 最外层必须是 {"directive":{...}}；
@@ -66,6 +92,7 @@ risk_flags, quality_weights, directive_text；
       "proposal_rank":1,
       "start_sec":12.3,
       "end_sec":14.8,
+      "raw_scores":{"semantic":0.92,"clarity":0.78,"loop":0.74,"efficiency":0.80},
       "score":0.86,
       "proposal_reason":"表情爆发点+动作完成点",
       "semantic_tags":["emotion_peak","reaction"],
@@ -80,9 +107,12 @@ risk_flags, quality_weights, directive_text；
 约束：
 1) 时间窗口必须在视频时长范围内，end_sec > start_sec，单窗口建议 1.0~5.0 秒；
 2) proposals 按质量从高到低，最多 20 条；
-3) score/standalone_confidence/loop_friendliness_hint 均在 [0,1]；
-4) 若输入包含 director，请优先遵循 director 的目标和偏好；
-5) 不要依赖“预先给定候选窗口”，你需要直接从关键帧推断提名窗口。`
+3) raw_scores 必须包含 semantic/clarity/loop/efficiency 且都在 [0,1]；
+4) score/standalone_confidence/loop_friendliness_hint 均在 [0,1]；
+5) score 建议按 raw_scores 综合估算；系统会按 director.quality_weights 二次计算最终排序；
+6) proposal_reason 必须明确说明命中的 must_capture 与规避的 avoid；
+7) 若输入包含 director，请优先遵循 director 的目标和偏好；
+8) 不要依赖“预先给定候选窗口”，你需要直接从关键帧推断提名窗口。`
 )
 
 type aiModelCallConfig struct {
@@ -124,15 +154,16 @@ type openAICompatChatRequest struct {
 }
 
 type gifAIPlannerProposal struct {
-	ProposalRank         int      `json:"proposal_rank"`
-	StartSec             float64  `json:"start_sec"`
-	EndSec               float64  `json:"end_sec"`
-	Score                float64  `json:"score"`
-	ProposalReason       string   `json:"proposal_reason"`
-	SemanticTags         []string `json:"semantic_tags"`
-	ExpectedValueLevel   string   `json:"expected_value_level"`
-	StandaloneConfidence float64  `json:"standalone_confidence"`
-	LoopFriendlinessHint float64  `json:"loop_friendliness_hint"`
+	ProposalRank         int                `json:"proposal_rank"`
+	StartSec             float64            `json:"start_sec"`
+	EndSec               float64            `json:"end_sec"`
+	Score                float64            `json:"score"`
+	RawScores            map[string]float64 `json:"raw_scores,omitempty"`
+	ProposalReason       string             `json:"proposal_reason"`
+	SemanticTags         []string           `json:"semantic_tags"`
+	ExpectedValueLevel   string             `json:"expected_value_level"`
+	StandaloneConfidence float64            `json:"standalone_confidence"`
+	LoopFriendlinessHint float64            `json:"loop_friendliness_hint"`
 }
 
 type gifAIDirectiveProfile struct {
@@ -392,10 +423,8 @@ func (p *Processor) persistAIGIFProposals(
 			StandaloneConfidence: roundTo(item.StandaloneConfidence, 4),
 			LoopFriendlinessHint: roundTo(item.LoopFriendlinessHint, 4),
 			Status:               status,
-			Metadata: mustJSON(map[string]interface{}{
-				"selected": status == "selected",
-			}),
-			RawResponse: mustJSON(raw),
+			Metadata:             mustJSON(buildAIGIFProposalMetadata(item, status == "selected")),
+			RawResponse:          mustJSON(raw),
 		})
 	}
 	err := p.db.Transaction(func(tx *gorm.DB) error {
@@ -432,6 +461,19 @@ func (p *Processor) persistAIGIFProposals(
 		return proposalIDByRank, nil
 	}
 	return proposalIDByRank, err
+}
+
+func buildAIGIFProposalMetadata(item gifAIPlannerProposal, selected bool) map[string]interface{} {
+	meta := map[string]interface{}{
+		"selected":    selected,
+		"final_score": roundTo(item.Score, 4),
+	}
+	if rawScores := normalizeAIGIFPlannerRawScores(item.RawScores); len(rawScores) > 0 {
+		meta["raw_scores"] = rawScores
+		meta["score_recomputed"] = true
+		meta["score_formula"] = "final = semantic×w_semantic + clarity×w_clarity + loop×w_loop + efficiency×w_efficiency"
+	}
+	return meta
 }
 
 func isMissingTableError(err error, table string) bool {

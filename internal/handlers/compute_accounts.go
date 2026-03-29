@@ -23,6 +23,7 @@ type ComputeAccountResponse struct {
 	TotalRechargedPoints int64   `json:"total_recharged_points"`
 	Status               string  `json:"status"`
 	PointPerCNY          float64 `json:"point_per_cny"`
+	CostMarkupMultiplier float64 `json:"cost_markup_multiplier"`
 }
 
 type ComputeLedgerItem struct {
@@ -114,6 +115,7 @@ func buildComputeAccountResponse(account models.ComputeAccount) ComputeAccountRe
 		TotalRechargedPoints: account.TotalRechargedPoints,
 		Status:               strings.TrimSpace(account.Status),
 		PointPerCNY:          videojobs.PointPerCNY(),
+		CostMarkupMultiplier: videojobs.CostMarkupMultiplier(),
 	}
 }
 
@@ -567,6 +569,7 @@ func (h *Handler) GetMyComputeAccount(c *gin.Context) {
 			TotalRechargedPoints: account.TotalRechargedPoints,
 			Status:               strings.TrimSpace(account.Status),
 			PointPerCNY:          videojobs.PointPerCNY(),
+			CostMarkupMultiplier: videojobs.CostMarkupMultiplier(),
 		},
 		Ledgers:  ledgers,
 		HeldJobs: heldCount,
@@ -626,6 +629,7 @@ func (h *Handler) AdminAdjustComputeAccount(c *gin.Context) {
 		TotalRechargedPoints: account.TotalRechargedPoints,
 		Status:               strings.TrimSpace(account.Status),
 		PointPerCNY:          videojobs.PointPerCNY(),
+		CostMarkupMultiplier: videojobs.CostMarkupMultiplier(),
 	})
 }
 

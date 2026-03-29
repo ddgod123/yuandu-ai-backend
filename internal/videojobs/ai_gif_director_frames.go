@@ -19,6 +19,35 @@ type aiDirectorFrameSample struct {
 	DataURL      string
 }
 
+func buildAIDirectorFrameSamplePreviews(samples []aiDirectorFrameSample, maxN int) []map[string]interface{} {
+	if len(samples) == 0 {
+		return nil
+	}
+	if maxN <= 0 {
+		maxN = 6
+	}
+	out := make([]map[string]interface{}, 0, minInt(len(samples), maxN))
+	for _, item := range samples {
+		if len(out) >= maxN {
+			break
+		}
+		dataURL := strings.TrimSpace(item.DataURL)
+		if dataURL == "" {
+			continue
+		}
+		out = append(out, map[string]interface{}{
+			"index":          item.Index,
+			"timestamp_sec":  roundTo(item.TimestampSec, 3),
+			"bytes":          item.Bytes,
+			"image_data_url": dataURL,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func sampleAIDirectorFrames(ctx context.Context, sourcePath string, meta videoProbeMeta, maxFrames int) ([]aiDirectorFrameSample, error) {
 	sourcePath = strings.TrimSpace(sourcePath)
 	if sourcePath == "" {
@@ -109,7 +138,7 @@ func estimateAIDirectorFrameTimestamps(durationSec float64, count int) []float64
 		return out
 	}
 	if count == 1 {
-		return []float64{roundTo(durationSec * 0.5, 3)}
+		return []float64{roundTo(durationSec*0.5, 3)}
 	}
 	start := durationSec * 0.08
 	end := durationSec * 0.92
@@ -124,4 +153,3 @@ func estimateAIDirectorFrameTimestamps(durationSec float64, count int) []float64
 	}
 	return out
 }
-

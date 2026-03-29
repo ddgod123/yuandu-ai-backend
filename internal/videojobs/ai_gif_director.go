@@ -330,6 +330,12 @@ func (p *Processor) requestAIGIFPromptDirective(
 		info["frame_sampling_error"] = directorRuntime.frameSamplingError
 	}
 	info["frame_count"] = len(directorRuntime.frameSamples)
+	if previews := buildAIDirectorFrameSamplePreviews(directorRuntime.frameSamples, 6); len(previews) > 0 {
+		info["sample_frame_previews_v1"] = previews
+	}
+	if len(directorRuntime.frameManifest) > 0 {
+		info["sample_frame_manifest_v1"] = directorRuntime.frameManifest
+	}
 	info["director_input_mode_requested"] = directorRuntime.directorInputModeRequested
 	info["director_input_mode_applied"] = directorRuntime.directorInputModeApplied
 	info["director_input_source"] = directorRuntime.directorInputSource
@@ -376,6 +382,12 @@ func (p *Processor) requestAIGIFPromptDirective(
 		}
 	}
 	info["frame_count"] = len(directorRuntime.frameSamples)
+	if previews := buildAIDirectorFrameSamplePreviews(directorRuntime.frameSamples, 6); len(previews) > 0 {
+		info["sample_frame_previews_v1"] = previews
+	}
+	if len(directorRuntime.frameManifest) > 0 {
+		info["sample_frame_manifest_v1"] = directorRuntime.frameManifest
+	}
 	info["director_input_mode_applied"] = directorRuntime.directorInputModeApplied
 	info["director_input_source"] = directorRuntime.directorInputSource
 	info["source_video_url_available"] = directorRuntime.sourceVideoURL != ""

@@ -137,11 +137,18 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 		return local, info, err
 	}
 
-	proposals := normalizeAIGIFPlannerProposals(parsed.Proposals, meta.DurationSec)
+	proposals, scoringSummary := normalizeAIGIFPlannerProposals(parsed.Proposals, meta.DurationSec, directive)
 	if len(proposals) == 0 {
 		info["applied"] = false
 		info["error"] = "planner produced empty proposals"
 		return local, info, fmt.Errorf("planner produced empty proposals")
+	}
+	if len(scoringSummary) > 0 {
+		info["scoring_summary_v1"] = scoringSummary
+		usageMetadata.ScoreFormula = strings.TrimSpace(stringFromAny(scoringSummary["score_formula"]))
+		usageMetadata.ScoreWeights = normalizeAI2QualityWeightsAny(scoringSummary["score_weights"])
+		usageMetadata.ScoreRecomputed = boolFromAny(scoringSummary["score_recomputed"])
+		usageMetadata.RawScoresAppliedCount = intFromAny(scoringSummary["raw_scores_applied_count"])
 	}
 	candidates := make([]highlightCandidate, 0, len(proposals))
 	for _, item := range proposals {
@@ -209,6 +216,9 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 	info["target_top_n_clamp_reason"] = topNDecision.ClampReason
 	info["target_top_n_duration_tier"] = topNDecision.DurationTier
 	info["frame_count"] = len(frameSamples)
+	if len(scoringSummary) > 0 {
+		info["planner_score_formula"] = stringFromAny(scoringSummary["score_formula"])
+	}
 	if frameErr != nil {
 		info["frame_sampling_error"] = frameErr.Error()
 	}
@@ -351,10 +361,22 @@ func resolveAIGIFPlannerTargetTopNDecision(
 	return decision
 }
 
-func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float64) []gifAIPlannerProposal {
+func normalizeAIGIFPlannerProposals(
+	in []gifAIPlannerProposal,
+	durationSec float64,
+	directive *gifAIDirectiveProfile,
+) ([]gifAIPlannerProposal, map[string]interface{}) {
 	if len(in) == 0 {
-		return nil
+		return nil, nil
 	}
+	scoreWeights := normalizeDirectiveQualityWeights(map[string]float64{})
+	if directive != nil && len(directive.QualityWeights) > 0 {
+		scoreWeights = normalizeDirectiveQualityWeights(directive.QualityWeights)
+	}
+	scoreFormula := "model_score_passthrough"
+	rawScoresAppliedCount := 0
+	recomputed := false
+
 	out := make([]gifAIPlannerProposal, 0, len(in))
 	for idx, item := range in {
 		start, end := clampHighlightWindow(item.StartSec, item.EndSec, durationSec)
@@ -368,6 +390,21 @@ func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float
 			row.ProposalRank = idx + 1
 		}
 		row.Score = clampZeroOne(row.Score)
+		if rawScores := normalizeAIGIFPlannerRawScores(row.RawScores); len(rawScores) > 0 {
+			row.RawScores = rawScores
+			rawScoresAppliedCount++
+			recomputed = true
+			scoreFormula = "final = semantic×w_semantic + clarity×w_clarity + loop×w_loop + efficiency×w_efficiency"
+			row.Score = roundTo(
+				clampZeroOne(
+					rawScores["semantic"]*scoreWeights["semantic"]+
+						rawScores["clarity"]*scoreWeights["clarity"]+
+						rawScores["loop"]*scoreWeights["loop"]+
+						rawScores["efficiency"]*scoreWeights["efficiency"],
+				),
+				4,
+			)
+		}
 		row.StandaloneConfidence = clampZeroOne(row.StandaloneConfidence)
 		row.LoopFriendlinessHint = clampZeroOne(row.LoopFriendlinessHint)
 		if strings.TrimSpace(row.ProposalReason) == "" {
@@ -376,6 +413,39 @@ func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float
 		row.ExpectedValueLevel = strings.ToLower(strings.TrimSpace(row.ExpectedValueLevel))
 		out = append(out, row)
 	}
+	if recomputed {
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].Score == out[j].Score {
+				return out[i].StartSec < out[j].StartSec
+			}
+			return out[i].Score > out[j].Score
+		})
+		dedup := make([]gifAIPlannerProposal, 0, len(out))
+		seenWindow := map[string]struct{}{}
+		for _, item := range out {
+			key := highlightCandidateWindowKey(highlightCandidate{
+				StartSec: item.StartSec,
+				EndSec:   item.EndSec,
+			})
+			if key != "" {
+				if _, exists := seenWindow[key]; exists {
+					continue
+				}
+				seenWindow[key] = struct{}{}
+			}
+			dedup = append(dedup, item)
+		}
+		for idx := range dedup {
+			dedup[idx].ProposalRank = idx + 1
+		}
+		return dedup, map[string]interface{}{
+			"score_recomputed":         true,
+			"score_formula":            scoreFormula,
+			"score_weights":            scoreWeights,
+			"raw_scores_applied_count": rawScoresAppliedCount,
+		}
+	}
+
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].ProposalRank == out[j].ProposalRank {
 			if out[i].Score == out[j].Score {
@@ -397,7 +467,29 @@ func normalizeAIGIFPlannerProposals(in []gifAIPlannerProposal, durationSec float
 		seenRank[item.ProposalRank] = struct{}{}
 		dedup = append(dedup, item)
 	}
-	return dedup
+	return dedup, map[string]interface{}{
+		"score_recomputed":         false,
+		"score_formula":            scoreFormula,
+		"score_weights":            scoreWeights,
+		"raw_scores_applied_count": 0,
+	}
+}
+
+func normalizeAIGIFPlannerRawScores(raw map[string]float64) map[string]float64 {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := map[string]float64{
+		"semantic":   clampZeroOne(raw["semantic"]),
+		"clarity":    clampZeroOne(raw["clarity"]),
+		"loop":       clampZeroOne(raw["loop"]),
+		"efficiency": clampZeroOne(raw["efficiency"]),
+	}
+	sum := out["semantic"] + out["clarity"] + out["loop"] + out["efficiency"]
+	if sum <= 0 {
+		return nil
+	}
+	return out
 }
 
 func selectAIGIFPlannerExecutionCandidates(candidates []highlightCandidate, targetTopN int) []highlightCandidate {

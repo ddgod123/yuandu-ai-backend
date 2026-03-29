@@ -53,6 +53,8 @@ type aiGIFDirectorTaskPayload struct {
 	HardConstraints     aiGIFDirectorTaskConstraints         `json:"hard_constraints"`
 	OperatorInstruction aiGIFDirectorOperatorInstructionMeta `json:"operator_instruction"`
 	RequestedFormat     string                               `json:"requested_format"`
+	AdvancedOptions     map[string]interface{}               `json:"advanced_options,omitempty"`
+	AppliedStrategy     map[string]interface{}               `json:"applied_strategy_profile,omitempty"`
 }
 
 type aiGIFDirectorSourcePayload struct {
@@ -146,6 +148,10 @@ type aiGIFPlannerUsageMetadata struct {
 	PromptVersion             string                   `json:"prompt_version"`
 	PromptTemplateVersion     string                   `json:"prompt_template_version"`
 	PromptTemplateSource      string                   `json:"prompt_template_source"`
+	ScoreFormula              string                   `json:"score_formula,omitempty"`
+	ScoreWeights              map[string]float64       `json:"score_weights,omitempty"`
+	ScoreRecomputed           bool                     `json:"score_recomputed"`
+	RawScoresAppliedCount     int                      `json:"raw_scores_applied_count,omitempty"`
 	TargetTopN                int                      `json:"target_top_n"`
 	TargetTopNBase            int                      `json:"target_top_n_base"`
 	TargetTopNAISuggested     int                      `json:"target_top_n_ai_suggested"`

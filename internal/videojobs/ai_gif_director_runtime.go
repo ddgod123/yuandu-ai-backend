@@ -111,11 +111,18 @@ func (p *Processor) buildAIGIFDirectorPayloads(rt *aiGIFDirectorRuntime) (aiGIFD
 		return aiGIFDirectorModelPayload{}, map[string]interface{}{}
 	}
 	sourcePrompt := resolveVideoJobSourcePrompt(rt.job)
+	options := parseJSONMap(rt.job.Options)
+	advancedOptions := ParseVideoJobAdvancedOptions(options["ai1_advanced_options_v1"])
+	appliedStrategy := ParseStrategyProfileFromAny(options["ai1_strategy_profile_v1"])
+	if appliedStrategy.Scene == "" {
+		appliedStrategy = ResolveVideoJobAI1StrategyProfile(rt.targetFormat, advancedOptions)
+	}
+	businessScene := firstNonEmptyString(appliedStrategy.Scene, "social_spread")
 	modelPayload := aiGIFDirectorModelPayload{
 		SchemaVersion: "ai1_input_v2",
 		Task: aiGIFDirectorTaskPayload{
 			AssetGoal:          resolveAIDirectorAssetGoal(rt.targetFormat),
-			BusinessScene:      "social_spread",
+			BusinessScene:      businessScene,
 			DeliveryGoal:       resolveAIDirectorDeliveryGoal(rt.targetFormat),
 			OptimizationTarget: resolveAIDirectorOptimizationTarget(rt.qualitySettings.GIFProfile),
 			CostSensitivity:    resolveAIDirectorCostSensitivity(rt.qualitySettings.GIFTargetSizeKB),
@@ -125,6 +132,8 @@ func (p *Processor) buildAIGIFDirectorPayloads(rt *aiGIFDirectorRuntime) (aiGIFD
 				Version: rt.operatorVersion,
 			},
 			RequestedFormat: rt.targetFormat,
+			AdvancedOptions: AdvancedOptionsToMap(advancedOptions),
+			AppliedStrategy: StrategyProfileToMap(appliedStrategy),
 		},
 		Source: aiGIFDirectorSourcePayload{
 			Title:          strings.TrimSpace(rt.job.Title),
@@ -170,6 +179,12 @@ func (p *Processor) buildAIGIFDirectorPayloads(rt *aiGIFDirectorRuntime) (aiGIFD
 			"raw_text":      rt.operatorInstructionRaw,
 			"schema_fields": rt.operatorInstructionSchema,
 		},
+		"advanced_options_v1": AdvancedOptionsToMap(advancedOptions),
+		"applied_strategy_v1": StrategyProfileToMap(appliedStrategy),
+		"business_scene":      businessScene,
+	}
+	if previews := buildAIDirectorFrameSamplePreviews(rt.frameSamples, 6); len(previews) > 0 {
+		debugPayload["sample_frame_previews_v1"] = previews
 	}
 	if rt.sourceVideoURL != "" {
 		debugPayload["source_video_url"] = rt.sourceVideoURL

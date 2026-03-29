@@ -399,6 +399,12 @@ type jobOptions struct {
 	MaxColors        int     `json:"max_colors"`
 	RequestedJPG     bool    `json:"-"`
 	RequestedPNG     bool    `json:"-"`
+	RiskLowLight     bool    `json:"-"`
+	RiskFastMotion   bool    `json:"-"`
+	RiskWatermark    bool    `json:"-"`
+	AIAvoidWatermark bool    `json:"-"`
+	AIAvoidDark      bool    `json:"-"`
+	AIMaxBlur        string  `json:"-"`
 }
 
 func parseJobOptions(raw datatypes.JSON) jobOptions {

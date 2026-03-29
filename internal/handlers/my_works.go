@@ -37,6 +37,7 @@ type myWorkOutputRow struct {
 	Format                 string    `gorm:"column:format"`
 	FileRole               string    `gorm:"column:file_role"`
 	ObjectKey              string    `gorm:"column:object_key"`
+	SizeBytes              int64     `gorm:"column:size_bytes"`
 	Score                  float64   `gorm:"column:score"`
 	GIFLoopTuneLoopClosure float64   `gorm:"column:gif_loop_tune_loop_closure"`
 	CreatedAt              time.Time `gorm:"column:created_at"`
@@ -104,6 +105,15 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 	for _, job := range jobs {
 		jobIDs = append(jobIDs, job.ID)
 	}
+	billingJobs := make([]models.VideoJob, 0, len(jobIDs))
+	for _, jobID := range jobIDs {
+		if jobID == 0 {
+			continue
+		}
+		billingJobs = append(billingJobs, models.VideoJob{ID: jobID})
+	}
+	costMap := h.loadVideoJobCostMap(billingJobs)
+	pointHoldMap := h.loadVideoJobPointHoldMap(billingJobs)
 
 	summaryByJobID, err := h.buildMyWorkResultSummary(jobIDs, resolvedTables)
 	if err != nil {
@@ -114,7 +124,7 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 	items := make([]VideoJobResponse, 0, len(jobs))
 	for _, job := range jobs {
 		summary := summaryByJobID[job.ID]
-		if summary.CollectionID == 0 {
+		if summary.CollectionID == 0 && summary.FileCount > 0 {
 			summary.CollectionID = job.ID
 		}
 		if summary.CollectionTitle == "" {
@@ -125,7 +135,11 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 		metrics := parseJSONMap(job.Metrics)
 		summary.PackageStatus = resolveMyWorkPackageStatus(job.Status, metrics, summary.PackageStatus)
 
-		resultCollectionID := summary.CollectionID
+		var resultCollectionID *uint64
+		if summary.CollectionID > 0 && summary.FileCount > 0 {
+			collectionID := summary.CollectionID
+			resultCollectionID = &collectionID
+		}
 		requestedFormat := normalizeMyWorkFormat(job.RequestedFormat)
 		outputFormats := []string{}
 		if requestedFormat != "" {
@@ -140,7 +154,7 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 			Status:             strings.TrimSpace(job.Status),
 			Stage:              strings.TrimSpace(job.Stage),
 			Progress:           job.Progress,
-			ResultCollectionID: &resultCollectionID,
+			ResultCollectionID: resultCollectionID,
 			Options:            options,
 			Metrics:            metrics,
 			QueuedAt:           job.CreatedAt,
@@ -148,6 +162,7 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 			FinishedAt:         job.FinishedAt,
 			CreatedAt:          job.CreatedAt,
 			UpdatedAt:          job.UpdatedAt,
+			Billing:            buildVideoJobBillingInfo(lookupVideoJobCost(costMap, job.ID), lookupVideoJobPointHold(pointHoldMap, job.ID)),
 			ResultSummary:      &filled,
 		})
 	}
@@ -168,7 +183,7 @@ func (h *Handler) queryMyWorkJobsRows(
 
 	for i := 0; i < 2; i++ {
 		var rows []myWorkJobRow
-		query := h.db.Table(activeTables.Jobs).
+		query := h.db.Table(resolveGORMTableExpr(activeTables.Jobs, "wj")).
 			Select("id", "title", "requested_format", "status", "stage", "progress", "options", "metrics", "started_at", "finished_at", "created_at", "updated_at").
 			Where("user_id = ?", userID)
 
@@ -200,7 +215,7 @@ func (h *Handler) buildMyWorkResultSummary(
 	for _, jobID := range jobIDs {
 		acc[jobID] = &myWorkSummaryAccumulator{
 			Summary: VideoJobResultSummary{
-				CollectionID:  jobID,
+				CollectionID:  0,
 				PreviewImages: make([]string, 0, 15),
 				PackageStatus: "processing",
 			},
@@ -213,8 +228,8 @@ func (h *Handler) buildMyWorkResultSummary(
 	outputTable := tables.Outputs
 	var outputs []myWorkOutputRow
 	for i := 0; i < 2; i++ {
-		err := h.db.Table(outputTable).
-			Select("id", "job_id", "format", "file_role", "object_key", "score", "gif_loop_tune_loop_closure", "created_at").
+		err := h.db.Table(resolveGORMTableExpr(outputTable, "wo")).
+			Select("id", "job_id", "format", "file_role", "object_key", "size_bytes", "score", "gif_loop_tune_loop_closure", "created_at").
 			Where("job_id IN ?", jobIDs).
 			Where("file_role IN ?", []string{"main", "cover"}).
 			Order("job_id ASC, created_at ASC, id ASC").
@@ -246,6 +261,9 @@ func (h *Handler) buildMyWorkResultSummary(
 
 		if fileRole == "main" {
 			entry.Summary.FileCount++
+			if row.SizeBytes > 0 {
+				entry.Summary.OutputTotalSizeBytes += row.SizeBytes
+			}
 			if format != "" {
 				entry.FormatCount[format]++
 			}
@@ -276,7 +294,7 @@ func (h *Handler) buildMyWorkResultSummary(
 	packageTable := tables.Packages
 	var packages []myWorkPackageRow
 	for i := 0; i < 2; i++ {
-		err := h.db.Table(packageTable).
+		err := h.db.Table(resolveGORMTableExpr(packageTable, "wp")).
 			Select("job_id", "zip_object_key", "zip_name", "zip_size_bytes").
 			Where("job_id IN ?", jobIDs).
 			Find(&packages).Error
@@ -298,6 +316,9 @@ func (h *Handler) buildMyWorkResultSummary(
 			continue
 		}
 		entry.Summary.PackageStatus = "ready"
+		if row.ZipSizeBytes > 0 {
+			entry.Summary.PackageSizeBytes = row.ZipSizeBytes
+		}
 	}
 
 	out := make(map[uint64]VideoJobResultSummary, len(acc))
@@ -344,6 +365,21 @@ func resolveMyWorkPackageStatus(jobStatus string, metrics map[string]interface{}
 		return "failed"
 	}
 	return "processing"
+}
+
+func resolveGORMTableExpr(tableName string, alias string) string {
+	tableName = strings.TrimSpace(tableName)
+	if tableName == "" {
+		return tableName
+	}
+	if strings.HasPrefix(tableName, "(") {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			alias = "t"
+		}
+		return tableName + " AS " + alias
+	}
+	return tableName
 }
 
 func normalizeMyWorkFormat(raw string) string {

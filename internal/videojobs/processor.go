@@ -172,21 +172,78 @@ type frameQualitySample struct {
 }
 
 type frameQualityReport struct {
-	TotalFrames           int      `json:"total_frames"`
-	KeptFrames            int      `json:"kept_frames"`
-	RejectedBlur          int      `json:"rejected_blur"`
-	RejectedBrightness    int      `json:"rejected_brightness"`
-	RejectedExposure      int      `json:"rejected_exposure"`
-	RejectedResolution    int      `json:"rejected_resolution"`
-	RejectedStillBlurGate int      `json:"rejected_still_blur_gate"`
-	RejectedNearDuplicate int      `json:"rejected_near_duplicate"`
-	BlurThreshold         float64  `json:"blur_threshold"`
-	SceneCutThreshold     float64  `json:"scene_cut_threshold"`
-	SceneCount            int      `json:"scene_count"`
-	AvgKeptScore          float64  `json:"avg_kept_score"`
-	SelectorVersion       string   `json:"selector_version"`
-	FallbackApplied       bool     `json:"fallback_applied"`
-	KeptSample            []string `json:"kept_sample,omitempty"`
+	TotalFrames           int                          `json:"total_frames"`
+	KeptFrames            int                          `json:"kept_frames"`
+	RejectedBlur          int                          `json:"rejected_blur"`
+	RejectedBrightness    int                          `json:"rejected_brightness"`
+	RejectedExposure      int                          `json:"rejected_exposure"`
+	RejectedResolution    int                          `json:"rejected_resolution"`
+	RejectedStillBlurGate int                          `json:"rejected_still_blur_gate"`
+	RejectedWatermark     int                          `json:"rejected_watermark"`
+	RejectedNearDuplicate int                          `json:"rejected_near_duplicate"`
+	BlurThreshold         float64                      `json:"blur_threshold"`
+	SceneCutThreshold     float64                      `json:"scene_cut_threshold"`
+	SceneCount            int                          `json:"scene_count"`
+	AvgKeptScore          float64                      `json:"avg_kept_score"`
+	SelectorVersion       string                       `json:"selector_version"`
+	ScoringMode           string                       `json:"scoring_mode,omitempty"`
+	SelectionPolicy       string                       `json:"selection_policy,omitempty"`
+	ScoringWeights        map[string]float64           `json:"scoring_weights,omitempty"`
+	ScoringFormula        string                       `json:"scoring_formula,omitempty"`
+	RiskFlags             []string                     `json:"risk_flags,omitempty"`
+	MaxBlurTolerance      string                       `json:"max_blur_tolerance,omitempty"`
+	FallbackApplied       bool                         `json:"fallback_applied"`
+	KeptSample            []string                     `json:"kept_sample,omitempty"`
+	CandidateScores       []frameQualityCandidateScore `json:"candidate_scores,omitempty"`
+}
+
+type frameQualityScoreBreakdown struct {
+	SemanticScore          float64 `json:"semantic_score"`
+	ClarityScore           float64 `json:"clarity_score"`
+	LoopScore              float64 `json:"loop_score"`
+	EfficiencyScore        float64 `json:"efficiency_score"`
+	SemanticWeight         float64 `json:"semantic_weight"`
+	ClarityWeight          float64 `json:"clarity_weight"`
+	LoopWeight             float64 `json:"loop_weight"`
+	EfficiencyWeight       float64 `json:"efficiency_weight"`
+	SemanticContribution   float64 `json:"semantic_contribution"`
+	ClarityContribution    float64 `json:"clarity_contribution"`
+	LoopContribution       float64 `json:"loop_contribution"`
+	EfficiencyContribution float64 `json:"efficiency_contribution"`
+	FinalScore             float64 `json:"final_score"`
+}
+
+type frameQualityCandidateScore struct {
+	Rank                   int      `json:"rank"`
+	Index                  int      `json:"index"`
+	FramePath              string   `json:"frame_path,omitempty"`
+	FrameName              string   `json:"frame_name,omitempty"`
+	SceneID                int      `json:"scene_id,omitempty"`
+	Decision               string   `json:"decision,omitempty"`
+	RejectReason           string   `json:"reject_reason,omitempty"`
+	MustCaptureHits        []string `json:"must_capture_hits,omitempty"`
+	AvoidHits              []string `json:"avoid_hits,omitempty"`
+	PositiveSignals        []string `json:"positive_signals,omitempty"`
+	NegativeSignals        []string `json:"negative_signals,omitempty"`
+	ExplainSummary         string   `json:"explain_summary,omitempty"`
+	FinalScore             float64  `json:"final_score"`
+	SemanticScore          float64  `json:"semantic_score"`
+	ClarityScore           float64  `json:"clarity_score"`
+	LoopScore              float64  `json:"loop_score"`
+	EfficiencyScore        float64  `json:"efficiency_score"`
+	SemanticWeight         float64  `json:"semantic_weight"`
+	ClarityWeight          float64  `json:"clarity_weight"`
+	LoopWeight             float64  `json:"loop_weight"`
+	EfficiencyWeight       float64  `json:"efficiency_weight"`
+	SemanticContribution   float64  `json:"semantic_contribution"`
+	ClarityContribution    float64  `json:"clarity_contribution"`
+	LoopContribution       float64  `json:"loop_contribution"`
+	EfficiencyContribution float64  `json:"efficiency_contribution"`
+	BlurScore              float64  `json:"blur_score"`
+	SubjectScore           float64  `json:"subject_score"`
+	MotionScore            float64  `json:"motion_score"`
+	ExposureScore          float64  `json:"exposure_score"`
+	Brightness             float64  `json:"brightness"`
 }
 
 type autoCropSuggestion struct {
@@ -2702,7 +2759,7 @@ func chooseExtractFrameQualityAndExt(options jobOptions, qualitySettings Quality
 }
 
 func buildFrameFilters(meta videoProbeMeta, options jobOptions, intervalSec float64, qualitySettings QualitySettings) []string {
-	filters := make([]string, 0, 4)
+	filters := make([]string, 0, 8)
 	if options.Speed > 0 && math.Abs(options.Speed-1.0) > 0.001 {
 		filters = append(filters, fmt.Sprintf("setpts=PTS/%.4f", options.Speed))
 	}
@@ -2720,10 +2777,22 @@ func buildFrameFilters(meta videoProbeMeta, options jobOptions, intervalSec floa
 	if options.Width > 0 {
 		filters = append(filters, fmt.Sprintf("scale=%d:-2", options.Width))
 	}
+	if options.RiskLowLight {
+		// low_light: gentle denoise + tiny brightness lift to improve usable stills.
+		filters = append(filters, "hqdn3d=1.2:1.2:4.5:4.5")
+		filters = append(filters, "eq=brightness=0.02:contrast=1.03")
+	}
+	if options.AIAvoidDark && !options.RiskLowLight {
+		// avoid_extreme_dark: conservative brightness lift.
+		filters = append(filters, "eq=brightness=0.015:contrast=1.02")
+	}
 	if shouldApplyStillClarityEnhancement(meta, options, qualitySettings) {
 		// Subtle enhancement chain for photo-like still outputs.
 		filters = append(filters, "eq=contrast=1.02:saturation=1.03")
 		filters = append(filters, "unsharp=5:5:0.35:5:5:0.0")
+	} else if options.RiskFastMotion {
+		// fast_motion: apply slight sharpening even when global clarity profile is not enabled.
+		filters = append(filters, "unsharp=5:5:0.25:5:5:0.0")
 	}
 	return filters
 }

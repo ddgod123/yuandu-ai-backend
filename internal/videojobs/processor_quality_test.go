@@ -6,6 +6,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -220,6 +221,319 @@ func TestRankFrameCandidatesByScene(t *testing.T) {
 	}
 	if !hasScene2 || !hasScene3 {
 		t.Fatalf("expected scene diversity in ranked output, got %+v", ranked)
+	}
+}
+
+func TestRankFrameCandidatesBySelectionPolicy_GlobalQualityFirst(t *testing.T) {
+	settings := DefaultQualitySettings()
+	samples := []frameQualitySample{
+		{Path: "scene1-a.jpg", Index: 0, QualityScore: 0.98, SceneID: 1, Hash: 0x0000000000000000},
+		{Path: "scene1-b.jpg", Index: 1, QualityScore: 0.94, SceneID: 1, Hash: 0xFFFFFFFFFFFFFFFF},
+		{Path: "scene2-a.jpg", Index: 2, QualityScore: 0.82, SceneID: 2, Hash: 0x00FF00FF00FF00FF},
+	}
+	ranked := rankFrameCandidatesBySelectionPolicy(samples, 2, settings, "ai2_global_quality_first")
+	if len(ranked) != 2 {
+		t.Fatalf("expected 2 ranked frames, got %d", len(ranked))
+	}
+	if ranked[0].Path != "scene1-a.jpg" || ranked[1].Path != "scene1-b.jpg" {
+		t.Fatalf("expected global quality priority output, got %+v", ranked)
+	}
+}
+
+func TestRankFrameCandidatesBySelectionPolicy_SceneDiversityFirst(t *testing.T) {
+	settings := DefaultQualitySettings()
+	samples := []frameQualitySample{
+		{Path: "scene1-a.jpg", Index: 0, QualityScore: 0.98, SceneID: 1, Hash: 0x0000000000000000},
+		{Path: "scene1-b.jpg", Index: 1, QualityScore: 0.94, SceneID: 1, Hash: 0xFFFFFFFFFFFFFFFF},
+		{Path: "scene2-a.jpg", Index: 2, QualityScore: 0.82, SceneID: 2, Hash: 0x00FF00FF00FF00FF},
+	}
+	ranked := rankFrameCandidatesBySelectionPolicy(samples, 2, settings, "ai2_scene_diversity_first")
+	if len(ranked) != 2 {
+		t.Fatalf("expected 2 ranked frames, got %d", len(ranked))
+	}
+	hasScene2 := false
+	for _, item := range ranked {
+		if item.SceneID == 2 {
+			hasScene2 = true
+			break
+		}
+	}
+	if !hasScene2 {
+		t.Fatalf("expected scene diversity output to include scene2, got %+v", ranked)
+	}
+}
+
+func TestBuildFrameCandidateDirectiveSignalHits(t *testing.T) {
+	sample := frameQualitySample{
+		Path:         "frame_0001.jpg",
+		Index:        1,
+		BlurScore:    18,
+		SubjectScore: 0.82,
+		MotionScore:  0.78,
+		Exposure:     0.72,
+		Brightness:   42,
+		QualityScore: 0.81,
+	}
+	guidance := imageAI2Guidance{
+		MustCapture: []string{"人物特写", "动作瞬间"},
+		Avoid:       []string{"模糊画面", "极暗画面"},
+		RiskFlags:   []string{"fast_motion"},
+	}
+	mustHits, avoidHits, positive, negative := buildFrameCandidateDirectiveSignalHits(sample, 10, guidance)
+	if len(mustHits) == 0 {
+		t.Fatalf("expected must_capture hits, got %+v", mustHits)
+	}
+	if len(avoidHits) != 0 {
+		t.Fatalf("expected avoid hits empty for good sample, got %+v", avoidHits)
+	}
+	if len(positive) == 0 {
+		t.Fatalf("expected positive signals, got %+v", positive)
+	}
+	if len(negative) == 0 {
+		t.Fatalf("expected negative signals to capture fast motion risk, got %+v", negative)
+	}
+}
+
+func TestBuildFrameCandidateDirectiveSignalHits_XiaohongshuTerms(t *testing.T) {
+	sample := frameQualitySample{
+		Path:         "frame_xhs_0001.jpg",
+		Index:        1,
+		BlurScore:    14.2,
+		SubjectScore: 0.61,
+		MotionScore:  0.48,
+		Exposure:     0.71,
+		Brightness:   56,
+		QualityScore: 0.76,
+	}
+	guidance := imageAI2Guidance{
+		Scene:       AdvancedScenarioXiaohongshu,
+		MustCapture: []string{"高颜值特写", "情绪峰值", "定格姿态", "色彩明快"},
+		Avoid:       []string{"背影遮挡", "低饱和灰雾", "杂乱背景", "运动拖影"},
+	}
+	mustHits, avoidHits, _, _ := buildFrameCandidateDirectiveSignalHits(sample, 10, guidance)
+	if len(mustHits) < 2 {
+		t.Fatalf("expected xhs terms hit >=2, got must=%+v", mustHits)
+	}
+	if len(avoidHits) != 0 {
+		t.Fatalf("expected avoid hits empty for clean xhs-like sample, got %+v", avoidHits)
+	}
+}
+
+func TestBuildFrameCandidateDirectiveSignalHits_AvoidBackgroundNotAlwaysHit(t *testing.T) {
+	clean := frameQualitySample{
+		Path:         "frame_clean.jpg",
+		Index:        1,
+		BlurScore:    15.3,
+		SubjectScore: 0.79,
+		MotionScore:  0.32,
+		Exposure:     0.66,
+		Brightness:   50,
+		QualityScore: 0.81,
+	}
+	noisy := frameQualitySample{
+		Path:         "frame_noisy.jpg",
+		Index:        2,
+		BlurScore:    10.6,
+		SubjectScore: 0.34,
+		MotionScore:  0.61,
+		Exposure:     0.68,
+		Brightness:   58,
+		QualityScore: 0.54,
+	}
+	guidance := imageAI2Guidance{
+		Avoid: []string{"杂乱背景"},
+	}
+	_, cleanAvoidHits, _, _ := buildFrameCandidateDirectiveSignalHits(clean, 10, guidance)
+	if len(cleanAvoidHits) != 0 {
+		t.Fatalf("expected clean frame not hit '杂乱背景', got %+v", cleanAvoidHits)
+	}
+	_, noisyAvoidHits, _, _ := buildFrameCandidateDirectiveSignalHits(noisy, 10, guidance)
+	if len(noisyAvoidHits) == 0 {
+		t.Fatalf("expected noisy frame hit '杂乱背景', got %+v", noisyAvoidHits)
+	}
+}
+
+func TestBuildFrameQualityCandidateScores_IncludesExplainability(t *testing.T) {
+	samples := []frameQualitySample{
+		{
+			Path:         "frame_0001.jpg",
+			Index:        1,
+			BlurScore:    7,
+			SubjectScore: 0.78,
+			MotionScore:  0.34,
+			Exposure:     0.66,
+			Brightness:   40,
+			QualityScore: 0.72,
+		},
+	}
+	breakdown := map[string]frameQualityScoreBreakdown{
+		"frame_0001.jpg": {
+			FinalScore:             0.72,
+			SemanticScore:          0.74,
+			ClarityScore:           0.70,
+			LoopScore:              0.56,
+			EfficiencyScore:        0.68,
+			SemanticWeight:         0.35,
+			ClarityWeight:          0.35,
+			LoopWeight:             0.05,
+			EfficiencyWeight:       0.25,
+			SemanticContribution:   0.259,
+			ClarityContribution:    0.245,
+			LoopContribution:       0.028,
+			EfficiencyContribution: 0.17,
+		},
+	}
+	decisionByPath := map[string]string{"frame_0001.jpg": "kept"}
+	rejectByPath := map[string]string{}
+	guidance := imageAI2Guidance{
+		MustCapture: []string{"人物特写"},
+		Avoid:       []string{"极暗画面"},
+	}
+	rows := buildFrameQualityCandidateScores(samples, breakdown, decisionByPath, rejectByPath, guidance, 6, 10)
+	if len(rows) != 1 {
+		t.Fatalf("expected one row, got %d", len(rows))
+	}
+	row := rows[0]
+	if len(row.MustCaptureHits) == 0 {
+		t.Fatalf("expected must_capture hits in row, got %+v", row)
+	}
+	if strings.TrimSpace(row.ExplainSummary) == "" {
+		t.Fatalf("expected explain summary in row, got %+v", row)
+	}
+}
+
+func TestComputeFrameQualityScoreWithAI2Weights(t *testing.T) {
+	semanticFrame := frameQualitySample{
+		SubjectScore: 0.95,
+		MotionScore:  0.55,
+		Exposure:     0.45,
+		BlurScore:    18,
+	}
+	clarityFrame := frameQualitySample{
+		SubjectScore: 0.40,
+		MotionScore:  0.20,
+		Exposure:     0.92,
+		BlurScore:    28,
+	}
+	blurThreshold := 12.0
+
+	semanticGuidance := imageAI2Guidance{
+		QualityWeights: map[string]float64{
+			"semantic":   0.7,
+			"clarity":    0.15,
+			"loop":       0.05,
+			"efficiency": 0.1,
+		},
+	}
+	clarityGuidance := imageAI2Guidance{
+		QualityWeights: map[string]float64{
+			"semantic":   0.1,
+			"clarity":    0.7,
+			"loop":       0.05,
+			"efficiency": 0.15,
+		},
+	}
+
+	semanticModeA := computeFrameQualityScoreWithAI2Weights(semanticFrame, blurThreshold, semanticGuidance)
+	semanticModeB := computeFrameQualityScoreWithAI2Weights(clarityFrame, blurThreshold, semanticGuidance)
+	if semanticModeA <= semanticModeB {
+		t.Fatalf("expected semantic-heavy weights to prefer semantic frame, got %.4f <= %.4f", semanticModeA, semanticModeB)
+	}
+
+	clarityModeA := computeFrameQualityScoreWithAI2Weights(semanticFrame, blurThreshold, clarityGuidance)
+	clarityModeB := computeFrameQualityScoreWithAI2Weights(clarityFrame, blurThreshold, clarityGuidance)
+	if clarityModeB <= clarityModeA {
+		t.Fatalf("expected clarity-heavy weights to prefer clarity frame, got %.4f <= %.4f", clarityModeB, clarityModeA)
+	}
+}
+
+func TestComputeFrameQualityScoreWithAI2Weights_DirectiveHitBoostAndAvoidPenalty(t *testing.T) {
+	blurThreshold := 10.0
+	guidance := imageAI2Guidance{
+		QualityWeights: map[string]float64{
+			"semantic":   0.45,
+			"clarity":    0.35,
+			"loop":       0.05,
+			"efficiency": 0.15,
+		},
+		MustCapture: []string{"人物特写", "动作瞬间"},
+		Avoid:       []string{"极暗画面", "模糊画面"},
+	}
+
+	goodFrame := frameQualitySample{
+		SubjectScore: 0.84,
+		MotionScore:  0.66,
+		Exposure:     0.72,
+		BlurScore:    16,
+		Brightness:   46,
+	}
+	badFrame := frameQualitySample{
+		SubjectScore: 0.38,
+		MotionScore:  0.82,
+		Exposure:     0.22,
+		BlurScore:    7.2,
+		Brightness:   18,
+	}
+
+	goodScore := computeFrameQualityScoreWithAI2Weights(goodFrame, blurThreshold, guidance)
+	badScore := computeFrameQualityScoreWithAI2Weights(badFrame, blurThreshold, guidance)
+	if goodScore <= badScore {
+		t.Fatalf("expected directive-guided score to prefer good frame, got %.4f <= %.4f", goodScore, badScore)
+	}
+}
+
+func TestComputeFrameQualityScoreWithAI2Weights_XiaohongshuSceneBoost(t *testing.T) {
+	blurThreshold := 10.0
+	sample := frameQualitySample{
+		SubjectScore: 0.78,
+		MotionScore:  0.34,
+		Exposure:     0.74,
+		BlurScore:    16.5,
+		Brightness:   58,
+	}
+	baseGuidance := imageAI2Guidance{
+		QualityWeights: map[string]float64{
+			"semantic":   0.36,
+			"clarity":    0.50,
+			"loop":       0.02,
+			"efficiency": 0.12,
+		},
+		Scene: AdvancedScenarioDefault,
+	}
+	xhsGuidance := baseGuidance
+	xhsGuidance.Scene = AdvancedScenarioXiaohongshu
+
+	baseScore := computeFrameQualityScoreWithAI2Weights(sample, blurThreshold, baseGuidance)
+	xhsScore := computeFrameQualityScoreWithAI2Weights(sample, blurThreshold, xhsGuidance)
+	if xhsScore <= baseScore {
+		t.Fatalf("expected xiaohongshu scene boost score > default score, got %.4f <= %.4f", xhsScore, baseScore)
+	}
+}
+
+func TestShouldRejectForWatermarkRisk(t *testing.T) {
+	sample := frameQualitySample{
+		BlurScore:    9.5,
+		SubjectScore: 0.28,
+		MotionScore:  0.18,
+		Exposure:     0.82,
+		Brightness:   188,
+	}
+	guidance := imageAI2Guidance{
+		AvoidWatermarks: true,
+		RiskFlags:       []string{"watermark_risk"},
+		Avoid:           []string{"水印", "台标"},
+	}
+	if !shouldRejectForWatermarkRisk(sample, 10, guidance) {
+		t.Fatalf("expected watermark risk gate to reject sample")
+	}
+
+	withoutWatermarkRisk := imageAI2Guidance{
+		AvoidWatermarks: true,
+		RiskFlags:       []string{"low_light"},
+		Avoid:           []string{"模糊画面"},
+	}
+	if shouldRejectForWatermarkRisk(sample, 10, withoutWatermarkRisk) {
+		t.Fatalf("expected no watermark reject without watermark risk signals")
 	}
 }
 

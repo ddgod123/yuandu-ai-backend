@@ -18,18 +18,49 @@ type aiGIFDirectorPromptPack struct {
 	OperatorEnabled               bool
 }
 
+type aiDirectorBuiltInPromptDefaults struct {
+	FixedPromptCore         string
+	FixedPromptContractTail string
+	FixedPromptVersion      string
+	FixedPromptSource       string
+	ContractTailVersion     string
+}
+
+func resolveAIDirectorBuiltInPromptDefaults(targetFormat string) aiDirectorBuiltInPromptDefaults {
+	format := normalizeAIPromptTemplateFormat(targetFormat)
+	switch format {
+	case "png", "jpg", "webp", "live":
+		return aiDirectorBuiltInPromptDefaults{
+			FixedPromptCore:         defaultAIImageDirectorFixedCorePrompt,
+			FixedPromptContractTail: defaultAIGIFDirectorFixedContractTailPrompt,
+			FixedPromptVersion:      "built_in_image_v1",
+			FixedPromptSource:       "built_in_default_image",
+			ContractTailVersion:     "built_in_contract_tail_v1",
+		}
+	default:
+		return aiDirectorBuiltInPromptDefaults{
+			FixedPromptCore:         defaultAIGIFDirectorFixedCorePrompt,
+			FixedPromptContractTail: defaultAIGIFDirectorFixedContractTailPrompt,
+			FixedPromptVersion:      "built_in_v1",
+			FixedPromptSource:       "built_in_default",
+			ContractTailVersion:     "built_in_contract_tail_v1",
+		}
+	}
+}
+
 func (p *Processor) resolveAIGIFDirectorPromptPack(
 	targetFormat string,
 	qualitySettings QualitySettings,
 ) aiGIFDirectorPromptPack {
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
+	builtIn := resolveAIDirectorBuiltInPromptDefaults(targetFormat)
 
 	pack := aiGIFDirectorPromptPack{
-		FixedPromptCore:         defaultAIGIFDirectorFixedCorePrompt,
-		FixedPromptContractTail: defaultAIGIFDirectorFixedContractTailPrompt,
-		FixedPromptVersion:      "built_in_v1",
-		FixedPromptSource:       "built_in_default",
-		ContractTailVersion:     "built_in_contract_tail_v1",
+		FixedPromptCore:         builtIn.FixedPromptCore,
+		FixedPromptContractTail: builtIn.FixedPromptContractTail,
+		FixedPromptVersion:      builtIn.FixedPromptVersion,
+		FixedPromptSource:       builtIn.FixedPromptSource,
+		ContractTailVersion:     builtIn.ContractTailVersion,
 
 		OperatorInstructionRaw: strings.TrimSpace(qualitySettings.AIDirectorOperatorInstruction),
 		OperatorVersion:        strings.TrimSpace(qualitySettings.AIDirectorOperatorInstructionVersion),

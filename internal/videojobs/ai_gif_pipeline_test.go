@@ -91,7 +91,7 @@ func TestNormalizeAIGIFPlannerProposals(t *testing.T) {
 			ProposalReason: "too short",
 		},
 	}
-	out := normalizeAIGIFPlannerProposals(in, 10)
+	out, _ := normalizeAIGIFPlannerProposals(in, 10, nil)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 valid proposal, got %d", len(out))
 	}
@@ -112,7 +112,7 @@ func TestNormalizeAIGIFPlannerProposals_DedupProposalRank(t *testing.T) {
 		{ProposalRank: 1, StartSec: 4.0, EndSec: 5.8, Score: 0.8, ProposalReason: "duplicate rank"},
 		{ProposalRank: 2, StartSec: 6.0, EndSec: 8.0, Score: 0.7, ProposalReason: "second"},
 	}
-	out := normalizeAIGIFPlannerProposals(in, 20)
+	out, _ := normalizeAIGIFPlannerProposals(in, 20, nil)
 	if len(out) != 2 {
 		t.Fatalf("expected rank-dedup to keep 2 proposals, got %d", len(out))
 	}

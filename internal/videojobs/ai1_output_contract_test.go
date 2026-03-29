@@ -178,3 +178,38 @@ func TestValidateAndRepairAI1OutputV2_EmptyInputFallback(t *testing.T) {
 		t.Fatalf("expected fallback.safe_envelope in repair_items, got %#v", repairItems)
 	}
 }
+
+func TestValidateAndRepairAI1OutputV2_LowConfidenceForcesClarify(t *testing.T) {
+	meta, eventMeta, executablePlan, trace, requestedFormats := buildAI1ContractTestFixture()
+	eventMeta["error"] = "director timeout"
+	raw := buildAI1OutputV2(
+		VideoJobAI1PlanSchemaPNGV1,
+		requestedFormats,
+		meta,
+		eventMeta,
+		executablePlan,
+		trace,
+	)
+	userFeedback := mapFromAny(raw["user_feedback"])
+	userFeedback["interactive_action"] = "proceed"
+	userFeedback["confidence"] = 0.2
+	userFeedback["clarify_questions"] = []interface{}{}
+	raw["user_feedback"] = userFeedback
+
+	got := validateAndRepairAI1OutputV2(
+		raw,
+		VideoJobAI1PlanSchemaPNGV1,
+		requestedFormats,
+		meta,
+		eventMeta,
+		executablePlan,
+		trace,
+	)
+	userFeedbackOut := mapFromAny(got["user_feedback"])
+	if action := strings.TrimSpace(stringFromAny(userFeedbackOut["interactive_action"])); action != "need_clarify" {
+		t.Fatalf("expected interactive_action=need_clarify, got %s", action)
+	}
+	if len(stringSliceFromAny(userFeedbackOut["clarify_questions"])) == 0 {
+		t.Fatalf("expected clarify_questions to be auto generated when need_clarify")
+	}
+}

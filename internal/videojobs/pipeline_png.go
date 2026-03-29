@@ -324,32 +324,82 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	}
 	if len(planMeta) > 0 {
 		ai1Metric["event_meta"] = planMeta
+		if strategyTrace := mapFromAny(planMeta["strategy_profile_trace_v1"]); len(strategyTrace) > 0 {
+			optionsPayload["ai1_strategy_profile_trace_v1"] = strategyTrace
+			optionsUpdated = true
+		}
+		if sceneGuard := mapFromAny(planMeta["advanced_scene_guard_v1"]); len(sceneGuard) > 0 {
+			optionsPayload["ai1_advanced_scene_guard_v1"] = sceneGuard
+			optionsUpdated = true
+		}
+		if overrideReport := mapFromAny(planMeta["strategy_override_report_v1"]); len(overrideReport) > 0 {
+			optionsPayload["ai1_strategy_override_report_v1"] = overrideReport
+			optionsUpdated = true
+		}
 	}
 	if len(directorSnapshot) > 0 {
 		ai1Metric["director_snapshot"] = buildAI1PlanDirectorSnapshot(directorSnapshot)
 	}
 	metrics[ai1MetricKey] = ai1Metric
 
-	if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) {
+	needClarifyPause := shouldPauseForAI1NeedClarify(planMeta, ai1Confirmed, ai1PauseConsumed)
+	if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) || needClarifyPause {
 		pipelineStageStatus["ai2"] = "awaiting_user_confirm"
 		pipelineStageStatus["worker"] = "awaiting_user_confirm"
 		pipelineStageStatus["ai3"] = "awaiting_user_confirm"
 		pipelineStageStatus["extraction"] = "awaiting_user_confirm"
 		pipelineStageStatus["delivery"] = "awaiting_user_confirm"
+		pauseReason := "flow_mode_ai1_confirm"
+		if needClarifyPause {
+			pauseReason = "interactive_action_need_clarify"
+		}
 		if p.pauseForAI1Confirmation(job.ID, metrics, optionsPayload, map[string]interface{}{
-			"flow_mode": flowMode,
-			"stage":     "ai1_preview_generated",
+			"flow_mode":    flowMode,
+			"stage":        "ai1_preview_generated",
+			"pause_reason": pauseReason,
 		}) {
 			return nil
 		}
 	}
 
 	ai2Instruction := buildImageAI2Instruction(schemaVersion, existingPlan, planMeta)
+	ai2Guidance := resolveImageAI2Guidance(primaryFormat, ai2Instruction, planMeta)
+	if postprocess := mapFromAny(ai2Instruction["postprocess"]); len(postprocess) > 0 {
+		optionsPayload["ai2_postprocess_v1"] = postprocess
+	}
+	if advancedOptions := mapFromAny(ai2Instruction["advanced_options"]); len(advancedOptions) > 0 {
+		optionsPayload["ai1_advanced_options_v1"] = advancedOptions
+	}
+	if strategyProfile := mapFromAny(ai2Instruction["strategy_profile"]); len(strategyProfile) > 0 {
+		optionsPayload["ai1_strategy_profile_v1"] = strategyProfile
+	}
+	if strategyTrace := mapFromAny(planMeta["strategy_profile_trace_v1"]); len(strategyTrace) > 0 {
+		optionsPayload["ai1_strategy_profile_trace_v1"] = strategyTrace
+	}
+	if sceneGuard := mapFromAny(planMeta["advanced_scene_guard_v1"]); len(sceneGuard) > 0 {
+		optionsPayload["ai1_advanced_scene_guard_v1"] = sceneGuard
+	}
+	if overrideReport := mapFromAny(planMeta["strategy_override_report_v1"]); len(overrideReport) > 0 {
+		optionsPayload["ai1_strategy_override_report_v1"] = overrideReport
+	}
+	if len(ai2Guidance.QualityWeights) > 0 {
+		optionsPayload["ai2_quality_weights_v1"] = ai2Guidance.QualityWeights
+	}
+	if len(ai2Guidance.RiskFlags) > 0 {
+		optionsPayload["ai2_risk_flags_v1"] = ai2Guidance.RiskFlags
+	}
+	optionsPayload["ai2_technical_reject_v1"] = map[string]interface{}{
+		"max_blur_tolerance": ai2Guidance.MaxBlurTolerance,
+		"avoid_watermarks":   ai2Guidance.AvoidWatermarks,
+		"avoid_extreme_dark": ai2Guidance.AvoidExtremeDark,
+	}
 	if len(ai2Instruction) > 0 {
 		optionsPayload["ai2_instruction_v1"] = ai2Instruction
 		optionsPayload["ai2_instruction_generated_at"] = time.Now().Format(time.RFC3339)
 		optionsUpdated = true
 	}
+	optionsPayload["ai2_guidance_v1"] = ai2Guidance.toMetricsMap()
+	optionsUpdated = true
 	pipelineStageStatus["ai2"] = "running"
 	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "sub-stage planning started", map[string]interface{}{
 		"requested_format": primaryFormat,
@@ -368,9 +418,37 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	if objective := strings.TrimSpace(stringFromAny(ai2Instruction["objective"])); objective != "" {
 		ai2EventMeta["objective"] = objective
 	}
+	if operatorIdentity := strings.TrimSpace(stringFromAny(ai2Instruction["operator_identity"])); operatorIdentity != "" {
+		ai2EventMeta["operator_identity"] = operatorIdentity
+	}
+	if candidateCountBias := mapFromAny(ai2Instruction["candidate_count_bias"]); len(candidateCountBias) > 0 {
+		ai2EventMeta["candidate_count_bias"] = candidateCountBias
+	}
+	if advanced := mapFromAny(ai2Instruction["advanced_options"]); len(advanced) > 0 {
+		ai2EventMeta["scene"] = strings.TrimSpace(stringFromAny(advanced["scene"]))
+		ai2EventMeta["visual_focus"] = stringSliceFromAny(advanced["visual_focus"])
+		ai2EventMeta["enable_matting"] = boolFromAny(advanced["enable_matting"])
+	}
+	if profile := mapFromAny(ai2Instruction["strategy_profile"]); len(profile) > 0 {
+		ai2EventMeta["scene_label"] = strings.TrimSpace(stringFromAny(profile["scene_label"]))
+	}
+	if len(ai2Guidance.QualityWeights) > 0 {
+		ai2EventMeta["quality_weights"] = ai2Guidance.QualityWeights
+	}
+	if len(ai2Guidance.RiskFlags) > 0 {
+		ai2EventMeta["risk_flags"] = ai2Guidance.RiskFlags
+	}
+	ai2EventMeta["max_blur_tolerance"] = ai2Guidance.MaxBlurTolerance
 	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai planner suggestion applied", ai2EventMeta)
 	pipelineStageStatus["ai2"] = "done"
 	metrics[ai2MetricKey] = ai2Instruction
+	metrics[fmt.Sprintf("%s_ai2_guidance_v1", metricPrefix)] = ai2Guidance.toMetricsMap()
+
+	extractOptions := applyStillProfileDefaults(options, requestedFormats, qualitySettings)
+	workerQualitySettings, extractOptions, workerStrategy := applyImageAI2WorkerStrategy(qualitySettings, extractOptions, ai2Guidance)
+	metrics[fmt.Sprintf("%s_worker_strategy_v1", metricPrefix)] = workerStrategy
+	optionsPayload["ai2_worker_strategy_v1"] = workerStrategy
+	optionsUpdated = true
 
 	if optionsUpdated {
 		p.updateVideoJob(job.ID, map[string]interface{}{
@@ -380,7 +458,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 
 	pipelineStageStatus["worker"] = "running"
 	pipelineStageStatus["extraction"] = "running"
-	extractOptions := applyStillProfileDefaults(options, requestedFormats, qualitySettings)
+	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "worker risk strategy applied", workerStrategy)
 
 	frameDir := filepath.Join(tmpDir, "frames")
 	if err := os.MkdirAll(frameDir, 0o755); err != nil {
@@ -391,7 +469,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	candidateBudget := qualitySelectionCandidateBudget(extractOptions.MaxStatic)
 	interval := chooseFrameInterval(effectiveDurationSec, extractOptions.FrameIntervalSec, candidateBudget)
 
-	if err := extractFrames(ctx, sourcePath, frameDir, meta, extractOptions, interval, qualitySettings); err != nil {
+	if err := extractFrames(ctx, sourcePath, frameDir, meta, extractOptions, interval, workerQualitySettings); err != nil {
 		return fmt.Errorf("extract frames: %w", err)
 	}
 	framePaths, err := collectFramePaths(frameDir, candidateBudget)
@@ -402,37 +480,52 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		return permanentError{err: errors.New("no frames extracted from video")}
 	}
 
-	optimizedFramePaths, qualityReport := optimizeFramePathsForQuality(framePaths, extractOptions.MaxStatic, qualitySettings)
+	optimizedFramePaths, qualityReport := optimizeFramePathsForQualityWithGuidance(framePaths, extractOptions.MaxStatic, workerQualitySettings, ai2Guidance)
 	if len(optimizedFramePaths) > 0 {
 		framePaths = optimizedFramePaths
 	}
 
+	framePaths, superResolutionReport := p.maybeApplyPNGAliyunSuperResolution(ctx, job, primaryFormat, framePaths)
+	if len(superResolutionReport) > 0 {
+		metrics[fmt.Sprintf("%s_worker_super_resolution_v1", metricPrefix)] = superResolutionReport
+	}
+
 	metrics["frame_quality"] = qualityReport
 	qualitySettingsMetric := map[string]interface{}{
-		"min_brightness":              qualitySettings.MinBrightness,
-		"max_brightness":              qualitySettings.MaxBrightness,
-		"blur_threshold_factor":       qualitySettings.BlurThresholdFactor,
-		"duplicate_hamming_threshold": qualitySettings.DuplicateHammingThreshold,
-		"still_min_blur_score":        qualitySettings.StillMinBlurScore,
-		"still_min_exposure_score":    qualitySettings.StillMinExposureScore,
-		"still_min_width":             qualitySettings.StillMinWidth,
-		"still_min_height":            qualitySettings.StillMinHeight,
-		"jpg_profile":                 qualitySettings.JPGProfile,
-		"png_profile":                 qualitySettings.PNGProfile,
-		"webp_profile":                qualitySettings.WebPProfile,
-		"live_profile":                qualitySettings.LiveProfile,
-		"png_target_size_kb":          qualitySettings.PNGTargetSizeKB,
-		"jpg_target_size_kb":          qualitySettings.JPGTargetSizeKB,
-		"webp_target_size_kb":         qualitySettings.WebPTargetSizeKB,
+		"min_brightness":              workerQualitySettings.MinBrightness,
+		"max_brightness":              workerQualitySettings.MaxBrightness,
+		"blur_threshold_factor":       workerQualitySettings.BlurThresholdFactor,
+		"duplicate_hamming_threshold": workerQualitySettings.DuplicateHammingThreshold,
+		"still_min_blur_score":        workerQualitySettings.StillMinBlurScore,
+		"still_min_exposure_score":    workerQualitySettings.StillMinExposureScore,
+		"still_min_width":             workerQualitySettings.StillMinWidth,
+		"still_min_height":            workerQualitySettings.StillMinHeight,
+		"jpg_profile":                 workerQualitySettings.JPGProfile,
+		"png_profile":                 workerQualitySettings.PNGProfile,
+		"webp_profile":                workerQualitySettings.WebPProfile,
+		"live_profile":                workerQualitySettings.LiveProfile,
+		"png_target_size_kb":          workerQualitySettings.PNGTargetSizeKB,
+		"jpg_target_size_kb":          workerQualitySettings.JPGTargetSizeKB,
+		"webp_target_size_kb":         workerQualitySettings.WebPTargetSizeKB,
 		"quality_candidate_budget":    candidateBudget,
-		"still_clarity_enhance":       shouldApplyStillClarityEnhancement(meta, extractOptions, qualitySettings),
+		"still_clarity_enhance":       shouldApplyStillClarityEnhancement(meta, extractOptions, workerQualitySettings),
+		"ai2_quality_weights":         ai2Guidance.QualityWeights,
+		"ai2_risk_flags":              ai2Guidance.RiskFlags,
+		"ai2_max_blur_tolerance":      ai2Guidance.MaxBlurTolerance,
+		"ai2_selection_policy":        qualityReport.SelectionPolicy,
 	}
 	metrics[fmt.Sprintf("%s_quality_settings_v1", metricPrefix)] = qualitySettingsMetric
 	metrics[extractionMetricKey] = map[string]interface{}{
 		"frame_count":        len(framePaths),
+		"candidate_count":    len(qualityReport.CandidateScores),
 		"candidate_budget":   candidateBudget,
 		"interval_sec":       roundTo(interval, 3),
 		"effective_duration": roundTo(effectiveDurationSec, 3),
+		"selector_version":   qualityReport.SelectorVersion,
+		"scoring_mode":       qualityReport.ScoringMode,
+		"selection_policy":   qualityReport.SelectionPolicy,
+		"must_capture_hits":  countFrameCandidateMustCaptureHits(qualityReport.CandidateScores),
+		"avoid_hits":         countFrameCandidateAvoidHits(qualityReport.CandidateScores),
 	}
 
 	pipelineStageStatus["worker"] = "done"
@@ -449,8 +542,16 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"quality_exposure_reject":   qualityReport.RejectedExposure,
 		"quality_resolution_reject": qualityReport.RejectedResolution,
 		"quality_still_blur_reject": qualityReport.RejectedStillBlurGate,
+		"quality_watermark_reject":  qualityReport.RejectedWatermark,
 		"quality_dup_reject":        qualityReport.RejectedNearDuplicate,
 		"quality_fallback":          qualityReport.FallbackApplied,
+		"quality_selector_version":  qualityReport.SelectorVersion,
+		"quality_scoring_mode":      qualityReport.ScoringMode,
+		"quality_selection_policy":  qualityReport.SelectionPolicy,
+		"superres_mode":             stringFromAny(superResolutionReport["mode"]),
+		"superres_attempted":        intFromAny(superResolutionReport["attempted"]),
+		"superres_succeeded":        intFromAny(superResolutionReport["succeeded"]),
+		"superres_replaced":         intFromAny(superResolutionReport["replaced"]),
 	})
 
 	if p.isJobCancelled(job.ID) {
@@ -497,7 +598,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		options,
 		highlightCandidates,
 		animatedWindows,
-		qualitySettings,
+		workerQualitySettings,
 	)
 	if err != nil {
 		deleteQiniuKeysByPrefix(p.qiniu, uploadedKeys)
@@ -855,19 +956,140 @@ func buildImageAI1UserReply(eventMeta map[string]interface{}, meta videoProbeMet
 	if errText := strings.TrimSpace(stringFromAny(eventMeta["error"])); errText != "" {
 		out["risk_notice"] = []string{errText}
 	}
+	if advanced := mapFromAny(eventMeta["advanced_options_v1"]); len(advanced) > 0 {
+		out["advanced_options"] = advanced
+	}
+	if strategyProfile := mapFromAny(eventMeta["strategy_profile_v1"]); len(strategyProfile) > 0 {
+		out["applied_strategy_profile"] = strategyProfile
+	}
+	if strategyTrace := mapFromAny(eventMeta["strategy_profile_trace_v1"]); len(strategyTrace) > 0 {
+		out["applied_strategy_trace"] = strategyTrace
+	}
 	return out
 }
 
 func buildImageAI2Instruction(schemaVersion string, executablePlan map[string]interface{}, eventMeta map[string]interface{}) map[string]interface{} {
+	targetFormat := strings.ToLower(strings.TrimSpace(stringFromAny(executablePlan["target_format"])))
+	targetFormat = NormalizeRequestedFormat(targetFormat)
+	if targetFormat == "" {
+		targetFormat = "png"
+	}
+	qualityWeights := normalizeAI2QualityWeightsAny(eventMeta["quality_weights"])
+	if len(qualityWeights) == 0 {
+		qualityWeights = normalizeDirectiveQualityWeights(map[string]float64{})
+	}
+	riskFlags := normalizeAI2RiskFlags(stringSliceFromAny(eventMeta["risk_flags"]))
+	visualFocusArea := "auto"
+	if focus := mapFromAny(executablePlan["focus_window"]); len(focus) > 0 {
+		if floatFromAny(focus["end_sec"]) > floatFromAny(focus["start_sec"]) {
+			visualFocusArea = "center"
+		}
+	}
+	subjectTracking := "auto"
+	for _, item := range stringSliceFromAny(executablePlan["must_capture"]) {
+		if strings.Contains(item, "人物") || strings.Contains(item, "主角") || strings.Contains(item, "person") || strings.Contains(item, "subject") {
+			subjectTracking = "primary_subject_auto"
+			break
+		}
+	}
+	maxBlurTolerance := normalizeAI1MaxBlurTolerance("", targetFormat)
+	technicalReject := map[string]interface{}{
+		"max_blur_tolerance": maxBlurTolerance,
+		"avoid_watermarks":   true,
+		"avoid_extreme_dark": true,
+	}
+	if eventTechnicalReject := mapFromAny(eventMeta["technical_reject"]); len(eventTechnicalReject) > 0 {
+		for key, value := range eventTechnicalReject {
+			technicalReject[key] = value
+		}
+	}
+	rhythmTrajectory := normalizeAI1RhythmTrajectory("", targetFormat)
+	strategyProfile := mapFromAny(eventMeta["strategy_profile_v1"])
+	advancedOptions := mapFromAny(eventMeta["advanced_options_v1"])
+	postprocess := mapFromAny(eventMeta["postprocess"])
+	operatorIdentity := strings.TrimSpace(firstNonEmptyString(
+		stringFromAny(eventMeta["operator_identity"]),
+		stringFromAny(strategyProfile["operator_identity"]),
+	))
+	candidateCountBias := mapFromAny(eventMeta["candidate_count_bias"])
+	if len(candidateCountBias) == 0 {
+		candidateCountBias = mapFromAny(strategyProfile["candidate_count_bias"])
+	}
+	if len(candidateCountBias) == 0 {
+		candidateCountBias = mapFromAny(executablePlan["candidate_count_bias"])
+	}
+	if len(candidateCountBias) > 0 {
+		minCount, maxCount := normalizeCandidateCountBias(
+			intFromAny(candidateCountBias["min"]),
+			intFromAny(candidateCountBias["max"]),
+			targetFormat,
+		)
+		candidateCountBias = map[string]interface{}{
+			"min": minCount,
+			"max": maxCount,
+		}
+	}
 	out := map[string]interface{}{
+		"schema_version":      AI2DirectiveSchemaV2,
 		"instruction_version": schemaVersion,
-		"target_format":       strings.ToLower(strings.TrimSpace(stringFromAny(executablePlan["target_format"]))),
+		"target_format":       targetFormat,
 		"objective":           strings.TrimSpace(stringFromAny(eventMeta["business_goal"])),
 		"sampling_plan":       cloneMapStringKey(executablePlan),
+		"quality_weights":     qualityWeights,
+		"risk_flags":          riskFlags,
+		"visual_focus_area":   visualFocusArea,
+		"subject_tracking":    subjectTracking,
+		"technical_reject":    technicalReject,
+		"rhythm_trajectory":   rhythmTrajectory,
 		"source":              "ai1_executable_plan",
 	}
 	if out["objective"] == "" {
 		out["objective"] = "extract_high_quality_frames"
+	}
+	if operatorIdentity != "" {
+		out["operator_identity"] = operatorIdentity
+	}
+	if len(candidateCountBias) > 0 {
+		out["candidate_count_bias"] = candidateCountBias
+	}
+	if len(strategyProfile) > 0 {
+		out["strategy_profile"] = strategyProfile
+		if strategyTechnicalReject := mapFromAny(strategyProfile["technical_reject"]); len(strategyTechnicalReject) > 0 {
+			mergedReject := mapFromAny(out["technical_reject"])
+			for key, value := range strategyTechnicalReject {
+				mergedReject[key] = value
+			}
+			mergedReject["max_blur_tolerance"] = normalizeAI1MaxBlurTolerance(
+				stringFromAny(mergedReject["max_blur_tolerance"]),
+				targetFormat,
+			)
+			if _, exists := mergedReject["avoid_watermarks"]; !exists {
+				mergedReject["avoid_watermarks"] = true
+			}
+			if _, exists := mergedReject["avoid_extreme_dark"]; !exists {
+				mergedReject["avoid_extreme_dark"] = true
+			}
+			out["technical_reject"] = mergedReject
+		}
+	}
+	if mergedReject := mapFromAny(out["technical_reject"]); len(mergedReject) > 0 {
+		mergedReject["max_blur_tolerance"] = normalizeAI1MaxBlurTolerance(
+			stringFromAny(mergedReject["max_blur_tolerance"]),
+			targetFormat,
+		)
+		if _, exists := mergedReject["avoid_watermarks"]; !exists {
+			mergedReject["avoid_watermarks"] = true
+		}
+		if _, exists := mergedReject["avoid_extreme_dark"]; !exists {
+			mergedReject["avoid_extreme_dark"] = true
+		}
+		out["technical_reject"] = mergedReject
+	}
+	if len(advancedOptions) > 0 {
+		out["advanced_options"] = advancedOptions
+	}
+	if len(postprocess) > 0 {
+		out["postprocess"] = postprocess
 	}
 	for _, key := range []string{"must_capture", "avoid", "style_direction"} {
 		if value, ok := executablePlan[key]; ok && value != nil {
@@ -907,6 +1129,64 @@ func (p *Processor) buildImageAI1ExecutablePlan(
 			"fps":              roundTo(meta.FPS, 3),
 		},
 		DirectorSnapshot: map[string]interface{}{},
+	}
+	optionsPayload := parseJSONMap(job.Options)
+	advancedOptions := ParseVideoJobAdvancedOptions(optionsPayload["ai1_advanced_options_v1"])
+	advancedOptions, advancedSceneGuard := clampPNGMainlineAdvancedOptions(requestedFormat, advancedOptions)
+	storedStrategyProfile := ParseStrategyProfileFromAny(optionsPayload["ai1_strategy_profile_v1"])
+	strategyProfile, strategyTrace := p.resolveVideoJobAI1StrategyProfileWithOverrides(requestedFormat, advancedOptions, storedStrategyProfile)
+	plan.EventMeta["advanced_options_v1"] = AdvancedOptionsToMap(advancedOptions)
+	if len(advancedSceneGuard) > 0 {
+		plan.EventMeta["advanced_scene_guard_v1"] = advancedSceneGuard
+	}
+	plan.EventMeta["strategy_profile_v1"] = StrategyProfileToMap(strategyProfile)
+	if len(strategyTrace) > 0 {
+		plan.EventMeta["strategy_profile_trace_v1"] = strategyTrace
+	}
+	if text := strings.TrimSpace(strategyProfile.BusinessGoal); text != "" {
+		plan.EventMeta["business_goal"] = text
+	}
+	if text := strings.TrimSpace(strategyProfile.Audience); text != "" {
+		plan.EventMeta["audience"] = text
+	}
+	if text := strings.TrimSpace(strategyProfile.OperatorIdentity); text != "" {
+		plan.EventMeta["operator_identity"] = text
+	}
+	if text := strings.TrimSpace(strategyProfile.StyleDirection); text != "" {
+		plan.EventMeta["style_direction"] = text
+	}
+	if strategyProfile.CandidateCountMin > 0 || strategyProfile.CandidateCountMax > 0 {
+		minCount, maxCount := normalizeCandidateCountBias(
+			strategyProfile.CandidateCountMin,
+			strategyProfile.CandidateCountMax,
+			requestedFormat,
+		)
+		plan.EventMeta["candidate_count_bias"] = map[string]interface{}{
+			"min": minCount,
+			"max": maxCount,
+		}
+	}
+	if len(strategyProfile.MustCaptureBias) > 0 {
+		plan.EventMeta["must_capture"] = strategyProfile.MustCaptureBias
+	}
+	if len(strategyProfile.AvoidBias) > 0 {
+		plan.EventMeta["avoid"] = strategyProfile.AvoidBias
+	}
+	if len(strategyProfile.QualityWeights) > 0 {
+		plan.EventMeta["quality_weights"] = strategyProfile.QualityWeights
+	}
+	if len(strategyProfile.RiskFlags) > 0 {
+		plan.EventMeta["risk_flags"] = strategyProfile.RiskFlags
+	}
+	if hint := strings.TrimSpace(strategyProfile.DirectiveHint); hint != "" {
+		plan.EventMeta["directive_text"] = hint
+	}
+	if advancedOptions.EnableMatting {
+		plan.EventMeta["postprocess"] = map[string]interface{}{
+			"enable_matting": true,
+			"type":           "portrait_cutout",
+			"output_alpha":   true,
+		}
 	}
 
 	localSuggestion, localErr := suggestHighlightWindow(ctx, sourcePath, meta, qualitySettings)
@@ -968,9 +1248,62 @@ func (p *Processor) buildImageAI1ExecutablePlan(
 			plan.EventMeta["clip_count_max"] = directive.ClipCountMax
 		}
 	}
+	if len(strategyProfile.MustCaptureBias) > 0 {
+		plan.EventMeta["must_capture"] = mergeTextHints(stringSliceFromAny(plan.EventMeta["must_capture"]), strategyProfile.MustCaptureBias, 16)
+	}
+	if len(strategyProfile.AvoidBias) > 0 {
+		plan.EventMeta["avoid"] = mergeTextHints(stringSliceFromAny(plan.EventMeta["avoid"]), strategyProfile.AvoidBias, 16)
+	}
+	if style := strings.TrimSpace(stringFromAny(plan.EventMeta["style_direction"])); style == "" && strategyProfile.StyleDirection != "" {
+		plan.EventMeta["style_direction"] = strategyProfile.StyleDirection
+	}
+	if identity := strings.TrimSpace(stringFromAny(plan.EventMeta["operator_identity"])); identity == "" && strategyProfile.OperatorIdentity != "" {
+		plan.EventMeta["operator_identity"] = strategyProfile.OperatorIdentity
+	}
+	if audience := strings.TrimSpace(stringFromAny(plan.EventMeta["audience"])); audience == "" && strategyProfile.Audience != "" {
+		plan.EventMeta["audience"] = strategyProfile.Audience
+	}
+	if goal := strings.TrimSpace(stringFromAny(plan.EventMeta["business_goal"])); goal == "" && strategyProfile.BusinessGoal != "" {
+		plan.EventMeta["business_goal"] = strategyProfile.BusinessGoal
+	}
+	if hint := strings.TrimSpace(stringFromAny(plan.EventMeta["directive_text"])); hint == "" && strategyProfile.DirectiveHint != "" {
+		plan.EventMeta["directive_text"] = strategyProfile.DirectiveHint
+	}
+	plan.EventMeta["risk_flags"] = mergeRiskFlags(
+		stringSliceFromAny(plan.EventMeta["risk_flags"]),
+		strategyProfile.RiskFlags,
+	)
+	plan.EventMeta["quality_weights"] = blendQualityWeights(
+		normalizeAI2QualityWeightsAny(plan.EventMeta["quality_weights"]),
+		strategyProfile.QualityWeights,
+		0.7,
+	)
+	if advancedOptions.EnableMatting {
+		plan.EventMeta["risk_flags"] = mergeRiskFlags(stringSliceFromAny(plan.EventMeta["risk_flags"]), []string{"matting_requested"})
+		plan.EventMeta["must_capture"] = mergeTextHints(stringSliceFromAny(plan.EventMeta["must_capture"]), []string{"主体边缘清晰", "人物主体完整"}, 16)
+	}
+	if overrideReport := applyImageAI1StrategyHardOverrides(plan.EventMeta, strategyProfile, requestedFormat); len(overrideReport) > 0 {
+		plan.EventMeta["strategy_override_report_v1"] = overrideReport
+	}
+	if strategyProfile.SceneLabel != "" && strategyProfile.Scene != AdvancedScenarioDefault {
+		aiReply = strings.TrimSpace(aiReply + " 已按「" + strategyProfile.SceneLabel + "」策略组优化。")
+	}
 	plan.EventMeta["ai_reply"] = aiReply
 
 	targetCount := clampImageTargetCount(options.MaxStatic)
+	if bias := mapFromAny(plan.EventMeta["candidate_count_bias"]); len(bias) > 0 {
+		biasMin, biasMax := normalizeCandidateCountBias(
+			intFromAny(bias["min"]),
+			intFromAny(bias["max"]),
+			requestedFormat,
+		)
+		if targetCount > biasMax {
+			targetCount = biasMax
+		}
+		if targetCount < biasMin {
+			targetCount = biasMin
+		}
+	}
 	if maxHint := intFromAny(plan.EventMeta["clip_count_max"]); maxHint > 0 {
 		hintTarget := clampImageTargetCount(maxHint * 2)
 		if hintTarget > 0 && hintTarget < targetCount {
@@ -991,6 +1324,18 @@ func (p *Processor) buildImageAI1ExecutablePlan(
 		"target_count":       targetCount,
 		"frame_interval_sec": intervalSec,
 	}
+	if advanced := mapFromAny(plan.EventMeta["advanced_options_v1"]); len(advanced) > 0 {
+		plan.Executable["advanced_options"] = advanced
+	}
+	if strategy := mapFromAny(plan.EventMeta["strategy_profile_v1"]); len(strategy) > 0 {
+		plan.Executable["strategy_profile"] = strategy
+	}
+	if candidateCountBias := mapFromAny(plan.EventMeta["candidate_count_bias"]); len(candidateCountBias) > 0 {
+		plan.Executable["candidate_count_bias"] = candidateCountBias
+	}
+	if postprocess := mapFromAny(plan.EventMeta["postprocess"]); len(postprocess) > 0 {
+		plan.Executable["postprocess"] = postprocess
+	}
 	if mode == "focus_window" {
 		plan.Executable["focus_window"] = map[string]interface{}{
 			"start_sec": focusStart,
@@ -1010,7 +1355,154 @@ func (p *Processor) buildImageAI1ExecutablePlan(
 	if style := strings.TrimSpace(stringFromAny(plan.EventMeta["style_direction"])); style != "" {
 		plan.Executable["style_direction"] = style
 	}
+	if operatorIdentity := strings.TrimSpace(stringFromAny(plan.EventMeta["operator_identity"])); operatorIdentity != "" {
+		plan.Executable["operator_identity"] = operatorIdentity
+	}
+	userFeedback := buildAI1UserFeedbackV2(plan.EventMeta, requestedFormats, meta, plan.Executable)
+	interactiveAction := strings.ToLower(strings.TrimSpace(stringFromAny(userFeedback["interactive_action"])))
+	if interactiveAction == "" {
+		interactiveAction = "proceed"
+	}
+	plan.EventMeta["interactive_action"] = interactiveAction
+	plan.EventMeta["clarify_questions"] = stringSliceFromAny(userFeedback["clarify_questions"])
+	plan.EventMeta["ai1_confidence"] = roundTo(floatFromAny(userFeedback["confidence"]), 4)
 	return plan
+}
+
+func shouldPauseForAI1NeedClarify(eventMeta map[string]interface{}, ai1Confirmed, ai1PauseConsumed bool) bool {
+	if ai1Confirmed || ai1PauseConsumed {
+		return false
+	}
+	if len(eventMeta) == 0 {
+		return false
+	}
+	action := strings.ToLower(strings.TrimSpace(stringFromAny(eventMeta["interactive_action"])))
+	return action == "need_clarify"
+}
+
+func clampPNGMainlineAdvancedOptions(
+	requestedFormat string,
+	options VideoJobAdvancedOptions,
+) (VideoJobAdvancedOptions, map[string]interface{}) {
+	normalized := NormalizeVideoJobAdvancedOptions(options)
+	if NormalizeRequestedFormat(requestedFormat) != "png" {
+		return normalized, nil
+	}
+
+	allowedScenes := map[string]struct{}{
+		AdvancedScenarioDefault:     {},
+		AdvancedScenarioXiaohongshu: {},
+	}
+	scene := NormalizeAdvancedScenario(normalized.Scene)
+	if _, ok := allowedScenes[scene]; ok {
+		normalized.Scene = scene
+		return normalized, nil
+	}
+
+	before := scene
+	if before == "" {
+		before = AdvancedScenarioDefault
+	}
+	normalized.Scene = AdvancedScenarioDefault
+	report := map[string]interface{}{
+		"version":         "png_mainline_scene_guard_v1",
+		"target_format":   "png",
+		"requested_scene": before,
+		"applied_scene":   normalized.Scene,
+		"allowed_scenes": []string{
+			AdvancedScenarioDefault,
+			AdvancedScenarioXiaohongshu,
+		},
+		"reason": "png_mainline_only_default_xiaohongshu",
+	}
+	return normalized, report
+}
+
+func applyImageAI1StrategyHardOverrides(
+	eventMeta map[string]interface{},
+	strategyProfile VideoJobAI1StrategyProfile,
+	requestedFormat string,
+) map[string]interface{} {
+	if len(eventMeta) == 0 {
+		return nil
+	}
+	overrides := make([]map[string]interface{}, 0, 6)
+	addOverride := func(field string, before interface{}, after interface{}, action string, reason string) {
+		overrides = append(overrides, map[string]interface{}{
+			"field":  strings.TrimSpace(field),
+			"before": before,
+			"after":  after,
+			"action": strings.TrimSpace(action),
+			"reason": strings.TrimSpace(reason),
+		})
+	}
+	applyLock := func(field string, lockedValue string, reason string, forceWhenDifferent bool) {
+		lockedValue = strings.TrimSpace(lockedValue)
+		if lockedValue == "" {
+			return
+		}
+		current := strings.TrimSpace(stringFromAny(eventMeta[field]))
+		if current == "" {
+			eventMeta[field] = lockedValue
+			addOverride(field, current, lockedValue, "fill_empty", reason)
+			return
+		}
+		if forceWhenDifferent && !strings.EqualFold(current, lockedValue) {
+			eventMeta[field] = lockedValue
+			addOverride(field, current, lockedValue, "force_override", reason)
+		}
+	}
+	applyWeightsLock := func(field string, lockedValue map[string]float64, reason string, forceWhenDifferent bool) {
+		if !hasPositiveQualityWeights(lockedValue) {
+			return
+		}
+		target := normalizeDirectiveQualityWeights(lockedValue)
+		current := normalizeAI2QualityWeightsAny(eventMeta[field])
+		if len(current) == 0 {
+			eventMeta[field] = target
+			addOverride(field, current, target, "fill_empty", reason)
+			return
+		}
+		if forceWhenDifferent && !isSameQualityWeights(current, target) {
+			eventMeta[field] = target
+			addOverride(field, current, target, "force_override", reason)
+		}
+	}
+
+	normalizedFormat := NormalizeRequestedFormat(strings.TrimSpace(requestedFormat))
+	scene := NormalizeAdvancedScenario(strategyProfile.Scene)
+	applyLock("style_direction", strategyProfile.StyleDirection, "scene_strategy_lock_style_direction", true)
+	if scene != "" && scene != AdvancedScenarioDefault {
+		applyLock("business_goal", strategyProfile.BusinessGoal, "scene_strategy_lock_business_goal", true)
+		applyLock("audience", strategyProfile.Audience, "scene_strategy_lock_audience", true)
+	}
+	applyLock("operator_identity", strategyProfile.OperatorIdentity, "scene_strategy_fill_operator_identity", false)
+	if normalizedFormat == "png" && (scene == AdvancedScenarioDefault || scene == AdvancedScenarioXiaohongshu) {
+		applyWeightsLock("quality_weights", strategyProfile.QualityWeights, "png_mainline_scene_lock_quality_weights", true)
+	}
+
+	report := map[string]interface{}{
+		"version":        "ai1_strategy_override_v1",
+		"lock_source":    "strategy_profile_v1",
+		"target_format":  normalizedFormat,
+		"scene":          scene,
+		"scene_label":    strings.TrimSpace(strategyProfile.SceneLabel),
+		"overrides":      overrides,
+		"override_count": len(overrides),
+		"has_override":   len(overrides) > 0,
+	}
+	return report
+}
+
+func isSameQualityWeights(a, b map[string]float64) bool {
+	a = normalizeDirectiveQualityWeights(a)
+	b = normalizeDirectiveQualityWeights(b)
+	for _, key := range []string{"semantic", "clarity", "loop", "efficiency"} {
+		if roundTo(a[key], 4) != roundTo(b[key], 4) {
+			return false
+		}
+	}
+	return true
 }
 
 func applyImageAI1ExecutablePlan(
@@ -1151,6 +1643,7 @@ func (p *Processor) persistImageAI1Plan(
 	}
 
 	planPayload := map[string]interface{}{
+		"plan_revision":     1,
 		"schema_version":    schemaVersion,
 		"requested_format":  requestedFormat,
 		"requested_formats": requestedFormats,
@@ -1201,4 +1694,26 @@ func (p *Processor) persistImageAI1Plan(
 			"error": err.Error(),
 		})
 	}
+}
+
+func countFrameCandidateMustCaptureHits(rows []frameQualityCandidateScore) int {
+	if len(rows) == 0 {
+		return 0
+	}
+	total := 0
+	for _, row := range rows {
+		total += len(row.MustCaptureHits)
+	}
+	return total
+}
+
+func countFrameCandidateAvoidHits(rows []frameQualityCandidateScore) int {
+	if len(rows) == 0 {
+		return 0
+	}
+	total := 0
+	for _, row := range rows {
+		total += len(row.AvoidHits)
+	}
+	return total
 }

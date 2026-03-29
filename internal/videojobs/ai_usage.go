@@ -34,6 +34,7 @@ type videoJobAIUsageInput struct {
 	RequestDurationMs int64
 	RequestStatus     string
 	RequestError      string
+	CostUSDOverride   float64
 	Metadata          interface{}
 }
 
@@ -85,6 +86,9 @@ func RecordVideoJobAIUsage(db *gorm.DB, in videoJobAIUsageInput) error {
 	normalized := normalizeVideoJobAIUsageInput(in)
 	pricing := lookupAIUnitPricing(normalized.Provider, normalized.Model)
 	costUSD := estimateVideoJobAIUsageCostUSD(normalized, pricing)
+	if normalized.CostUSDOverride > 0 {
+		costUSD = roundTo(normalized.CostUSDOverride, 8)
+	}
 	metadata := normalizeVideoJobAIUsageMetadata(normalized.Metadata)
 
 	row := models.VideoJobAIUsage{
@@ -152,6 +156,9 @@ func normalizeVideoJobAIUsageInput(in videoJobAIUsageInput) videoJobAIUsageInput
 	}
 	if out.RequestDurationMs < 0 {
 		out.RequestDurationMs = 0
+	}
+	if out.CostUSDOverride < 0 {
+		out.CostUSDOverride = 0
 	}
 	out.RequestStatus = strings.ToLower(strings.TrimSpace(out.RequestStatus))
 	if out.RequestStatus == "" {

@@ -552,6 +552,8 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"superres_attempted":        intFromAny(superResolutionReport["attempted"]),
 		"superres_succeeded":        intFromAny(superResolutionReport["succeeded"]),
 		"superres_replaced":         intFromAny(superResolutionReport["replaced"]),
+		"superres_total_cost_cny":   roundTo(floatFromAny(superResolutionReport["total_cost_cny"]), 6),
+		"superres_cost_capped":      boolFromAny(superResolutionReport["cost_capped"]),
 	})
 
 	if p.isJobCancelled(job.ID) {

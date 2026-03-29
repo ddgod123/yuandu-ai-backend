@@ -48,6 +48,7 @@ func TestLoadPNGAliyunSuperResConfig_BoundsAndDefaults(t *testing.T) {
 	t.Setenv("PNG_ALIYUN_SUPERRES_OUTPUT_QUALITY", "200")
 	t.Setenv("PNG_ALIYUN_SUPERRES_TIMEOUT_SECONDS", "1")
 	t.Setenv("PNG_ALIYUN_SUPERRES_COST_PER_IMAGE_CNY", "-0.5")
+	t.Setenv("PNG_ALIYUN_SUPERRES_MAX_COST_PER_JOB_CNY", "-1")
 
 	cfg := loadPNGAliyunSuperResConfig()
 
@@ -74,5 +75,23 @@ func TestLoadPNGAliyunSuperResConfig_BoundsAndDefaults(t *testing.T) {
 	}
 	if cfg.CostPerImageCNY != 0 {
 		t.Fatalf("expected non-negative cost clamp=0, got=%f", cfg.CostPerImageCNY)
+	}
+	if cfg.MaxCostPerJobCNY != 0 {
+		t.Fatalf("expected non-negative max cost clamp=0, got=%f", cfg.MaxCostPerJobCNY)
+	}
+}
+
+func TestLoadPNGAliyunSuperResConfig_MaxCostDefaultAndParse(t *testing.T) {
+	t.Setenv("PNG_ALIYUN_SUPERRES_MODE", "on")
+	t.Setenv("PNG_ALIYUN_SUPERRES_MAX_COST_PER_JOB_CNY", "")
+	cfg := loadPNGAliyunSuperResConfig()
+	if cfg.MaxCostPerJobCNY != 0.08 {
+		t.Fatalf("expected default max cost per job=0.08, got=%f", cfg.MaxCostPerJobCNY)
+	}
+
+	t.Setenv("PNG_ALIYUN_SUPERRES_MAX_COST_PER_JOB_CNY", "0.125")
+	cfg = loadPNGAliyunSuperResConfig()
+	if cfg.MaxCostPerJobCNY != 0.125 {
+		t.Fatalf("expected parsed max cost per job=0.125, got=%f", cfg.MaxCostPerJobCNY)
 	}
 }

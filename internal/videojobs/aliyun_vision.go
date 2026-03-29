@@ -23,15 +23,16 @@ const (
 )
 
 type pngAliyunSuperResConfig struct {
-	Mode            string
-	RegionID        string
-	Endpoint        string
-	MinShortSide    int
-	MaxFrames       int
-	UpscaleFactor   int
-	OutputQuality   int
-	CostPerImageCNY float64
-	TimeoutSec      int
+	Mode             string
+	RegionID         string
+	Endpoint         string
+	MinShortSide     int
+	MaxFrames        int
+	UpscaleFactor    int
+	OutputQuality    int
+	CostPerImageCNY  float64
+	MaxCostPerJobCNY float64
+	TimeoutSec       int
 }
 
 type aliyunVisionClient struct {
@@ -49,15 +50,16 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 	}
 
 	cfg := pngAliyunSuperResConfig{
-		Mode:            mode,
-		RegionID:        strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
-		Endpoint:        strings.TrimSpace(os.Getenv("ALIYUN_VISION_IMAGEENHAN_ENDPOINT")),
-		MinShortSide:    envIntOrDefault("PNG_ALIYUN_SUPERRES_MIN_SHORT_SIDE", 960),
-		MaxFrames:       envIntOrDefault("PNG_ALIYUN_SUPERRES_MAX_FRAMES", 4),
-		UpscaleFactor:   envIntOrDefault("PNG_ALIYUN_SUPERRES_UPSCALE_FACTOR", 2),
-		OutputQuality:   envIntOrDefault("PNG_ALIYUN_SUPERRES_OUTPUT_QUALITY", 95),
-		CostPerImageCNY: envFloatOrDefault("PNG_ALIYUN_SUPERRES_COST_PER_IMAGE_CNY", 0.02),
-		TimeoutSec:      envIntOrDefault("PNG_ALIYUN_SUPERRES_TIMEOUT_SECONDS", 25),
+		Mode:             mode,
+		RegionID:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
+		Endpoint:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_IMAGEENHAN_ENDPOINT")),
+		MinShortSide:     envIntOrDefault("PNG_ALIYUN_SUPERRES_MIN_SHORT_SIDE", 960),
+		MaxFrames:        envIntOrDefault("PNG_ALIYUN_SUPERRES_MAX_FRAMES", 4),
+		UpscaleFactor:    envIntOrDefault("PNG_ALIYUN_SUPERRES_UPSCALE_FACTOR", 2),
+		OutputQuality:    envIntOrDefault("PNG_ALIYUN_SUPERRES_OUTPUT_QUALITY", 95),
+		CostPerImageCNY:  envFloatOrDefault("PNG_ALIYUN_SUPERRES_COST_PER_IMAGE_CNY", 0.02),
+		MaxCostPerJobCNY: envFloatOrDefault("PNG_ALIYUN_SUPERRES_MAX_COST_PER_JOB_CNY", 0.08),
+		TimeoutSec:       envIntOrDefault("PNG_ALIYUN_SUPERRES_TIMEOUT_SECONDS", 25),
 	}
 	if cfg.RegionID == "" {
 		cfg.RegionID = "cn-shanghai"
@@ -88,6 +90,9 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 	}
 	if cfg.CostPerImageCNY < 0 {
 		cfg.CostPerImageCNY = 0
+	}
+	if cfg.MaxCostPerJobCNY < 0 {
+		cfg.MaxCostPerJobCNY = 0
 	}
 	if cfg.TimeoutSec < 5 {
 		cfg.TimeoutSec = 25
@@ -180,6 +185,7 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 	report["upscale_factor"] = cfg.UpscaleFactor
 	report["output_quality"] = cfg.OutputQuality
 	report["cost_per_image_cny"] = roundTo(cfg.CostPerImageCNY, 6)
+	report["max_cost_per_job_cny"] = roundTo(cfg.MaxCostPerJobCNY, 6)
 	report["endpoint"] = cfg.Endpoint
 	report["region_id"] = cfg.RegionID
 
@@ -208,10 +214,15 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 	skipped := 0
 	failed := 0
 	totalCostCNY := 0.0
+	costCapped := false
 	items := make([]map[string]interface{}, 0, minInt(len(framePaths), cfg.MaxFrames))
 
 	for idx, framePath := range framePaths {
 		if attempted >= cfg.MaxFrames {
+			break
+		}
+		if cfg.MaxCostPerJobCNY > 0 && (totalCostCNY+cfg.CostPerImageCNY) > (cfg.MaxCostPerJobCNY+1e-9) {
+			costCapped = true
 			break
 		}
 		_, width, height := readImageInfo(framePath)
@@ -312,6 +323,11 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 	report["failed"] = failed
 	report["skipped"] = skipped
 	report["total_cost_cny"] = roundTo(totalCostCNY, 6)
+	report["cost_capped"] = costCapped
+	report["remaining_budget_cny"] = roundTo(maxFloat(0, cfg.MaxCostPerJobCNY-totalCostCNY), 6)
+	if costCapped {
+		report["stop_reason"] = "cost_cap_reached"
+	}
 	report["items"] = items
 	return replacedPaths, report
 }

@@ -485,6 +485,11 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		framePaths = optimizedFramePaths
 	}
 
+	framePaths, faceEnhancementReport := p.maybeApplyPNGAliyunFaceEnhancement(ctx, job, primaryFormat, framePaths, ai2Guidance)
+	if len(faceEnhancementReport) > 0 {
+		metrics[fmt.Sprintf("%s_worker_face_enhancement_v1", metricPrefix)] = faceEnhancementReport
+	}
+
 	framePaths, superResolutionReport := p.maybeApplyPNGAliyunSuperResolution(ctx, job, primaryFormat, framePaths)
 	if len(superResolutionReport) > 0 {
 		metrics[fmt.Sprintf("%s_worker_super_resolution_v1", metricPrefix)] = superResolutionReport
@@ -536,24 +541,30 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"metrics":  mustJSON(metrics),
 	})
 	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "frame extraction completed", map[string]interface{}{
-		"frames":                    len(framePaths),
-		"quality_blur_reject":       qualityReport.RejectedBlur,
-		"quality_bright_reject":     qualityReport.RejectedBrightness,
-		"quality_exposure_reject":   qualityReport.RejectedExposure,
-		"quality_resolution_reject": qualityReport.RejectedResolution,
-		"quality_still_blur_reject": qualityReport.RejectedStillBlurGate,
-		"quality_watermark_reject":  qualityReport.RejectedWatermark,
-		"quality_dup_reject":        qualityReport.RejectedNearDuplicate,
-		"quality_fallback":          qualityReport.FallbackApplied,
-		"quality_selector_version":  qualityReport.SelectorVersion,
-		"quality_scoring_mode":      qualityReport.ScoringMode,
-		"quality_selection_policy":  qualityReport.SelectionPolicy,
-		"superres_mode":             stringFromAny(superResolutionReport["mode"]),
-		"superres_attempted":        intFromAny(superResolutionReport["attempted"]),
-		"superres_succeeded":        intFromAny(superResolutionReport["succeeded"]),
-		"superres_replaced":         intFromAny(superResolutionReport["replaced"]),
-		"superres_total_cost_cny":   roundTo(floatFromAny(superResolutionReport["total_cost_cny"]), 6),
-		"superres_cost_capped":      boolFromAny(superResolutionReport["cost_capped"]),
+		"frames":                      len(framePaths),
+		"quality_blur_reject":         qualityReport.RejectedBlur,
+		"quality_bright_reject":       qualityReport.RejectedBrightness,
+		"quality_exposure_reject":     qualityReport.RejectedExposure,
+		"quality_resolution_reject":   qualityReport.RejectedResolution,
+		"quality_still_blur_reject":   qualityReport.RejectedStillBlurGate,
+		"quality_watermark_reject":    qualityReport.RejectedWatermark,
+		"quality_dup_reject":          qualityReport.RejectedNearDuplicate,
+		"quality_fallback":            qualityReport.FallbackApplied,
+		"quality_selector_version":    qualityReport.SelectorVersion,
+		"quality_scoring_mode":        qualityReport.ScoringMode,
+		"quality_selection_policy":    qualityReport.SelectionPolicy,
+		"face_enhance_mode":           stringFromAny(faceEnhancementReport["mode"]),
+		"face_enhance_attempted":      intFromAny(faceEnhancementReport["attempted"]),
+		"face_enhance_succeeded":      intFromAny(faceEnhancementReport["succeeded"]),
+		"face_enhance_replaced":       intFromAny(faceEnhancementReport["replaced"]),
+		"face_enhance_total_cost_cny": roundTo(floatFromAny(faceEnhancementReport["total_cost_cny"]), 6),
+		"face_enhance_cost_capped":    boolFromAny(faceEnhancementReport["cost_capped"]),
+		"superres_mode":               stringFromAny(superResolutionReport["mode"]),
+		"superres_attempted":          intFromAny(superResolutionReport["attempted"]),
+		"superres_succeeded":          intFromAny(superResolutionReport["succeeded"]),
+		"superres_replaced":           intFromAny(superResolutionReport["replaced"]),
+		"superres_total_cost_cny":     roundTo(floatFromAny(superResolutionReport["total_cost_cny"]), 6),
+		"superres_cost_capped":        boolFromAny(superResolutionReport["cost_capped"]),
 	})
 
 	if p.isJobCancelled(job.ID) {

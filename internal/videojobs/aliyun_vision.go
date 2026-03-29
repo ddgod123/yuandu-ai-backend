@@ -9,6 +9,7 @@ import (
 	"time"
 
 	openapiutil "github.com/alibabacloud-go/darabonba-openapi/v2/utils"
+	facebody "github.com/alibabacloud-go/facebody-20191230/v6/client"
 	imageenhan "github.com/alibabacloud-go/imageenhan-20190930/v2/client"
 	"github.com/alibabacloud-go/tea/dara"
 	"github.com/alibabacloud-go/tea/tea"
@@ -20,6 +21,10 @@ const (
 	pngAliyunSuperResModeOff    = "off"
 	pngAliyunSuperResModeShadow = "shadow"
 	pngAliyunSuperResModeOn     = "on"
+
+	pngAliyunFaceEnhanceModeOff  = "off"
+	pngAliyunFaceEnhanceModeAuto = "auto"
+	pngAliyunFaceEnhanceModeOn   = "on"
 )
 
 type pngAliyunSuperResConfig struct {
@@ -35,9 +40,25 @@ type pngAliyunSuperResConfig struct {
 	TimeoutSec       int
 }
 
+type pngAliyunFaceEnhanceConfig struct {
+	Mode             string
+	RegionID         string
+	Endpoint         string
+	MinShortSide     int
+	MaxFrames        int
+	TimeoutSec       int
+	CostPerImageCNY  float64
+	MaxCostPerJobCNY float64
+}
+
 type aliyunVisionClient struct {
 	imageClient *imageenhan.Client
 	endpoint    string
+}
+
+type aliyunFaceVisionClient struct {
+	faceClient *facebody.Client
+	endpoint   string
 }
 
 func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
@@ -100,6 +121,52 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 	return cfg
 }
 
+func loadPNGAliyunFaceEnhanceConfig() pngAliyunFaceEnhanceConfig {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PNG_ALIYUN_FACE_ENHANCE_MODE")))
+	switch mode {
+	case pngAliyunFaceEnhanceModeOff, pngAliyunFaceEnhanceModeAuto, pngAliyunFaceEnhanceModeOn:
+	default:
+		// 人脸增强默认自动：仅 portrait 场景尝试
+		mode = pngAliyunFaceEnhanceModeAuto
+	}
+
+	cfg := pngAliyunFaceEnhanceConfig{
+		Mode:             mode,
+		RegionID:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
+		Endpoint:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_FACEBODY_ENDPOINT")),
+		MinShortSide:     envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_SHORT_SIDE", 360),
+		MaxFrames:        envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_FRAMES", 2),
+		TimeoutSec:       envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_TIMEOUT_SECONDS", 25),
+		CostPerImageCNY:  envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_COST_PER_IMAGE_CNY", 0.01),
+		MaxCostPerJobCNY: envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_COST_PER_JOB_CNY", 0.02),
+	}
+	if cfg.RegionID == "" {
+		cfg.RegionID = "cn-shanghai"
+	}
+	if cfg.Endpoint == "" {
+		cfg.Endpoint = "facebody.cn-shanghai.aliyuncs.com"
+	}
+	if cfg.MinShortSide < 1 {
+		cfg.MinShortSide = 360
+	}
+	if cfg.MaxFrames < 1 {
+		cfg.MaxFrames = 2
+	}
+	if cfg.MaxFrames > 12 {
+		cfg.MaxFrames = 12
+	}
+	if cfg.TimeoutSec < 5 {
+		cfg.TimeoutSec = 25
+	}
+	if cfg.CostPerImageCNY < 0 {
+		cfg.CostPerImageCNY = 0
+	}
+	if cfg.MaxCostPerJobCNY < 0 {
+		cfg.MaxCostPerJobCNY = 0
+	}
+	return cfg
+}
+
 func newAliyunVisionClient(cfg pngAliyunSuperResConfig) (*aliyunVisionClient, error) {
 	ak := strings.TrimSpace(os.Getenv("ALIYUN_ACCESS_KEY_ID"))
 	sk := strings.TrimSpace(os.Getenv("ALIYUN_ACCESS_KEY_SECRET"))
@@ -120,6 +187,29 @@ func newAliyunVisionClient(cfg pngAliyunSuperResConfig) (*aliyunVisionClient, er
 	return &aliyunVisionClient{
 		imageClient: imageClient,
 		endpoint:    cfg.Endpoint,
+	}, nil
+}
+
+func newAliyunFaceVisionClient(cfg pngAliyunFaceEnhanceConfig) (*aliyunFaceVisionClient, error) {
+	ak := strings.TrimSpace(os.Getenv("ALIYUN_ACCESS_KEY_ID"))
+	sk := strings.TrimSpace(os.Getenv("ALIYUN_ACCESS_KEY_SECRET"))
+	if ak == "" || sk == "" {
+		return nil, errors.New("missing ALIYUN_ACCESS_KEY_ID / ALIYUN_ACCESS_KEY_SECRET")
+	}
+
+	openapiCfg := &openapiutil.Config{
+		AccessKeyId:     tea.String(ak),
+		AccessKeySecret: tea.String(sk),
+		Endpoint:        tea.String(cfg.Endpoint),
+		RegionId:        tea.String(cfg.RegionID),
+	}
+	faceClient, err := facebody.NewClient(openapiCfg)
+	if err != nil {
+		return nil, err
+	}
+	return &aliyunFaceVisionClient{
+		faceClient: faceClient,
+		endpoint:   cfg.Endpoint,
 	}, nil
 }
 
@@ -162,6 +252,248 @@ func (c *aliyunVisionClient) makeSuperResolutionFromFile(
 		requestID = strings.TrimSpace(*resp.Body.RequestId)
 	}
 	return strings.TrimSpace(*resp.Body.Data.Url), requestID, durationMs, nil
+}
+
+func (c *aliyunFaceVisionClient) enhanceFaceFromFile(
+	srcPath string,
+	timeoutSec int,
+) (url string, requestID string, durationMs int64, err error) {
+	if c == nil || c.faceClient == nil {
+		return "", "", 0, errors.New("aliyun face client is nil")
+	}
+	file, err := os.Open(strings.TrimSpace(srcPath))
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer file.Close()
+
+	req := &facebody.EnhanceFaceAdvanceRequest{
+		ImageURLObject: file,
+	}
+	runtime := &dara.RuntimeOptions{}
+	runtime.SetReadTimeout(timeoutSec * 1000)
+	runtime.SetConnectTimeout(timeoutSec * 1000)
+
+	started := time.Now()
+	resp, err := c.faceClient.EnhanceFaceAdvance(req, runtime)
+	durationMs = clampDurationMillis(started)
+	if err != nil {
+		return "", "", durationMs, err
+	}
+	if resp == nil || resp.Body == nil || resp.Body.Data == nil || resp.Body.Data.ImageURL == nil {
+		return "", "", durationMs, errors.New("aliyun EnhanceFace response image url is empty")
+	}
+	if resp.Body.RequestId != nil {
+		requestID = strings.TrimSpace(*resp.Body.RequestId)
+	}
+	return strings.TrimSpace(*resp.Body.Data.ImageURL), requestID, durationMs, nil
+}
+
+func shouldAutoApplyPNGAliyunFaceEnhancement(guidance imageAI2Guidance) bool {
+	if hasVisualFocus(guidance.VisualFocus, "portrait") || guidance.EnableMatting {
+		return true
+	}
+	if guidance.Scene == AdvancedScenarioXiaohongshu {
+		return true
+	}
+	if containsFaceIntentKeyword(guidance.Objective) || containsFaceIntentKeyword(guidance.StyleDirection) {
+		return true
+	}
+	for _, item := range guidance.MustCapture {
+		if containsFaceIntentKeyword(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFaceIntentKeyword(input string) bool {
+	value := strings.ToLower(strings.TrimSpace(input))
+	if value == "" {
+		return false
+	}
+	keywords := []string{
+		"人脸", "面部", "脸部", "人像", "肖像", "特写",
+		"face", "portrait", "headshot", "close-up", "closeup",
+	}
+	for _, key := range keywords {
+		if strings.Contains(value, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
+	ctx context.Context,
+	job models.VideoJob,
+	primaryFormat string,
+	framePaths []string,
+	guidance imageAI2Guidance,
+) ([]string, map[string]interface{}) {
+	report := map[string]interface{}{
+		"schema_version": "png_worker_face_enhancement_v1",
+	}
+	if NormalizeRequestedFormat(primaryFormat) != "png" {
+		report["status"] = "skipped_not_png"
+		return framePaths, report
+	}
+	if len(framePaths) == 0 {
+		report["status"] = "no_frames"
+		return framePaths, report
+	}
+
+	cfg := loadPNGAliyunFaceEnhanceConfig()
+	report["mode"] = cfg.Mode
+	report["min_short_side"] = cfg.MinShortSide
+	report["max_frames"] = cfg.MaxFrames
+	report["timeout_sec"] = cfg.TimeoutSec
+	report["cost_per_image_cny"] = roundTo(cfg.CostPerImageCNY, 6)
+	report["max_cost_per_job_cny"] = roundTo(cfg.MaxCostPerJobCNY, 6)
+	report["endpoint"] = cfg.Endpoint
+	report["region_id"] = cfg.RegionID
+	report["scene"] = guidance.Scene
+	report["visual_focus"] = guidance.VisualFocus
+	report["enable_matting"] = guidance.EnableMatting
+
+	if cfg.Mode == pngAliyunFaceEnhanceModeOff {
+		report["status"] = "disabled"
+		return framePaths, report
+	}
+	autoShouldApply := shouldAutoApplyPNGAliyunFaceEnhancement(guidance)
+	report["auto_should_apply"] = autoShouldApply
+	if cfg.Mode == pngAliyunFaceEnhanceModeAuto && !autoShouldApply {
+		report["status"] = "auto_skipped_non_portrait"
+		return framePaths, report
+	}
+
+	client, err := newAliyunFaceVisionClient(cfg)
+	if err != nil {
+		report["status"] = "client_init_failed"
+		report["error"] = err.Error()
+		return framePaths, report
+	}
+
+	replacedPaths := make([]string, len(framePaths))
+	copy(replacedPaths, framePaths)
+
+	attempted := 0
+	succeeded := 0
+	replaced := 0
+	skipped := 0
+	failed := 0
+	costCapped := false
+	totalCostCNY := 0.0
+	items := make([]map[string]interface{}, 0, minInt(len(framePaths), cfg.MaxFrames))
+
+	for idx, framePath := range framePaths {
+		if attempted >= cfg.MaxFrames {
+			break
+		}
+		if cfg.MaxCostPerJobCNY > 0 && (totalCostCNY+cfg.CostPerImageCNY) > (cfg.MaxCostPerJobCNY+1e-9) {
+			costCapped = true
+			break
+		}
+		_, width, height := readImageInfo(framePath)
+		shortSide := minInt(width, height)
+		if width <= 0 || height <= 0 || shortSide < cfg.MinShortSide {
+			skipped++
+			continue
+		}
+
+		attempted++
+		item := map[string]interface{}{
+			"index":      idx,
+			"frame_path": framePath,
+			"width":      width,
+			"height":     height,
+		}
+		url, requestID, durationMs, callErr := client.enhanceFaceFromFile(framePath, cfg.TimeoutSec)
+		item["duration_ms"] = durationMs
+		item["request_id"] = requestID
+		if callErr != nil {
+			failed++
+			item["status"] = "api_error"
+			item["error"] = callErr.Error()
+			items = append(items, item)
+			p.recordAliyunFaceEnhancementUsage(job, client.endpoint, "error", durationMs, 0, map[string]interface{}{
+				"reason":      "api_error",
+				"frame_index": idx,
+				"frame_path":  framePath,
+				"width":       width,
+				"height":      height,
+				"request_id":  requestID,
+			})
+			continue
+		}
+		item["response_url"] = url
+
+		enhancedPath := framePath + ".face.png"
+		if err := p.downloadObject(ctx, url, enhancedPath); err != nil {
+			failed++
+			item["status"] = "download_error"
+			item["error"] = err.Error()
+			items = append(items, item)
+			p.recordAliyunFaceEnhancementUsage(job, client.endpoint, "error", durationMs, 0, map[string]interface{}{
+				"reason":       "download_error",
+				"frame_index":  idx,
+				"frame_path":   framePath,
+				"enhanced_url": url,
+				"request_id":   requestID,
+			})
+			continue
+		}
+
+		_, ew, eh := readImageInfo(enhancedPath)
+		if ew <= 0 || eh <= 0 {
+			failed++
+			item["status"] = "enhanced_invalid"
+			item["error"] = "enhanced image info invalid"
+			items = append(items, item)
+			p.recordAliyunFaceEnhancementUsage(job, client.endpoint, "error", durationMs, 0, map[string]interface{}{
+				"reason":        "enhanced_invalid",
+				"frame_index":   idx,
+				"frame_path":    framePath,
+				"enhanced_path": enhancedPath,
+				"request_id":    requestID,
+			})
+			continue
+		}
+
+		item["enhanced_path"] = enhancedPath
+		item["enhanced_width"] = ew
+		item["enhanced_height"] = eh
+		item["status"] = "ok"
+		succeeded++
+		totalCostCNY += cfg.CostPerImageCNY
+		replacedPaths[idx] = enhancedPath
+		replaced++
+		items = append(items, item)
+		p.recordAliyunFaceEnhancementUsage(job, client.endpoint, "ok", durationMs, cfg.CostPerImageCNY, map[string]interface{}{
+			"frame_index":     idx,
+			"frame_path":      framePath,
+			"enhanced_path":   enhancedPath,
+			"enhanced_width":  ew,
+			"enhanced_height": eh,
+			"request_id":      requestID,
+			"mode":            cfg.Mode,
+		})
+	}
+
+	report["status"] = "done"
+	report["attempted"] = attempted
+	report["succeeded"] = succeeded
+	report["replaced"] = replaced
+	report["failed"] = failed
+	report["skipped"] = skipped
+	report["cost_capped"] = costCapped
+	report["total_cost_cny"] = roundTo(totalCostCNY, 6)
+	report["remaining_budget_cny"] = roundTo(maxFloat(0, cfg.MaxCostPerJobCNY-totalCostCNY), 6)
+	if costCapped {
+		report["stop_reason"] = "cost_cap_reached"
+	}
+	report["items"] = items
+	return replacedPaths, report
 }
 
 func (p *Processor) maybeApplyPNGAliyunSuperResolution(
@@ -354,6 +686,36 @@ func (p *Processor) recordAliyunSuperResolutionUsage(
 		Stage:             "worker_super_resolution",
 		Provider:          "aliyun_viapi",
 		Model:             "MakeSuperResolutionImage",
+		Endpoint:          strings.TrimSpace(endpoint),
+		RequestDurationMs: durationMs,
+		RequestStatus:     strings.ToLower(strings.TrimSpace(status)),
+		Metadata:          metadata,
+		CostUSDOverride:   costUSD,
+	})
+}
+
+func (p *Processor) recordAliyunFaceEnhancementUsage(
+	job models.VideoJob,
+	endpoint string,
+	status string,
+	durationMs int64,
+	costCNY float64,
+	metadata map[string]interface{},
+) {
+	if p == nil || p.db == nil || job.ID == 0 || job.UserID == 0 {
+		return
+	}
+	usdToCNY := loadUSDtoCNYRate()
+	costUSD := 0.0
+	if costCNY > 0 && usdToCNY > 0 {
+		costUSD = roundTo(costCNY/usdToCNY, 8)
+	}
+	_ = RecordVideoJobAIUsage(p.db, videoJobAIUsageInput{
+		JobID:             job.ID,
+		UserID:            job.UserID,
+		Stage:             "worker_face_enhancement",
+		Provider:          "aliyun_viapi",
+		Model:             "EnhanceFace",
 		Endpoint:          strings.TrimSpace(endpoint),
 		RequestDurationMs: durationMs,
 		RequestStatus:     strings.ToLower(strings.TrimSpace(status)),

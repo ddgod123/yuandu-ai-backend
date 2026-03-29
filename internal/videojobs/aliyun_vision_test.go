@@ -95,3 +95,67 @@ func TestLoadPNGAliyunSuperResConfig_MaxCostDefaultAndParse(t *testing.T) {
 		t.Fatalf("expected parsed max cost per job=0.125, got=%f", cfg.MaxCostPerJobCNY)
 	}
 }
+
+func TestLoadPNGAliyunFaceEnhanceConfig_ModeDefaultAuto(t *testing.T) {
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_MODE", "")
+	cfg := loadPNGAliyunFaceEnhanceConfig()
+	if cfg.Mode != pngAliyunFaceEnhanceModeAuto {
+		t.Fatalf("expected default mode=%s, got=%s", pngAliyunFaceEnhanceModeAuto, cfg.Mode)
+	}
+}
+
+func TestLoadPNGAliyunFaceEnhanceConfig_BoundsAndDefaults(t *testing.T) {
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_MODE", "on")
+	t.Setenv("ALIYUN_VISION_REGION_ID", "")
+	t.Setenv("ALIYUN_VISION_FACEBODY_ENDPOINT", "")
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_MIN_SHORT_SIDE", "-1")
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_MAX_FRAMES", "999")
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_TIMEOUT_SECONDS", "1")
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_COST_PER_IMAGE_CNY", "-1")
+	t.Setenv("PNG_ALIYUN_FACE_ENHANCE_MAX_COST_PER_JOB_CNY", "-2")
+
+	cfg := loadPNGAliyunFaceEnhanceConfig()
+	if cfg.RegionID != "cn-shanghai" {
+		t.Fatalf("expected default region cn-shanghai, got=%s", cfg.RegionID)
+	}
+	if cfg.Endpoint != "facebody.cn-shanghai.aliyuncs.com" {
+		t.Fatalf("expected default endpoint, got=%s", cfg.Endpoint)
+	}
+	if cfg.MinShortSide != 360 {
+		t.Fatalf("expected min short side clamp=360, got=%d", cfg.MinShortSide)
+	}
+	if cfg.MaxFrames != 12 {
+		t.Fatalf("expected max frames clamp=12, got=%d", cfg.MaxFrames)
+	}
+	if cfg.TimeoutSec != 25 {
+		t.Fatalf("expected timeout lower-bound fallback=25, got=%d", cfg.TimeoutSec)
+	}
+	if cfg.CostPerImageCNY != 0 {
+		t.Fatalf("expected non-negative cost clamp=0, got=%f", cfg.CostPerImageCNY)
+	}
+	if cfg.MaxCostPerJobCNY != 0 {
+		t.Fatalf("expected non-negative max cost clamp=0, got=%f", cfg.MaxCostPerJobCNY)
+	}
+}
+
+func TestShouldAutoApplyPNGAliyunFaceEnhancement(t *testing.T) {
+	if !shouldAutoApplyPNGAliyunFaceEnhancement(imageAI2Guidance{VisualFocus: []string{"portrait"}}) {
+		t.Fatal("expected portrait focus to enable auto face enhancement")
+	}
+	if !shouldAutoApplyPNGAliyunFaceEnhancement(imageAI2Guidance{EnableMatting: true}) {
+		t.Fatal("expected matting to enable auto face enhancement")
+	}
+	if !shouldAutoApplyPNGAliyunFaceEnhancement(imageAI2Guidance{Scene: AdvancedScenarioXiaohongshu}) {
+		t.Fatal("expected xiaohongshu scene to enable auto face enhancement")
+	}
+	if !shouldAutoApplyPNGAliyunFaceEnhancement(imageAI2Guidance{MustCapture: []string{"人脸特写"}}) {
+		t.Fatal("expected face must_capture to enable auto face enhancement")
+	}
+	if shouldAutoApplyPNGAliyunFaceEnhancement(imageAI2Guidance{
+		Scene:       AdvancedScenarioDefault,
+		VisualFocus: []string{"vibe"},
+		MustCapture: []string{"全景氛围"},
+	}) {
+		t.Fatal("expected non-portrait vibe scene to skip auto face enhancement")
+	}
+}

@@ -44,19 +44,27 @@ var allowedVideoFileExt = map[string]struct{}{
 }
 
 type CreateVideoJobRequest struct {
-	Title            string                    `json:"title"`
-	Prompt           string                    `json:"prompt,omitempty"`
-	AIModel          string                    `json:"ai_model,omitempty"`
-	FlowMode         string                    `json:"flow_mode,omitempty"`
-	CategoryID       *uint64                   `json:"category_id"`
-	SourceVideoKey   string                    `json:"source_video_key"`
-	OutputFormats    []string                  `json:"output_formats"`
-	GIFPipelineMode  string                    `json:"gif_pipeline_mode,omitempty"`
-	MaxStatic        int                       `json:"max_static"`
-	FrameIntervalSec float64                   `json:"frame_interval_sec"`
-	AutoHighlight    *bool                     `json:"auto_highlight"`
-	Priority         string                    `json:"priority"`
-	EditOptions      *VideoJobEditOptionsInput `json:"edit_options"`
+	Title            string                        `json:"title"`
+	Prompt           string                        `json:"prompt,omitempty"`
+	AIModel          string                        `json:"ai_model,omitempty"`
+	FlowMode         string                        `json:"flow_mode,omitempty"`
+	AdvancedOptions  *VideoJobAdvancedOptionsInput `json:"advanced_options,omitempty"`
+	CategoryID       *uint64                       `json:"category_id"`
+	SourceVideoKey   string                        `json:"source_video_key"`
+	OutputFormats    []string                      `json:"output_formats"`
+	GIFPipelineMode  string                        `json:"gif_pipeline_mode,omitempty"`
+	MaxStatic        int                           `json:"max_static"`
+	FrameIntervalSec float64                       `json:"frame_interval_sec"`
+	AutoHighlight    *bool                         `json:"auto_highlight"`
+	Priority         string                        `json:"priority"`
+	EditOptions      *VideoJobEditOptionsInput     `json:"edit_options"`
+}
+
+type VideoJobAdvancedOptionsInput struct {
+	Scene         string   `json:"scene,omitempty"`
+	Scenario      string   `json:"scenario,omitempty"`
+	VisualFocus   []string `json:"visual_focus,omitempty"`
+	EnableMatting *bool    `json:"enable_matting,omitempty"`
 }
 
 type VideoJobCropInput struct {
@@ -97,7 +105,19 @@ type VideoJobResponse struct {
 	FinishedAt         *time.Time             `json:"finished_at,omitempty"`
 	CreatedAt          time.Time              `json:"created_at"`
 	UpdatedAt          time.Time              `json:"updated_at"`
+	Billing            *VideoJobBillingInfo   `json:"billing,omitempty"`
 	ResultSummary      *VideoJobResultSummary `json:"result_summary,omitempty"`
+}
+
+type VideoJobBillingInfo struct {
+	ActualCostCNY        float64 `json:"actual_cost_cny"`
+	Currency             string  `json:"currency,omitempty"`
+	PricingVersion       string  `json:"pricing_version,omitempty"`
+	ChargedPoints        int64   `json:"charged_points"`
+	ReservedPoints       int64   `json:"reserved_points"`
+	HoldStatus           string  `json:"hold_status,omitempty"`
+	PointPerCNY          float64 `json:"point_per_cny"`
+	CostMarkupMultiplier float64 `json:"cost_markup_multiplier"`
 }
 
 type VideoJobResultSummary struct {
@@ -107,6 +127,8 @@ type VideoJobResultSummary struct {
 	PreviewImages         []string `json:"preview_images,omitempty"`
 	FormatSummary         []string `json:"format_summary,omitempty"`
 	PackageStatus         string   `json:"package_status,omitempty"`
+	PackageSizeBytes      int64    `json:"package_size_bytes,omitempty"`
+	OutputTotalSizeBytes  int64    `json:"output_total_size_bytes,omitempty"`
 	QualitySampleCount    int      `json:"quality_sample_count,omitempty"`
 	QualityTopScore       float64  `json:"quality_top_score,omitempty"`
 	QualityAvgScore       float64  `json:"quality_avg_score,omitempty"`
@@ -154,6 +176,7 @@ type VideoJobResultResponse struct {
 	Status             string                     `json:"status"`
 	DeliveryOnly       bool                       `json:"delivery_only,omitempty"`
 	ReviewStatusFilter []string                   `json:"review_status_filter,omitempty"`
+	Billing            *VideoJobBillingInfo       `json:"billing,omitempty"`
 	Collection         map[string]interface{}     `json:"collection,omitempty"`
 	Emojis             []VideoJobResultEmojiItem  `json:"emojis,omitempty"`
 	Package            *VideoJobResultPackageItem `json:"package,omitempty"`
@@ -180,6 +203,7 @@ type VideoJobAI1PlanResponse struct {
 	JobID           uint64                 `json:"job_id"`
 	RequestedFormat string                 `json:"requested_format"`
 	SchemaVersion   string                 `json:"schema_version"`
+	PlanRevision    int                    `json:"plan_revision"`
 	Status          string                 `json:"status"`
 	SourcePrompt    string                 `json:"source_prompt,omitempty"`
 	Plan            map[string]interface{} `json:"plan,omitempty"`
@@ -193,6 +217,32 @@ type VideoJobAI1PlanResponse struct {
 	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
+type PatchVideoJobAI1PlanRequest struct {
+	PlanRevision        *int                `json:"plan_revision"`
+	Summary             *string             `json:"summary"`
+	IntentUnderstanding *string             `json:"intent_understanding"`
+	StrategySummary     *string             `json:"strategy_summary"`
+	InteractiveAction   *string             `json:"interactive_action"`
+	ClarifyQuestions    *[]string           `json:"clarify_questions"`
+	Objective           *string             `json:"objective"`
+	MustCapture         *[]string           `json:"must_capture"`
+	Avoid               *[]string           `json:"avoid"`
+	StyleDirection      *string             `json:"style_direction"`
+	QualityWeights      *map[string]float64 `json:"quality_weights"`
+	RiskFlags           *[]string           `json:"risk_flags"`
+	MaxBlurTolerance    *string             `json:"max_blur_tolerance"`
+	AvoidWatermarks     *bool               `json:"avoid_watermarks"`
+	AvoidExtremeDark    *bool               `json:"avoid_extreme_dark"`
+	TargetCount         *int                `json:"target_count"`
+	FrameIntervalSec    *float64            `json:"frame_interval_sec"`
+	FocusStartSec       *float64            `json:"focus_start_sec"`
+	FocusEndSec         *float64            `json:"focus_end_sec"`
+}
+
+type ConfirmVideoJobAI1Request struct {
+	PlanRevision *int `json:"plan_revision"`
+}
+
 type VideoJobAI1DebugResponse struct {
 	JobID           uint64                 `json:"job_id"`
 	RequestedFormat string                 `json:"requested_format"`
@@ -204,6 +254,7 @@ type VideoJobAI1DebugResponse struct {
 	ModelRequest    map[string]interface{} `json:"model_request,omitempty"`
 	ModelResponse   map[string]interface{} `json:"model_response,omitempty"`
 	Output          map[string]interface{} `json:"output,omitempty"`
+	Focus           map[string]interface{} `json:"focus,omitempty"`
 	Trace           map[string]interface{} `json:"trace,omitempty"`
 }
 
@@ -215,6 +266,22 @@ type VideoJobCapabilitiesResponse struct {
 	SupportedFormats   []string                     `json:"supported_formats"`
 	UnsupportedFormats []string                     `json:"unsupported_formats"`
 	Formats            []videojobs.FormatCapability `json:"formats"`
+}
+
+type VideoJobAdvancedSceneOptionItem struct {
+	Scene             string `json:"scene"`
+	Label             string `json:"label"`
+	Description       string `json:"description,omitempty"`
+	OperatorIdentity  string `json:"operator_identity,omitempty"`
+	CandidateCountMin int    `json:"candidate_count_min,omitempty"`
+	CandidateCountMax int    `json:"candidate_count_max,omitempty"`
+}
+
+type VideoJobAdvancedSceneOptionsResponse struct {
+	Format       string                            `json:"format"`
+	ResolvedFrom string                            `json:"resolved_from"`
+	Version      string                            `json:"version,omitempty"`
+	Items        []VideoJobAdvancedSceneOptionItem `json:"items"`
 }
 
 type ProbeSourceVideoRequest struct {
@@ -386,6 +453,24 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	options["execution_task_type"] = initialTaskType
 	if primaryFormat != "" {
 		options["requested_format"] = primaryFormat
+	}
+	if req.AdvancedOptions != nil {
+		enableMatting := false
+		if req.AdvancedOptions.EnableMatting != nil {
+			enableMatting = *req.AdvancedOptions.EnableMatting
+		}
+		advanced := videojobs.NormalizeVideoJobAdvancedOptions(videojobs.VideoJobAdvancedOptions{
+			Scene: firstNonEmptyString(
+				strings.TrimSpace(req.AdvancedOptions.Scene),
+				strings.TrimSpace(req.AdvancedOptions.Scenario),
+			),
+			VisualFocus:   req.AdvancedOptions.VisualFocus,
+			EnableMatting: enableMatting,
+		})
+		strategy := videojobs.ResolveVideoJobAI1StrategyProfile(primaryFormat, advanced)
+		options["ai1_advanced_options_v1"] = videojobs.AdvancedOptionsToMap(advanced)
+		options["ai1_strategy_profile_v1"] = videojobs.StrategyProfileToMap(strategy)
+		options["ai1_strategy_profile_version"] = strings.TrimSpace(strategy.Version)
 	}
 	autoHighlight := true
 	if req.AutoHighlight != nil {
@@ -606,6 +691,188 @@ func (h *Handler) GetVideoJobCapabilities(c *gin.Context) {
 	})
 }
 
+// GetVideoJobAdvancedSceneOptions godoc
+// @Summary Get advanced scene options for video-to-image AI1
+// @Tags user
+// @Produce json
+// @Param format query string false "target format, e.g. png/gif/jpg/webp/live"
+// @Success 200 {object} VideoJobAdvancedSceneOptionsResponse
+// @Router /api/video-jobs/advanced-scene-options [get]
+func (h *Handler) GetVideoJobAdvancedSceneOptions(c *gin.Context) {
+	format, err := normalizeVideoAIPromptTemplateFormat(c.Query("format"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if format == videoAIPromptTemplateFormatAll {
+		format = videoAIPromptTemplateFormatPNG
+	}
+
+	profiles, resolvedFrom, version := h.resolveVideoJobAdvancedSceneProfiles(format)
+	profiles = filterVideoJobAdvancedSceneProfilesByMainline(format, profiles)
+	items := buildVideoJobAdvancedSceneOptionItems(profiles)
+	c.JSON(http.StatusOK, VideoJobAdvancedSceneOptionsResponse{
+		Format:       format,
+		ResolvedFrom: resolvedFrom,
+		Version:      version,
+		Items:        items,
+	})
+}
+
+func filterVideoJobAdvancedSceneProfilesByMainline(
+	format string,
+	profiles map[string]videojobs.VideoJobAI1StrategyProfile,
+) map[string]videojobs.VideoJobAI1StrategyProfile {
+	if strings.ToLower(strings.TrimSpace(format)) != videoAIPromptTemplateFormatPNG {
+		return profiles
+	}
+
+	allowed := []string{
+		videojobs.AdvancedScenarioDefault,
+		videojobs.AdvancedScenarioXiaohongshu,
+	}
+	normalized := make(map[string]videojobs.VideoJobAI1StrategyProfile, len(allowed))
+	for rawScene, profile := range profiles {
+		scene := videojobs.NormalizeAdvancedScenario(firstNonEmptyString(profile.Scene, rawScene))
+		if scene != videojobs.AdvancedScenarioDefault && scene != videojobs.AdvancedScenarioXiaohongshu {
+			continue
+		}
+		profile.Scene = scene
+		if strings.TrimSpace(profile.SceneLabel) == "" {
+			fallback := videojobs.ResolveVideoJobAI1StrategyProfile(videoAIPromptTemplateFormatPNG, videojobs.VideoJobAdvancedOptions{Scene: scene})
+			profile.SceneLabel = fallback.SceneLabel
+		}
+		normalized[scene] = profile
+	}
+
+	out := make(map[string]videojobs.VideoJobAI1StrategyProfile, len(allowed))
+	for _, scene := range allowed {
+		if profile, ok := normalized[scene]; ok {
+			out[scene] = profile
+			continue
+		}
+		out[scene] = videojobs.ResolveVideoJobAI1StrategyProfile(videoAIPromptTemplateFormatPNG, videojobs.VideoJobAdvancedOptions{Scene: scene})
+	}
+	return out
+}
+
+func (h *Handler) resolveVideoJobAdvancedSceneProfiles(format string) (map[string]videojobs.VideoJobAI1StrategyProfile, string, string) {
+	candidates := make([]string, 0, 3)
+	push := func(value string) {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			return
+		}
+		for _, item := range candidates {
+			if item == value {
+				return
+			}
+		}
+		candidates = append(candidates, value)
+	}
+	push(format)
+	push(videoAIPromptTemplateFormatAll)
+	push(videoAIPromptTemplateFormatPNG)
+
+	for _, candidate := range candidates {
+		var row models.VideoAIPromptTemplate
+		err := h.db.
+			Where("format = ? AND stage = ? AND layer = ? AND is_active = ? AND enabled = ?", candidate, videoAIPromptTemplateStageAI1, videoAIPromptTemplateLayerEdit, true, true).
+			Order("id DESC").
+			First(&row).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_ai_prompt_templates") {
+				continue
+			}
+			continue
+		}
+		profiles, version := videojobs.DecodeAI1SceneStrategyProfilesFromTemplateSchema([]byte(row.TemplateJSONSchema))
+		if len(profiles) == 0 {
+			continue
+		}
+		if strings.TrimSpace(version) == "" {
+			version = strings.TrimSpace(row.Version)
+		}
+		return profiles, "ops.video_ai_prompt_templates:" + candidate, version
+	}
+
+	fallback := map[string]videojobs.VideoJobAI1StrategyProfile{}
+	for _, scene := range []string{
+		videojobs.AdvancedScenarioDefault,
+		videojobs.AdvancedScenarioXiaohongshu,
+		videojobs.AdvancedScenarioWallpaper,
+		videojobs.AdvancedScenarioNews,
+	} {
+		profile := videojobs.ResolveVideoJobAI1StrategyProfile(format, videojobs.VideoJobAdvancedOptions{Scene: scene})
+		fallback[profile.Scene] = profile
+	}
+	return fallback, "built_in_default", "ai1_strategy_profile_v1"
+}
+
+func buildVideoJobAdvancedSceneOptionItems(profiles map[string]videojobs.VideoJobAI1StrategyProfile) []VideoJobAdvancedSceneOptionItem {
+	if len(profiles) == 0 {
+		return []VideoJobAdvancedSceneOptionItem{}
+	}
+
+	keys := make([]string, 0, len(profiles))
+	for key := range profiles {
+		scene := videojobs.NormalizeAdvancedScenario(key)
+		if scene == "" {
+			continue
+		}
+		keys = append(keys, scene)
+	}
+	sort.Strings(keys)
+
+	out := make([]VideoJobAdvancedSceneOptionItem, 0, len(keys))
+	appendScene := func(scene string) {
+		profile, ok := profiles[scene]
+		if !ok {
+			return
+		}
+		label := strings.TrimSpace(profile.SceneLabel)
+		if label == "" {
+			label = scene
+		}
+		minCount := profile.CandidateCountMin
+		maxCount := profile.CandidateCountMax
+		if minCount < 0 {
+			minCount = 0
+		}
+		if maxCount < minCount {
+			maxCount = minCount
+		}
+		out = append(out, VideoJobAdvancedSceneOptionItem{
+			Scene:             scene,
+			Label:             label,
+			Description:       strings.TrimSpace(profile.DirectiveHint),
+			OperatorIdentity:  strings.TrimSpace(profile.OperatorIdentity),
+			CandidateCountMin: minCount,
+			CandidateCountMax: maxCount,
+		})
+	}
+
+	seen := map[string]struct{}{}
+	for _, scene := range []string{
+		videojobs.AdvancedScenarioDefault,
+		videojobs.AdvancedScenarioXiaohongshu,
+		videojobs.AdvancedScenarioWallpaper,
+		videojobs.AdvancedScenarioNews,
+	} {
+		if _, ok := profiles[scene]; ok {
+			appendScene(scene)
+			seen[scene] = struct{}{}
+		}
+	}
+	for _, scene := range keys {
+		if _, ok := seen[scene]; ok {
+			continue
+		}
+		appendScene(scene)
+	}
+	return out
+}
+
 // ProbeVideoSource godoc
 // @Summary Probe uploaded source video metadata
 // @Tags user
@@ -765,10 +1032,12 @@ func (h *Handler) ListMyVideoJobs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	costMap := h.loadVideoJobCostMap(jobs)
+	pointHoldMap := h.loadVideoJobPointHoldMap(jobs)
 
 	items := make([]VideoJobResponse, 0, len(jobs))
 	for _, job := range jobs {
-		items = append(items, buildVideoJobResponse(job, h.qiniu))
+		items = append(items, buildVideoJobResponseWithBilling(job, h.qiniu, lookupVideoJobCost(costMap, job.ID), lookupVideoJobPointHold(pointHoldMap, job.ID)))
 	}
 	if includeResultSummary && len(items) > 0 {
 		summaryByCollectionKey, err := h.buildVideoJobResultSummary(jobs)
@@ -825,7 +1094,9 @@ func (h *Handler) GetVideoJob(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, buildVideoJobResponse(job, h.qiniu))
+	costMap := h.loadVideoJobCostMap([]models.VideoJob{job})
+	pointHoldMap := h.loadVideoJobPointHoldMap([]models.VideoJob{job})
+	c.JSON(http.StatusOK, buildVideoJobResponseWithBilling(job, h.qiniu, lookupVideoJobCost(costMap, job.ID), lookupVideoJobPointHold(pointHoldMap, job.ID)))
 }
 
 // ListVideoJobEvents godoc
@@ -851,7 +1122,7 @@ func (h *Handler) ListVideoJobEvents(c *gin.Context) {
 	}
 
 	var job models.VideoJob
-	if err := h.db.Select("id").Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+	if err := h.db.Select("id", "output_formats").Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
 			return
@@ -869,14 +1140,35 @@ func (h *Handler) ListVideoJobEvents(c *gin.Context) {
 		limit = 300
 	}
 
+	requestedFormat := normalizeVideoImageFormatFilter(strings.Split(strings.ToLower(strings.TrimSpace(job.OutputFormats)), ",")[0])
+	routedTables := resolveVideoImageReadTables(requestedFormat)
+	baseEventsTable := models.VideoImageEventPublic{}.TableName()
+	eventsTable := strings.TrimSpace(routedTables.Events)
+	if eventsTable == "" {
+		eventsTable = baseEventsTable
+	}
+
 	var rows []models.VideoImageEventPublic
-	query := h.db.Model(&models.VideoImageEventPublic{}).Where("job_id = ?", jobID)
+	query := h.db.Table(eventsTable).Where("job_id = ?", jobID)
 	if sinceID > 0 {
 		query = query.Where("id > ?", sinceID)
 	}
-	if err := query.Order("id ASC").Limit(limit).Find(&rows).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	err = query.Order("id ASC").Limit(limit).Find(&rows).Error
+	if err != nil {
+		if eventsTable != baseEventsTable && isMissingTableError(err, eventsTable) {
+			rows = nil
+			fallbackQuery := h.db.Table(baseEventsTable).Where("job_id = ?", jobID)
+			if sinceID > 0 {
+				fallbackQuery = fallbackQuery.Where("id > ?", sinceID)
+			}
+			if fallbackErr := fallbackQuery.Order("id ASC").Limit(limit).Find(&rows).Error; fallbackErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fallbackErr.Error()})
+				return
+			}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	items := make([]VideoJobEventItemResponse, 0, len(rows))
@@ -940,14 +1232,16 @@ func (h *Handler) GetVideoJobAI1Plan(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	plan := parseJSONMap(row.PlanJSON)
 
 	c.JSON(http.StatusOK, VideoJobAI1PlanResponse{
 		JobID:           row.JobID,
 		RequestedFormat: strings.ToLower(strings.TrimSpace(row.RequestedFormat)),
 		SchemaVersion:   strings.TrimSpace(row.SchemaVersion),
+		PlanRevision:    extractAI1PlanRevision(plan),
 		Status:          strings.TrimSpace(row.Status),
 		SourcePrompt:    strings.TrimSpace(row.SourcePrompt),
-		Plan:            parseJSONMap(row.PlanJSON),
+		Plan:            plan,
 		ModelProvider:   strings.TrimSpace(row.ModelProvider),
 		ModelName:       strings.TrimSpace(row.ModelName),
 		PromptVersion:   strings.TrimSpace(row.PromptVersion),
@@ -956,6 +1250,413 @@ func (h *Handler) GetVideoJobAI1Plan(c *gin.Context) {
 		ConfirmedAt:     row.ConfirmedAt,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
+	})
+}
+
+// PatchVideoJobAI1Plan godoc
+// @Summary Patch current user video job ai1 plan and regenerate ai2 consumable payload
+// @Tags user
+// @Accept json
+// @Produce json
+// @Param id path int true "job id"
+// @Success 200 {object} VideoJobAI1PlanResponse
+// @Router /api/video-jobs/{id}/ai1-plan [patch]
+func (h *Handler) PatchVideoJobAI1Plan(c *gin.Context) {
+	userID, ok := currentUserIDFromContext(c)
+	if !ok || userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || jobID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req PatchVideoJobAI1PlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	var job models.VideoJob
+	if err := h.db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	switch job.Status {
+	case models.VideoJobStatusDone, models.VideoJobStatusFailed, models.VideoJobStatusCancelled:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job cannot patch ai1 plan in current status"})
+		return
+	}
+
+	options := parseJSONMap(job.Options)
+	flowMode := strings.ToLower(strings.TrimSpace(stringFromAny(options["flow_mode"])))
+	if flowMode != "ai1_confirm" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job is not in ai1_confirm flow mode"})
+		return
+	}
+	ai1Pending := boolFromAny(options["ai1_pending"])
+	if !ai1Pending && strings.ToLower(strings.TrimSpace(job.Stage)) != models.VideoJobStageAwaitingAI1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job is not waiting for ai1 confirmation"})
+		return
+	}
+
+	var row models.VideoJobAI1Plan
+	if err := h.db.Where("job_id = ? AND user_id = ?", jobID, userID).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_job_ai1_plans") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ai1 plan not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	plan := parseJSONMap(row.PlanJSON)
+	currentRevision := extractAI1PlanRevision(plan)
+	if req.PlanRevision != nil && *req.PlanRevision != currentRevision {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":                 "ai1_plan_revision_conflict",
+			"current_plan_revision": currentRevision,
+		})
+		return
+	}
+
+	executablePlan := mapFromAnyValue(plan["executable_plan"])
+	if len(executablePlan) == 0 {
+		executablePlan = mapFromAnyValue(options["ai1_executable_plan_v1"])
+	}
+	if len(executablePlan) == 0 {
+		executablePlan = map[string]interface{}{
+			"target_format": normalizeRequestedFormatForDebug(stringFromAny(options["requested_format"])),
+		}
+	}
+	eventMeta := mapFromAnyValue(plan["event_meta"])
+	if len(eventMeta) == 0 {
+		eventMeta = map[string]interface{}{}
+	}
+	ai1OutputV2 := mapFromAnyValue(plan["ai1_output_v2"])
+	userFeedback := mapFromAnyValue(ai1OutputV2["user_feedback"])
+	ai2Directive := mapFromAnyValue(ai1OutputV2["ai2_directive"])
+	if len(userFeedback) == 0 {
+		userFeedback = map[string]interface{}{
+			"schema_version": videojobs.AI1UserFeedbackSchemaV2,
+		}
+	}
+	if len(ai2Directive) == 0 {
+		ai2Directive = map[string]interface{}{
+			"schema_version": videojobs.AI2DirectiveSchemaV2,
+			"source":         "ai1_executable_plan",
+		}
+	}
+
+	editedFields := make([]string, 0, 16)
+	editedFieldSet := map[string]struct{}{}
+	markEdited := func(field string) {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			return
+		}
+		if _, exists := editedFieldSet[field]; exists {
+			return
+		}
+		editedFieldSet[field] = struct{}{}
+		editedFields = append(editedFields, field)
+	}
+
+	if req.Summary != nil {
+		userFeedback["summary"] = strings.TrimSpace(*req.Summary)
+		markEdited("summary")
+	}
+	if req.IntentUnderstanding != nil {
+		userFeedback["intent_understanding"] = strings.TrimSpace(*req.IntentUnderstanding)
+		markEdited("intent_understanding")
+	}
+	if req.StrategySummary != nil {
+		userFeedback["strategy_summary"] = strings.TrimSpace(*req.StrategySummary)
+		markEdited("strategy_summary")
+	}
+	if req.InteractiveAction != nil {
+		action := strings.ToLower(strings.TrimSpace(*req.InteractiveAction))
+		if action != "proceed" && action != "need_clarify" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "interactive_action must be proceed or need_clarify"})
+			return
+		}
+		userFeedback["interactive_action"] = action
+		markEdited("interactive_action")
+	}
+	if req.ClarifyQuestions != nil {
+		questions := normalizeAI1EditableStringSlice(*req.ClarifyQuestions, 6)
+		userFeedback["clarify_questions"] = questions
+		markEdited("clarify_questions")
+	}
+
+	if req.Objective != nil {
+		objective := strings.TrimSpace(*req.Objective)
+		if objective == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "objective cannot be empty"})
+			return
+		}
+		ai2Directive["objective"] = objective
+		eventMeta["business_goal"] = objective
+		markEdited("objective")
+	}
+	if req.MustCapture != nil {
+		items := normalizeAI1EditableStringSlice(*req.MustCapture, 16)
+		executablePlan["must_capture"] = items
+		ai2Directive["must_capture"] = items
+		eventMeta["must_capture"] = items
+		markEdited("must_capture")
+	}
+	if req.Avoid != nil {
+		items := normalizeAI1EditableStringSlice(*req.Avoid, 16)
+		executablePlan["avoid"] = items
+		ai2Directive["avoid"] = items
+		eventMeta["avoid"] = items
+		markEdited("avoid")
+	}
+	if req.StyleDirection != nil {
+		style := strings.TrimSpace(*req.StyleDirection)
+		if style == "" {
+			delete(executablePlan, "style_direction")
+			delete(ai2Directive, "style_direction")
+			delete(eventMeta, "style_direction")
+		} else {
+			executablePlan["style_direction"] = style
+			ai2Directive["style_direction"] = style
+			eventMeta["style_direction"] = style
+		}
+		markEdited("style_direction")
+	}
+	targetFormatForPatch := normalizeRequestedFormatForDebug(stringFromAny(ai2Directive["target_format"]))
+	if targetFormatForPatch == "" {
+		targetFormatForPatch = normalizeRequestedFormatForDebug(stringFromAny(executablePlan["target_format"]))
+	}
+	if targetFormatForPatch == "" {
+		targetFormatForPatch = normalizeRequestedFormatForDebug(stringFromAny(options["requested_format"]))
+	}
+	if targetFormatForPatch == "" {
+		targetFormatForPatch = "png"
+	}
+	if req.QualityWeights != nil {
+		normalizedWeights, err := normalizeAI1PatchQualityWeights(*req.QualityWeights)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		ai2Directive["quality_weights"] = normalizedWeights
+		eventMeta["quality_weights"] = normalizedWeights
+		markEdited("quality_weights")
+	}
+	if req.RiskFlags != nil {
+		riskFlags := normalizeAI1PatchRiskFlags(*req.RiskFlags, 16)
+		ai2Directive["risk_flags"] = riskFlags
+		eventMeta["risk_flags"] = riskFlags
+		markEdited("risk_flags")
+	}
+	if req.MaxBlurTolerance != nil || req.AvoidWatermarks != nil || req.AvoidExtremeDark != nil {
+		technicalReject := mapFromAnyValue(ai2Directive["technical_reject"])
+		if len(technicalReject) == 0 {
+			technicalReject = map[string]interface{}{
+				"max_blur_tolerance": defaultAI1PatchMaxBlurTolerance(targetFormatForPatch),
+				"avoid_watermarks":   true,
+				"avoid_extreme_dark": true,
+			}
+		}
+		if req.MaxBlurTolerance != nil {
+			tolerance, err := normalizeAI1PatchMaxBlurTolerance(*req.MaxBlurTolerance, targetFormatForPatch)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			technicalReject["max_blur_tolerance"] = tolerance
+			markEdited("max_blur_tolerance")
+		}
+		if req.AvoidWatermarks != nil {
+			technicalReject["avoid_watermarks"] = *req.AvoidWatermarks
+			markEdited("avoid_watermarks")
+		}
+		if req.AvoidExtremeDark != nil {
+			technicalReject["avoid_extreme_dark"] = *req.AvoidExtremeDark
+			markEdited("avoid_extreme_dark")
+		}
+		ai2Directive["technical_reject"] = technicalReject
+		eventMeta["technical_reject"] = technicalReject
+	}
+
+	if req.TargetCount != nil {
+		targetCount := *req.TargetCount
+		if targetCount < 1 || targetCount > 80 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "target_count must be between 1 and 80"})
+			return
+		}
+		executablePlan["target_count"] = targetCount
+		markEdited("target_count")
+	}
+	if req.FrameIntervalSec != nil {
+		interval := *req.FrameIntervalSec
+		if interval < 0.2 || interval > 8 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "frame_interval_sec must be between 0.2 and 8"})
+			return
+		}
+		executablePlan["frame_interval_sec"] = interval
+		markEdited("frame_interval_sec")
+	}
+	if req.FocusStartSec != nil || req.FocusEndSec != nil {
+		if req.FocusStartSec == nil || req.FocusEndSec == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "focus_start_sec and focus_end_sec must be provided together"})
+			return
+		}
+		startSec := *req.FocusStartSec
+		endSec := *req.FocusEndSec
+		if startSec < 0 || endSec <= startSec {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "focus window is invalid"})
+			return
+		}
+		executablePlan["mode"] = "focus_window"
+		executablePlan["focus_window"] = map[string]interface{}{
+			"start_sec": roundTo1(startSec),
+			"end_sec":   roundTo1(endSec),
+			"source":    "user_override",
+		}
+		eventMeta["focus_window_source"] = "user_override"
+		markEdited("focus_window")
+	}
+
+	if len(editedFields) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no editable fields provided"})
+		return
+	}
+
+	if _, exists := userFeedback["schema_version"]; !exists {
+		userFeedback["schema_version"] = videojobs.AI1UserFeedbackSchemaV2
+	}
+	if _, exists := ai2Directive["schema_version"]; !exists {
+		ai2Directive["schema_version"] = videojobs.AI2DirectiveSchemaV2
+	}
+	if _, exists := ai2Directive["target_format"]; !exists {
+		ai2Directive["target_format"] = strings.ToLower(strings.TrimSpace(stringFromAny(executablePlan["target_format"])))
+	}
+	ai2Directive["sampling_plan"] = executablePlan
+	ai2Directive["source"] = "ai1_executable_plan"
+
+	ai1OutputV2["schema_version"] = videojobs.AI1OutputSchemaV2
+	ai1OutputV2["user_feedback"] = userFeedback
+	ai1OutputV2["ai2_directive"] = ai2Directive
+	trace := mapFromAnyValue(ai1OutputV2["trace"])
+	if len(trace) == 0 {
+		trace = map[string]interface{}{}
+	}
+
+	now := time.Now()
+	nowText := now.Format(time.RFC3339)
+	trace["user_edited"] = true
+	trace["user_edited_at"] = nowText
+	trace["user_edited_fields"] = editedFields
+	ai1OutputV2["trace"] = trace
+
+	ai1OutputV1 := mapFromAnyValue(plan["ai1_output_v1"])
+	if len(ai1OutputV1) == 0 {
+		ai1OutputV1 = map[string]interface{}{
+			"schema_version": strings.TrimSpace(stringFromAny(plan["schema_version"])),
+		}
+	}
+	ai1OutputV1["user_reply"] = userFeedback
+	ai1OutputV1["ai2_instruction"] = ai2Directive
+
+	nextRevision := currentRevision + 1
+	plan["plan_revision"] = nextRevision
+	plan["last_user_edit_at"] = nowText
+	plan["last_user_edit_fields"] = editedFields
+	plan["event_meta"] = eventMeta
+	plan["executable_plan"] = executablePlan
+	plan["ai1_output_v2"] = ai1OutputV2
+	plan["ai1_output_v1"] = ai1OutputV1
+
+	options["ai1_executable_plan_v1"] = executablePlan
+	options["ai2_instruction_v1"] = ai2Directive
+	options["ai2_instruction_generated_at"] = nowText
+	if qualityWeights := normalizeAI1PatchQualityWeightsFromAny(ai2Directive["quality_weights"]); len(qualityWeights) > 0 {
+		options["ai2_quality_weights_v1"] = qualityWeights
+	}
+	if riskFlags := normalizeAI1PatchRiskFlags(parseStringSliceFromAny(ai2Directive["risk_flags"]), 16); len(riskFlags) > 0 {
+		options["ai2_risk_flags_v1"] = riskFlags
+	}
+	if technicalReject := mapFromAnyValue(ai2Directive["technical_reject"]); len(technicalReject) > 0 {
+		options["ai2_technical_reject_v1"] = map[string]interface{}{
+			"max_blur_tolerance": strings.TrimSpace(stringFromAny(technicalReject["max_blur_tolerance"])),
+			"avoid_watermarks":   boolFromAny(technicalReject["avoid_watermarks"]),
+			"avoid_extreme_dark": boolFromAny(technicalReject["avoid_extreme_dark"]),
+		}
+	}
+	options["ai1_event_meta_v1"] = eventMeta
+	options["ai1_plan_user_edited"] = true
+	options["ai1_plan_user_edited_at"] = nowText
+	options["ai1_plan_user_edited_fields"] = editedFields
+
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		jobUpdates := map[string]interface{}{
+			"options": toJSON(options),
+		}
+		if err := tx.Model(&models.VideoJob{}).Where("id = ? AND user_id = ?", jobID, userID).Updates(jobUpdates).Error; err != nil {
+			return err
+		}
+		if err := videojobs.SyncPublicVideoImageJobUpdates(tx, jobID, jobUpdates); err != nil {
+			return err
+		}
+
+		if err := tx.Model(&models.VideoJobAI1Plan{}).Where("job_id = ? AND user_id = ?", jobID, userID).Updates(map[string]interface{}{
+			"status":            videojobs.VideoJobAI1PlanStatusAwaitingUser,
+			"plan_json":         toJSON(plan),
+			"confirmed_by_user": false,
+			"confirmed_at":      nil,
+			"updated_at":        now,
+		}).Error; err != nil {
+			return err
+		}
+
+		editEvent := models.VideoJobEvent{
+			JobID:   jobID,
+			Stage:   models.VideoJobStageAnalyzing,
+			Level:   "info",
+			Message: "user edited ai1 plan",
+			Metadata: toJSON(map[string]interface{}{
+				"flow_mode":      "ai1_confirm",
+				"plan_revision":  nextRevision,
+				"edited_fields":  editedFields,
+				"user_edited_at": nowText,
+			}),
+		}
+		if err := tx.Create(&editEvent).Error; err != nil {
+			return err
+		}
+		return videojobs.CreatePublicVideoImageEvent(tx, editEvent)
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, VideoJobAI1PlanResponse{
+		JobID:           row.JobID,
+		RequestedFormat: strings.ToLower(strings.TrimSpace(row.RequestedFormat)),
+		SchemaVersion:   strings.TrimSpace(row.SchemaVersion),
+		PlanRevision:    nextRevision,
+		Status:          videojobs.VideoJobAI1PlanStatusAwaitingUser,
+		SourcePrompt:    strings.TrimSpace(row.SourcePrompt),
+		Plan:            plan,
+		ModelProvider:   strings.TrimSpace(row.ModelProvider),
+		ModelName:       strings.TrimSpace(row.ModelName),
+		PromptVersion:   strings.TrimSpace(row.PromptVersion),
+		FallbackUsed:    row.FallbackUsed,
+		ConfirmedByUser: false,
+		ConfirmedAt:     nil,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       now,
 	})
 }
 
@@ -1038,10 +1739,12 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 	planJSON := map[string]interface{}{}
 	planSchemaVersion := ""
 	planStatus := ""
+	planEventMeta := map[string]interface{}{}
 	if planFound {
 		planJSON = parseJSONMap(planRow.PlanJSON)
 		planSchemaVersion = strings.TrimSpace(planRow.SchemaVersion)
 		planStatus = strings.TrimSpace(planRow.Status)
+		planEventMeta = mapFromAnyValue(planJSON["event_meta"])
 	}
 	ai1OutputV2 := mapFromAnyValue(planJSON["ai1_output_v2"])
 	ai1OutputContract := buildAI1OutputContractReport(ai1OutputV2)
@@ -1059,6 +1762,7 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 	}
 
 	userReply, ai2Instruction := buildAI1DebugOutput(planJSON)
+	ai2Instruction = enrichAI2InstructionForDebug(ai2Instruction, requestedFormat, options, metrics, planEventMeta)
 
 	modelRequest := map[string]interface{}{
 		"provider":       strings.TrimSpace(planRow.ModelProvider),
@@ -1171,25 +1875,66 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 		},
 		"developer_rules": developerRules,
 	}
+	advancedOptions := mapFromAnyValue(options["ai1_advanced_options_v1"])
+	if len(advancedOptions) == 0 {
+		advancedOptions = mapFromAnyValue(planEventMeta["advanced_options_v1"])
+	}
+	appliedStrategyProfile := mapFromAnyValue(options["ai1_strategy_profile_v1"])
+	if len(appliedStrategyProfile) == 0 {
+		appliedStrategyProfile = mapFromAnyValue(planEventMeta["strategy_profile_v1"])
+	}
+	appliedStrategyTrace := mapFromAnyValue(options["ai1_strategy_profile_trace_v1"])
+	if len(appliedStrategyTrace) == 0 {
+		appliedStrategyTrace = mapFromAnyValue(planEventMeta["strategy_profile_trace_v1"])
+	}
+	appliedSceneGuard := mapFromAnyValue(options["ai1_advanced_scene_guard_v1"])
+	if len(appliedSceneGuard) == 0 {
+		appliedSceneGuard = mapFromAnyValue(planEventMeta["advanced_scene_guard_v1"])
+	}
+	appliedStrategyOverrideReport := mapFromAnyValue(options["ai1_strategy_override_report_v1"])
+	if len(appliedStrategyOverrideReport) == 0 {
+		appliedStrategyOverrideReport = mapFromAnyValue(planEventMeta["strategy_override_report_v1"])
+	}
+	if len(advancedOptions) > 0 {
+		input["advanced_options"] = advancedOptions
+	}
+	if len(appliedStrategyProfile) > 0 {
+		input["applied_strategy_profile"] = appliedStrategyProfile
+	}
+	if len(appliedStrategyTrace) > 0 {
+		input["applied_strategy_trace"] = appliedStrategyTrace
+	}
+	if len(appliedSceneGuard) > 0 {
+		input["advanced_scene_guard_v1"] = appliedSceneGuard
+	}
+	if len(appliedStrategyOverrideReport) > 0 {
+		input["strategy_override_report_v1"] = appliedStrategyOverrideReport
+	}
 
 	trace := map[string]interface{}{
 		"options": map[string]interface{}{
-			"execution_queue":       stringFromAny(options["execution_queue"]),
-			"execution_task_type":   stringFromAny(options["execution_task_type"]),
-			"ai1_plan_schema":       stringFromAny(options["ai1_plan_schema_version"]),
-			"ai1_plan_mode":         stringFromAny(options["ai1_plan_mode"]),
-			"ai1_plan_applied":      boolFromAny(options["ai1_plan_applied"]),
-			"ai1_plan_generated":    boolFromAny(options["ai1_plan_generated"]),
-			"ai1_pending":           boolFromAny(options["ai1_pending"]),
-			"ai1_confirmed":         boolFromAny(options["ai1_confirmed"]),
-			"ai1_pause_consumed":    boolFromAny(options["ai1_pause_consumed"]),
-			"requested_format":      stringFromAny(options["requested_format"]),
-			"quality_overrides":     mapFromAnyValue(options["quality_profile_overrides"]),
-			"source_video_probe_v1": mapFromAnyValue(options["source_video_probe"]),
+			"execution_queue":             stringFromAny(options["execution_queue"]),
+			"execution_task_type":         stringFromAny(options["execution_task_type"]),
+			"ai1_plan_schema":             stringFromAny(options["ai1_plan_schema_version"]),
+			"ai1_plan_mode":               stringFromAny(options["ai1_plan_mode"]),
+			"ai1_plan_applied":            boolFromAny(options["ai1_plan_applied"]),
+			"ai1_plan_generated":          boolFromAny(options["ai1_plan_generated"]),
+			"ai1_pending":                 boolFromAny(options["ai1_pending"]),
+			"ai1_confirmed":               boolFromAny(options["ai1_confirmed"]),
+			"ai1_pause_consumed":          boolFromAny(options["ai1_pause_consumed"]),
+			"requested_format":            stringFromAny(options["requested_format"]),
+			"quality_overrides":           mapFromAnyValue(options["quality_profile_overrides"]),
+			"source_video_probe_v1":       mapFromAnyValue(options["source_video_probe"]),
+			"advanced_options_v1":         mapFromAnyValue(options["ai1_advanced_options_v1"]),
+			"strategy_profile_v1":         mapFromAnyValue(options["ai1_strategy_profile_v1"]),
+			"strategy_profile_trace_v1":   mapFromAnyValue(options["ai1_strategy_profile_trace_v1"]),
+			"advanced_scene_guard_v1":     mapFromAnyValue(options["ai1_advanced_scene_guard_v1"]),
+			"strategy_override_report_v1": mapFromAnyValue(options["ai1_strategy_override_report_v1"]),
 		},
 		"plan": map[string]interface{}{
 			"schema_version": planSchemaVersion,
 			"status":         planStatus,
+			"plan_revision":  extractAI1PlanRevision(planJSON),
 			"plan_json":      planJSON,
 		},
 		"rows": map[string]interface{}{
@@ -1208,8 +1953,55 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 		"ai2_instruction": ai2Instruction,
 		"contract_report": ai1OutputContract,
 	}
+	if len(advancedOptions) > 0 {
+		output["advanced_options"] = advancedOptions
+	}
+	if len(appliedStrategyProfile) > 0 {
+		output["applied_strategy_profile"] = appliedStrategyProfile
+	}
+	if len(appliedStrategyTrace) > 0 {
+		output["applied_strategy_trace"] = appliedStrategyTrace
+	}
+	if len(appliedSceneGuard) > 0 {
+		output["advanced_scene_guard_v1"] = appliedSceneGuard
+	}
+	if len(appliedStrategyOverrideReport) > 0 {
+		output["strategy_override_report_v1"] = appliedStrategyOverrideReport
+	}
+	ai2ExecutionObservability := buildAI2ExecutionObservability(requestedFormat, options, metrics, ai2Instruction)
+	if len(ai2ExecutionObservability) > 0 {
+		output["ai2_execution_observability_v1"] = ai2ExecutionObservability
+	}
+	pipelineAlignmentReport := buildPipelineAlignmentReportV1(
+		requestedFormat,
+		sourcePrompt,
+		advancedOptions,
+		appliedStrategyProfile,
+		appliedStrategyOverrideReport,
+		appliedSceneGuard,
+		userReply,
+		ai2Instruction,
+		ai2ExecutionObservability,
+		options,
+		metrics,
+	)
+	if len(pipelineAlignmentReport) > 0 {
+		output["pipeline_alignment_report_v1"] = pipelineAlignmentReport
+	}
 	if len(ai1OutputV2) > 0 {
 		output["ai1_output_v2"] = ai1OutputV2
+	}
+	if len(ai2ExecutionObservability) > 0 {
+		trace["ai2_execution_observability_v1"] = ai2ExecutionObservability
+	}
+	if len(appliedSceneGuard) > 0 {
+		trace["advanced_scene_guard_v1"] = appliedSceneGuard
+	}
+	if len(pipelineAlignmentReport) > 0 {
+		trace["pipeline_alignment_report_v1"] = pipelineAlignmentReport
+	}
+	if len(appliedStrategyOverrideReport) > 0 {
+		trace["strategy_override_report_v1"] = appliedStrategyOverrideReport
 	}
 	trace["timeline_v1"] = buildAI1DebugTimelineV1(
 		sourcePrompt,
@@ -1219,6 +2011,7 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 		modelResponse,
 		output,
 		ai1OutputContract,
+		ai2ExecutionObservability,
 	)
 
 	c.JSON(http.StatusOK, VideoJobAI1DebugResponse{
@@ -1232,7 +2025,16 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 		ModelRequest:    modelRequest,
 		ModelResponse:   modelResponse,
 		Output:          output,
-		Trace:           trace,
+		Focus: map[string]interface{}{
+			"model_request":  modelRequest,
+			"model_response": modelResponse,
+			"contract_report": map[string]interface{}{
+				"ai1_output_contract_v2": ai1OutputContract,
+			},
+			"ai2_execution_observability_v1": ai2ExecutionObservability,
+			"pipeline_alignment_report_v1":   pipelineAlignmentReport,
+		},
+		Trace: trace,
 	})
 }
 
@@ -1244,6 +2046,12 @@ func (h *Handler) GetVideoJobAI1Debug(c *gin.Context) {
 func (h *Handler) ConfirmVideoJobAI1(c *gin.Context) {
 	if h.queue == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "task queue not configured"})
+		return
+	}
+
+	var req ConfirmVideoJobAI1Request
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
@@ -1285,6 +2093,28 @@ func (h *Handler) ConfirmVideoJobAI1(c *gin.Context) {
 	if !ai1Pending && strings.ToLower(strings.TrimSpace(job.Stage)) != models.VideoJobStageAwaitingAI1 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "job is not waiting for ai1 confirmation"})
 		return
+	}
+
+	if req.PlanRevision != nil {
+		var row models.VideoJobAI1Plan
+		if err := h.db.Where("job_id = ? AND user_id = ?", job.ID, userID).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, "video_job_ai1_plans") {
+				// 兼容：AI1 计划表不存在/无记录时，跳过 revision 乐观锁校验，允许继续执行。
+				req.PlanRevision = nil
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		} else {
+			currentRevision := extractAI1PlanRevision(parseJSONMap(row.PlanJSON))
+			if *req.PlanRevision != currentRevision {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":                 "ai1_plan_revision_conflict",
+					"current_plan_revision": currentRevision,
+				})
+				return
+			}
+		}
 	}
 
 	confirmedAt := time.Now()
@@ -1776,12 +2606,15 @@ func (h *Handler) GetVideoJobResult(c *gin.Context) {
 			return
 		}
 	}
+	costMap := h.loadVideoJobCostMap([]models.VideoJob{job})
+	pointHoldMap := h.loadVideoJobPointHoldMap([]models.VideoJob{job})
 
 	resp := VideoJobResultResponse{
 		JobID:              job.ID,
 		Status:             job.Status,
 		DeliveryOnly:       deliveryOnly,
 		ReviewStatusFilter: reviewStatusFilter,
+		Billing:            buildVideoJobBillingInfo(lookupVideoJobCost(costMap, job.ID), lookupVideoJobPointHold(pointHoldMap, job.ID)),
 		Collection: map[string]interface{}{
 			"id":          collection.ID,
 			"title":       collection.Title,
@@ -2114,6 +2947,10 @@ func roundTo1(v float64) float64 {
 }
 
 func buildVideoJobResponse(job models.VideoJob, qiniu *storage.QiniuClient) VideoJobResponse {
+	return buildVideoJobResponseWithBilling(job, qiniu, nil, nil)
+}
+
+func buildVideoJobResponseWithBilling(job models.VideoJob, qiniu *storage.QiniuClient, cost *models.VideoJobCost, pointHold *models.ComputePointHold) VideoJobResponse {
 	options := parseJSONMap(job.Options)
 	metrics := parseJSONMap(job.Metrics)
 	resp := VideoJobResponse{
@@ -2136,6 +2973,7 @@ func buildVideoJobResponse(job models.VideoJob, qiniu *storage.QiniuClient) Vide
 		FinishedAt:         job.FinishedAt,
 		CreatedAt:          job.CreatedAt,
 		UpdatedAt:          job.UpdatedAt,
+		Billing:            buildVideoJobBillingInfo(cost, pointHold),
 	}
 	if qiniu != nil {
 		if !metricBool(metrics, "source_video_deleted") && strings.TrimSpace(job.SourceVideoKey) != "" {
@@ -2149,11 +2987,57 @@ func buildVideoJobResponse(job models.VideoJob, qiniu *storage.QiniuClient) Vide
 	return resp
 }
 
+func lookupVideoJobCost(costMap map[uint64]models.VideoJobCost, jobID uint64) *models.VideoJobCost {
+	item, ok := costMap[jobID]
+	if !ok {
+		return nil
+	}
+	copied := item
+	return &copied
+}
+
+func lookupVideoJobPointHold(pointHoldMap map[uint64]models.ComputePointHold, jobID uint64) *models.ComputePointHold {
+	item, ok := pointHoldMap[jobID]
+	if !ok {
+		return nil
+	}
+	copied := item
+	return &copied
+}
+
+func buildVideoJobBillingInfo(cost *models.VideoJobCost, pointHold *models.ComputePointHold) *VideoJobBillingInfo {
+	if cost == nil && pointHold == nil {
+		return nil
+	}
+	billing := &VideoJobBillingInfo{
+		PointPerCNY:          videojobs.PointPerCNY(),
+		CostMarkupMultiplier: videojobs.CostMarkupMultiplier(),
+	}
+	if cost != nil {
+		details := parseJSONMap(cost.Details)
+		billing.ActualCostCNY = parseFloat64FromAny(details["ai_cost_cny"])
+		if billing.ActualCostCNY <= 0 {
+			if strings.EqualFold(strings.TrimSpace(cost.Currency), "cny") && cost.EstimatedCost > 0 {
+				billing.ActualCostCNY = cost.EstimatedCost
+			}
+		}
+		billing.Currency = strings.TrimSpace(cost.Currency)
+		billing.PricingVersion = strings.TrimSpace(cost.PricingVersion)
+	}
+	if pointHold != nil {
+		billing.ChargedPoints = pointHold.SettledPoints
+		billing.ReservedPoints = pointHold.ReservedPoints
+		billing.HoldStatus = strings.TrimSpace(pointHold.Status)
+	}
+	return billing
+}
+
 type videoJobCollectionSummaryRow struct {
-	ID           uint64 `gorm:"column:id"`
-	Title        string `gorm:"column:title"`
-	FileCount    int    `gorm:"column:file_count"`
-	LatestZipKey string `gorm:"column:latest_zip_key"`
+	ID            uint64 `gorm:"column:id"`
+	Title         string `gorm:"column:title"`
+	FileCount     int    `gorm:"column:file_count"`
+	LatestZipKey  string `gorm:"column:latest_zip_key"`
+	LatestZipSize int64  `gorm:"column:latest_zip_size"`
 }
 
 type videoJobEmojiSummaryRow struct {
@@ -2162,6 +3046,7 @@ type videoJobEmojiSummaryRow struct {
 	Format       string `gorm:"column:format"`
 	FileURL      string `gorm:"column:file_url"`
 	ThumbURL     string `gorm:"column:thumb_url"`
+	SizeBytes    int64  `gorm:"column:size_bytes"`
 	DisplayOrder int    `gorm:"column:display_order"`
 }
 
@@ -2286,7 +3171,7 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 	if len(archiveCollectionIDs) > 0 {
 		var collections []videoJobCollectionSummaryRow
 		if err := h.db.Model(&models.Collection{}).
-			Select("id", "title", "file_count", "latest_zip_key").
+			Select("id", "title", "file_count", "latest_zip_key", "latest_zip_size").
 			Where("id IN ?", archiveCollectionIDs).
 			Find(&collections).Error; err != nil {
 			return nil, err
@@ -2299,11 +3184,12 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 			}
 			acc[key] = &videoJobResultSummaryAccumulator{
 				Summary: VideoJobResultSummary{
-					CollectionID:    row.ID,
-					CollectionTitle: strings.TrimSpace(row.Title),
-					FileCount:       row.FileCount,
-					PreviewImages:   make([]string, 0, 15),
-					PackageStatus:   packageStatus,
+					CollectionID:     row.ID,
+					CollectionTitle:  strings.TrimSpace(row.Title),
+					FileCount:        row.FileCount,
+					PreviewImages:    make([]string, 0, 15),
+					PackageStatus:    packageStatus,
+					PackageSizeBytes: row.LatestZipSize,
 				},
 				FormatCnt:  map[string]int{},
 				PreviewSet: map[string]struct{}{},
@@ -2312,7 +3198,7 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 	}
 	if len(videoCollectionIDs) > 0 {
 		var collections []models.VideoAssetCollection
-		if err := h.db.Select("id", "title", "file_count", "latest_zip_key").
+		if err := h.db.Select("id", "title", "file_count", "latest_zip_key", "latest_zip_size").
 			Where("id IN ?", videoCollectionIDs).
 			Find(&collections).Error; err != nil {
 			return nil, err
@@ -2325,11 +3211,12 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 			}
 			acc[key] = &videoJobResultSummaryAccumulator{
 				Summary: VideoJobResultSummary{
-					CollectionID:    row.ID,
-					CollectionTitle: strings.TrimSpace(row.Title),
-					FileCount:       row.FileCount,
-					PreviewImages:   make([]string, 0, 15),
-					PackageStatus:   packageStatus,
+					CollectionID:     row.ID,
+					CollectionTitle:  strings.TrimSpace(row.Title),
+					FileCount:        row.FileCount,
+					PreviewImages:    make([]string, 0, 15),
+					PackageStatus:    packageStatus,
+					PackageSizeBytes: row.LatestZipSize,
 				},
 				FormatCnt:  map[string]int{},
 				PreviewSet: map[string]struct{}{},
@@ -2344,7 +3231,7 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 	if len(archiveCollectionIDs) > 0 {
 		var emojiRows []videoJobEmojiSummaryRow
 		if err := h.db.Model(&models.Emoji{}).
-			Select("id", "collection_id", "format", "file_url", "thumb_url", "display_order").
+			Select("id", "collection_id", "format", "file_url", "thumb_url", "size_bytes", "display_order").
 			Where("collection_id IN ? AND status = ?", archiveCollectionIDs, "active").
 			Order("collection_id ASC, display_order ASC, id ASC").
 			Find(&emojiRows).Error; err != nil {
@@ -2361,7 +3248,7 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 	if len(videoCollectionIDs) > 0 {
 		var emojiRows []videoJobEmojiSummaryRow
 		if err := h.db.Model(&models.VideoAssetEmoji{}).
-			Select("id", "collection_id", "format", "file_url", "thumb_url", "display_order").
+			Select("id", "collection_id", "format", "file_url", "thumb_url", "size_bytes", "display_order").
 			Where("collection_id IN ? AND status = ?", videoCollectionIDs, "active").
 			Order("collection_id ASC, display_order ASC, id ASC").
 			Find(&emojiRows).Error; err != nil {
@@ -2463,6 +3350,9 @@ func (h *Handler) buildVideoJobResultSummary(jobs []models.VideoJob) (map[string
 			}
 
 			item.DeliverCnt++
+			if row.SizeBytes > 0 {
+				item.Summary.OutputTotalSizeBytes += row.SizeBytes
+			}
 			format := normalizeVideoJobResultFormat(row.Format)
 			if format == "" {
 				format = normalizeVideoJobResultFormat(outputFormat)
@@ -2665,12 +3555,1158 @@ func buildAI1DebugOutput(plan map[string]interface{}) (map[string]interface{}, m
 	return userReply, ai2Instruction
 }
 
+func enrichAI2InstructionForDebug(
+	current map[string]interface{},
+	requestedFormat string,
+	options map[string]interface{},
+	metrics map[string]interface{},
+	planEventMeta map[string]interface{},
+) map[string]interface{} {
+	out := copyMapFromAnyValue(current)
+	if len(out) == 0 {
+		out = copyMapFromAnyValue(options["ai2_instruction_v1"])
+	}
+
+	metricPrefix := resolveImageMetricPrefixForDebug(requestedFormat)
+	if metricPrefix != "" {
+		out = overlayAI2InstructionForDebug(out, mapFromAnyValue(metrics[fmt.Sprintf("%s_ai2_instruction_v1", metricPrefix)]))
+	}
+	out = overlayAI2InstructionForDebug(out, mapFromAnyValue(planEventMeta["ai2_instruction_v1"]))
+
+	if len(out) == 0 {
+		if executable := mapFromAnyValue(options["ai1_executable_plan_v1"]); len(executable) > 0 {
+			out = map[string]interface{}{
+				"instruction_version": strings.TrimSpace(stringFromAny(options["ai1_plan_schema_version"])),
+				"source":              "fallback_from_options_executable_plan",
+				"sampling_plan":       executable,
+			}
+		}
+	}
+
+	if len(out) == 0 {
+		return map[string]interface{}{}
+	}
+
+	if len(mapFromAnyValue(out["quality_weights"])) == 0 {
+		switch {
+		case len(mapFromAnyValue(options["ai2_quality_weights_v1"])) > 0:
+			out["quality_weights"] = mapFromAnyValue(options["ai2_quality_weights_v1"])
+		case len(mapFromAnyValue(mapFromAnyValue(options["ai2_guidance_v1"])["quality_weights"])) > 0:
+			out["quality_weights"] = mapFromAnyValue(mapFromAnyValue(options["ai2_guidance_v1"])["quality_weights"])
+		case len(mapFromAnyValue(planEventMeta["quality_weights"])) > 0:
+			out["quality_weights"] = mapFromAnyValue(planEventMeta["quality_weights"])
+		}
+	}
+
+	if len(mapFromAnyValue(out["technical_reject"])) == 0 {
+		switch {
+		case len(mapFromAnyValue(options["ai2_technical_reject_v1"])) > 0:
+			out["technical_reject"] = mapFromAnyValue(options["ai2_technical_reject_v1"])
+		case len(mapFromAnyValue(mapFromAnyValue(options["ai2_guidance_v1"])["technical_reject"])) > 0:
+			out["technical_reject"] = mapFromAnyValue(mapFromAnyValue(options["ai2_guidance_v1"])["technical_reject"])
+		case len(mapFromAnyValue(mapFromAnyValue(options["ai2_worker_strategy_v1"])["technical_reject"])) > 0:
+			out["technical_reject"] = mapFromAnyValue(mapFromAnyValue(options["ai2_worker_strategy_v1"])["technical_reject"])
+		case len(mapFromAnyValue(planEventMeta["technical_reject"])) > 0:
+			out["technical_reject"] = mapFromAnyValue(planEventMeta["technical_reject"])
+		}
+	}
+
+	if strings.TrimSpace(stringFromAny(out["style_direction"])) == "" {
+		style := firstNonEmptyString(
+			stringFromAny(planEventMeta["style_direction"]),
+			stringFromAny(mapFromAnyValue(options["ai1_strategy_profile_v1"])["style_direction"]),
+			stringFromAny(mapFromAnyValue(planEventMeta["strategy_profile_v1"])["style_direction"]),
+		)
+		if style != "" {
+			out["style_direction"] = style
+		}
+	}
+
+	if len(parseStringSliceFromAny(out["must_capture"])) == 0 {
+		switch {
+		case len(parseStringSliceFromAny(planEventMeta["must_capture"])) > 0:
+			out["must_capture"] = parseStringSliceFromAny(planEventMeta["must_capture"])
+		case len(parseStringSliceFromAny(mapFromAnyValue(options["ai1_strategy_profile_v1"])["must_capture_bias"])) > 0:
+			out["must_capture"] = parseStringSliceFromAny(mapFromAnyValue(options["ai1_strategy_profile_v1"])["must_capture_bias"])
+		}
+	}
+	if len(parseStringSliceFromAny(out["avoid"])) == 0 {
+		switch {
+		case len(parseStringSliceFromAny(planEventMeta["avoid"])) > 0:
+			out["avoid"] = parseStringSliceFromAny(planEventMeta["avoid"])
+		case len(parseStringSliceFromAny(mapFromAnyValue(options["ai1_strategy_profile_v1"])["avoid_bias"])) > 0:
+			out["avoid"] = parseStringSliceFromAny(mapFromAnyValue(options["ai1_strategy_profile_v1"])["avoid_bias"])
+		}
+	}
+
+	if len(mapFromAnyValue(out["advanced_options"])) == 0 {
+		switch {
+		case len(mapFromAnyValue(options["ai1_advanced_options_v1"])) > 0:
+			out["advanced_options"] = mapFromAnyValue(options["ai1_advanced_options_v1"])
+		case len(mapFromAnyValue(planEventMeta["advanced_options_v1"])) > 0:
+			out["advanced_options"] = mapFromAnyValue(planEventMeta["advanced_options_v1"])
+		}
+	}
+
+	if len(mapFromAnyValue(out["strategy_profile"])) == 0 {
+		switch {
+		case len(mapFromAnyValue(options["ai1_strategy_profile_v1"])) > 0:
+			out["strategy_profile"] = mapFromAnyValue(options["ai1_strategy_profile_v1"])
+		case len(mapFromAnyValue(planEventMeta["strategy_profile_v1"])) > 0:
+			out["strategy_profile"] = mapFromAnyValue(planEventMeta["strategy_profile_v1"])
+		}
+	}
+
+	if strings.TrimSpace(stringFromAny(out["objective"])) == "" {
+		objective := firstNonEmptyString(
+			stringFromAny(planEventMeta["business_goal"]),
+			stringFromAny(mapFromAnyValue(options["ai1_strategy_profile_v1"])["business_goal"]),
+		)
+		if objective != "" {
+			out["objective"] = objective
+		}
+	}
+
+	if strings.TrimSpace(stringFromAny(out["source"])) == "" {
+		out["source"] = "debug_enriched_from_options_metrics"
+	}
+	return out
+}
+
+func copyMapFromAnyValue(raw interface{}) map[string]interface{} {
+	in := mapFromAnyValue(raw)
+	if len(in) == 0 {
+		return map[string]interface{}{}
+	}
+	out := make(map[string]interface{}, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func overlayAI2InstructionForDebug(dst map[string]interface{}, src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return dst
+	}
+	if len(dst) == 0 {
+		dst = map[string]interface{}{}
+	}
+	for key, value := range src {
+		if value == nil {
+			continue
+		}
+		existing, exists := dst[key]
+		switch {
+		case !exists || debugValueEmpty(existing):
+			dst[key] = value
+		default:
+			existingMap := mapFromAnyValue(existing)
+			sourceMap := mapFromAnyValue(value)
+			if len(existingMap) > 0 && len(sourceMap) > 0 {
+				merged := copyMapFromAnyValue(existingMap)
+				for mk, mv := range sourceMap {
+					if debugValueEmpty(merged[mk]) {
+						merged[mk] = mv
+					}
+				}
+				dst[key] = merged
+			}
+		}
+	}
+	return dst
+}
+
+func debugValueEmpty(raw interface{}) bool {
+	if raw == nil {
+		return true
+	}
+	if text := strings.TrimSpace(stringFromAny(raw)); text != "" {
+		return false
+	}
+	if len(mapFromAnyValue(raw)) > 0 {
+		return false
+	}
+	if len(parseStringSliceFromAny(raw)) > 0 {
+		return false
+	}
+	return true
+}
+
 func normalizeRequestedFormatForDebug(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "jpeg" {
 		return "jpg"
 	}
 	return value
+}
+
+func resolveImageMetricPrefixForDebug(format string) string {
+	switch normalizeRequestedFormatForDebug(format) {
+	case "png":
+		return "png"
+	case "jpg":
+		return "jpg"
+	case "webp":
+		return "webp"
+	case "live":
+		return "live"
+	case "mp4":
+		return "mp4"
+	default:
+		return "image"
+	}
+}
+
+func floatFromAnyValue(raw interface{}) float64 {
+	switch value := raw.(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case int32:
+		return float64(value)
+	case uint:
+		return float64(value)
+	case uint64:
+		return float64(value)
+	case uint32:
+		return float64(value)
+	case json.Number:
+		if f, err := value.Float64(); err == nil {
+			return f
+		}
+		return 0
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+			return f
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+func parseAI2QualityWeightsForDebug(raw interface{}) map[string]float64 {
+	required := []string{"semantic", "clarity", "loop", "efficiency"}
+	out := map[string]float64{}
+
+	weights := mapFromAnyValue(raw)
+	if len(weights) == 0 {
+		return out
+	}
+	for _, key := range required {
+		value, exists := weights[key]
+		if !exists {
+			continue
+		}
+		out[key] = floatFromAnyValue(value)
+	}
+	return out
+}
+
+func normalizeAI2QualityWeightsForDebug(raw map[string]float64) map[string]float64 {
+	required := []string{"semantic", "clarity", "loop", "efficiency"}
+	normalized := map[string]float64{}
+	sum := 0.0
+	for _, key := range required {
+		value := raw[key]
+		if value < 0 {
+			value = 0
+		}
+		if value > 1 {
+			value = 1
+		}
+		normalized[key] = value
+		sum += value
+	}
+	if sum <= 0 {
+		return map[string]float64{
+			"semantic":   0.35,
+			"clarity":    0.20,
+			"loop":       0.25,
+			"efficiency": 0.20,
+		}
+	}
+	for _, key := range required {
+		normalized[key] = normalized[key] / sum
+	}
+	return normalized
+}
+
+func normalizeAI2RiskFlagsForDebug(raw interface{}) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 4)
+	for _, item := range parseStringSliceFromAny(raw) {
+		value := strings.ToLower(strings.TrimSpace(item))
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func mergeFirstQualityWeightsForDebug(candidates ...interface{}) map[string]float64 {
+	for _, candidate := range candidates {
+		weights := parseAI2QualityWeightsForDebug(candidate)
+		if len(weights) > 0 {
+			return normalizeAI2QualityWeightsForDebug(weights)
+		}
+	}
+	return map[string]float64{}
+}
+
+func mergeFirstRiskFlagsForDebug(candidates ...interface{}) []string {
+	for _, candidate := range candidates {
+		flags := normalizeAI2RiskFlagsForDebug(candidate)
+		if len(flags) > 0 {
+			return flags
+		}
+	}
+	return nil
+}
+
+func firstNonEmptyStringValueForDebug(values ...interface{}) string {
+	for _, value := range values {
+		text := strings.TrimSpace(stringFromAny(value))
+		if text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func buildAI2ExecutionObservability(
+	requestedFormat string,
+	options map[string]interface{},
+	metrics map[string]interface{},
+	ai2Instruction map[string]interface{},
+) map[string]interface{} {
+	prefix := resolveImageMetricPrefixForDebug(requestedFormat)
+	metricAI2Guidance := mapFromAnyValue(metrics[prefix+"_ai2_guidance_v1"])
+	metricWorkerStrategy := mapFromAnyValue(metrics[prefix+"_worker_strategy_v1"])
+	metricExtraction := mapFromAnyValue(metrics[prefix+"_extraction_v1"])
+	frameQuality := mapFromAnyValue(metrics["frame_quality"])
+	optionAI2Guidance := mapFromAnyValue(options["ai2_guidance_v1"])
+	optionWorkerStrategy := mapFromAnyValue(options["ai2_worker_strategy_v1"])
+
+	effectiveWeights := mergeFirstQualityWeightsForDebug(
+		frameQuality["scoring_weights"],
+		metricAI2Guidance["quality_weights"],
+		optionAI2Guidance["quality_weights"],
+		options["ai2_quality_weights_v1"],
+		ai2Instruction["quality_weights"],
+	)
+	appliedRiskFlags := mergeFirstRiskFlagsForDebug(
+		frameQuality["risk_flags"],
+		metricWorkerStrategy["risk_flags"],
+		metricAI2Guidance["risk_flags"],
+		optionWorkerStrategy["risk_flags"],
+		optionAI2Guidance["risk_flags"],
+		options["ai2_risk_flags_v1"],
+		ai2Instruction["risk_flags"],
+	)
+	technicalReject := mapFromAnyValue(ai2Instruction["technical_reject"])
+	if len(technicalReject) == 0 {
+		technicalReject = mapFromAnyValue(options["ai2_technical_reject_v1"])
+	}
+	if len(technicalReject) == 0 {
+		technicalReject = mapFromAnyValue(metricWorkerStrategy["technical_reject"])
+	}
+	maxBlurTolerance := firstNonEmptyStringValueForDebug(
+		frameQuality["max_blur_tolerance"],
+		technicalReject["max_blur_tolerance"],
+		optionAI2Guidance["max_blur_tolerance"],
+		metricAI2Guidance["max_blur_tolerance"],
+	)
+	selectorVersion := firstNonEmptyStringValueForDebug(
+		frameQuality["selector_version"],
+		metricExtraction["selector_version"],
+		metricAI2Guidance["selector_version"],
+	)
+	scoringMode := firstNonEmptyStringValueForDebug(
+		frameQuality["scoring_mode"],
+		metricExtraction["scoring_mode"],
+		optionAI2Guidance["scoring_mode"],
+		metricAI2Guidance["scoring_mode"],
+	)
+	selectionPolicy := firstNonEmptyStringValueForDebug(
+		frameQuality["selection_policy"],
+		metricExtraction["selection_policy"],
+		optionAI2Guidance["selection_policy"],
+		metricAI2Guidance["selection_policy"],
+	)
+	scoringFormula := firstNonEmptyStringValueForDebug(
+		frameQuality["scoring_formula"],
+		metricExtraction["scoring_formula"],
+		optionAI2Guidance["scoring_formula"],
+		metricAI2Guidance["scoring_formula"],
+	)
+	candidateExplainability := buildAI2CandidateExplainabilitySummary(frameQuality["candidate_scores"])
+
+	if len(effectiveWeights) == 0 && len(appliedRiskFlags) == 0 && len(technicalReject) == 0 &&
+		maxBlurTolerance == "" && selectorVersion == "" && scoringMode == "" && selectionPolicy == "" && scoringFormula == "" &&
+		len(metricWorkerStrategy) == 0 && len(candidateExplainability) == 0 {
+		return map[string]interface{}{}
+	}
+
+	out := map[string]interface{}{
+		"schema_version":     "ai2_execution_observability_v1",
+		"requested_format":   normalizeRequestedFormatForDebug(requestedFormat),
+		"selector_version":   selectorVersion,
+		"scoring_mode":       scoringMode,
+		"selection_policy":   selectionPolicy,
+		"scoring_formula":    scoringFormula,
+		"risk_flags_applied": appliedRiskFlags,
+		"guidance_sources": map[string]interface{}{
+			"from_ai2_instruction": len(ai2Instruction) > 0,
+			"from_options":         len(optionAI2Guidance) > 0 || len(optionWorkerStrategy) > 0,
+			"from_metrics":         len(metricAI2Guidance) > 0 || len(metricWorkerStrategy) > 0 || len(frameQuality) > 0,
+		},
+	}
+	if len(effectiveWeights) > 0 {
+		out["effective_quality_weights"] = effectiveWeights
+	}
+	if maxBlurTolerance != "" {
+		out["max_blur_tolerance"] = strings.ToLower(strings.TrimSpace(maxBlurTolerance))
+	}
+	if len(technicalReject) > 0 {
+		out["technical_reject"] = technicalReject
+	}
+	if len(metricWorkerStrategy) > 0 {
+		out["worker_strategy"] = metricWorkerStrategy
+	} else if len(optionWorkerStrategy) > 0 {
+		out["worker_strategy"] = optionWorkerStrategy
+	}
+	if len(frameQuality) > 0 {
+		summary := map[string]interface{}{
+			"kept_frames":      intFromAnyValue(frameQuality["kept_frames"]),
+			"total_frames":     intFromAnyValue(frameQuality["total_frames"]),
+			"fallback_applied": boolFromAny(frameQuality["fallback_applied"]),
+			"reject_counts": map[string]interface{}{
+				"blur":         intFromAnyValue(frameQuality["rejected_blur"]),
+				"brightness":   intFromAnyValue(frameQuality["rejected_brightness"]),
+				"exposure":     intFromAnyValue(frameQuality["rejected_exposure"]),
+				"resolution":   intFromAnyValue(frameQuality["rejected_resolution"]),
+				"still_blur":   intFromAnyValue(frameQuality["rejected_still_blur_gate"]),
+				"watermark":    intFromAnyValue(frameQuality["rejected_watermark"]),
+				"near_dup":     intFromAnyValue(frameQuality["rejected_near_duplicate"]),
+				"total_reject": intFromAnyValue(frameQuality["total_frames"]) - intFromAnyValue(frameQuality["kept_frames"]),
+			},
+		}
+		if candidateCount := intFromAnyValue(frameQuality["candidate_count"]); candidateCount > 0 {
+			summary["candidate_count"] = candidateCount
+		} else if len(candidateExplainability) > 0 {
+			summary["candidate_count"] = intFromAnyValue(candidateExplainability["total_candidates"])
+		}
+		out["frame_quality_summary"] = summary
+	}
+	if len(candidateExplainability) > 0 {
+		out["candidate_explainability"] = candidateExplainability
+	}
+	return out
+}
+
+func buildPipelineAlignmentReportV1(
+	requestedFormat string,
+	sourcePrompt string,
+	advancedOptions map[string]interface{},
+	strategyProfile map[string]interface{},
+	strategyOverrideReport map[string]interface{},
+	advancedSceneGuard map[string]interface{},
+	userReply map[string]interface{},
+	ai2Instruction map[string]interface{},
+	ai2ExecutionObservability map[string]interface{},
+	options map[string]interface{},
+	metrics map[string]interface{},
+) map[string]interface{} {
+	format := normalizeRequestedFormatForDebug(requestedFormat)
+	if format == "" {
+		format = "unknown"
+	}
+	metricPrefix := resolveImageMetricPrefixForDebug(format)
+	pipelineMetric := mapFromAnyValue(metrics[fmt.Sprintf("%s_pipeline_v1", metricPrefix)])
+	stageStatus := mapFromAnyValue(metrics[fmt.Sprintf("%s_pipeline_stage_status_v1", metricPrefix)])
+	ai1Metric := mapFromAnyValue(metrics[fmt.Sprintf("%s_ai1_plan_v1", metricPrefix)])
+	ai2Metric := mapFromAnyValue(metrics[fmt.Sprintf("%s_ai2_instruction_v1", metricPrefix)])
+	workerMetric := mapFromAnyValue(metrics[fmt.Sprintf("%s_worker_strategy_v1", metricPrefix)])
+	if len(workerMetric) == 0 {
+		workerMetric = mapFromAnyValue(options["ai2_worker_strategy_v1"])
+	}
+	ai3Metric := mapFromAnyValue(metrics[fmt.Sprintf("%s_ai3_review_v1", metricPrefix)])
+
+	ai2Advanced := mapFromAnyValue(ai2Instruction["advanced_options"])
+	scene := videojobs.NormalizeAdvancedScenario(firstNonEmptyString(
+		stringFromAny(advancedOptions["scene"]),
+		stringFromAny(advancedOptions["scenario"]),
+		stringFromAny(strategyProfile["scene"]),
+		stringFromAny(strategyOverrideReport["scene"]),
+		stringFromAny(ai2Advanced["scene"]),
+	))
+	if scene == "" {
+		scene = videojobs.AdvancedScenarioDefault
+	}
+	sceneLabel := firstNonEmptyString(
+		stringFromAny(strategyProfile["scene_label"]),
+		stringFromAny(strategyOverrideReport["scene_label"]),
+		stringFromAny(ai2Advanced["scene_label"]),
+		resolvePipelineSceneLabelForDebug(scene),
+	)
+	visualFocus := parseStringSliceFromAny(advancedOptions["visual_focus"])
+	if len(visualFocus) == 0 {
+		visualFocus = parseStringSliceFromAny(ai2Advanced["visual_focus"])
+	}
+	enableMatting := boolFromAny(advancedOptions["enable_matting"])
+	if !enableMatting {
+		enableMatting = boolFromAny(ai2Advanced["enable_matting"])
+	}
+
+	requestedWeights := parseAI2QualityWeightsFlexible(ai2Instruction["quality_weights"])
+	effectiveWeights := parseAI2QualityWeightsFlexible(ai2ExecutionObservability["effective_quality_weights"])
+	requestedRiskFlags := normalizeAI2RiskFlagsForDebug(ai2Instruction["risk_flags"])
+	appliedRiskFlags := normalizeAI2RiskFlagsForDebug(ai2ExecutionObservability["risk_flags_applied"])
+
+	technicalRejectRequested := mapFromAnyValue(ai2Instruction["technical_reject"])
+	technicalRejectEffective := mapFromAnyValue(ai2ExecutionObservability["technical_reject"])
+	if len(technicalRejectEffective) == 0 {
+		technicalRejectEffective = mapFromAnyValue(workerMetric["technical_reject"])
+	}
+	frameQualitySummary := mapFromAnyValue(ai2ExecutionObservability["frame_quality_summary"])
+	rejectCounts := mapFromAnyValue(frameQualitySummary["reject_counts"])
+	candidateExplainability := mapFromAnyValue(ai2ExecutionObservability["candidate_explainability"])
+
+	ai1Node := map[string]interface{}{
+		"source_prompt":             strings.TrimSpace(sourcePrompt),
+		"intent_understanding":      strings.TrimSpace(stringFromAny(userReply["intent_understanding"])),
+		"strategy_summary":          strings.TrimSpace(stringFromAny(userReply["strategy_summary"])),
+		"interactive_action":        strings.TrimSpace(stringFromAny(userReply["interactive_action"])),
+		"strategy_profile":          strategyProfile,
+		"strategy_override_report":  strategyOverrideReport,
+		"ai2_directive_seed_fields": buildPipelineAI2DirectiveSeedFields(ai2Instruction),
+	}
+	if len(ai1Metric) > 0 {
+		ai1Node["metric"] = ai1Metric
+	}
+
+	ai2Node := map[string]interface{}{
+		"objective":                 strings.TrimSpace(stringFromAny(ai2Instruction["objective"])),
+		"style_direction":           strings.TrimSpace(stringFromAny(ai2Instruction["style_direction"])),
+		"requested_quality_weights": requestedWeights,
+		"effective_quality_weights": effectiveWeights,
+		"requested_risk_flags":      requestedRiskFlags,
+		"applied_risk_flags":        appliedRiskFlags,
+		"technical_reject":          technicalRejectRequested,
+		"selector_version":          strings.TrimSpace(stringFromAny(ai2ExecutionObservability["selector_version"])),
+		"scoring_mode":              strings.TrimSpace(stringFromAny(ai2ExecutionObservability["scoring_mode"])),
+		"scoring_formula":           strings.TrimSpace(stringFromAny(ai2ExecutionObservability["scoring_formula"])),
+		"selection_policy":          strings.TrimSpace(stringFromAny(ai2ExecutionObservability["selection_policy"])),
+	}
+	if len(ai2Metric) > 0 {
+		ai2Node["metric"] = ai2Metric
+	}
+	if len(candidateExplainability) > 0 {
+		ai2Node["candidate_explainability"] = candidateExplainability
+	}
+
+	workerNode := map[string]interface{}{
+		"strategy":              workerMetric,
+		"technical_reject":      technicalRejectEffective,
+		"frame_quality_summary": frameQualitySummary,
+		"stage": map[string]interface{}{
+			"worker":     strings.TrimSpace(stringFromAny(stageStatus["worker"])),
+			"extraction": strings.TrimSpace(stringFromAny(stageStatus["extraction"])),
+		},
+	}
+
+	ai3Node := map[string]interface{}{
+		"review": ai3Metric,
+		"stage":  strings.TrimSpace(stringFromAny(stageStatus["ai3"])),
+	}
+
+	report := map[string]interface{}{
+		"schema_version":   "pipeline_alignment_report_v1",
+		"requested_format": format,
+		"scenario": map[string]interface{}{
+			"scene":          scene,
+			"scene_label":    sceneLabel,
+			"visual_focus":   visualFocus,
+			"enable_matting": enableMatting,
+		},
+		"ai1":          ai1Node,
+		"ai2":          ai2Node,
+		"worker":       workerNode,
+		"ai3":          ai3Node,
+		"stage_status": stageStatus,
+	}
+	if len(pipelineMetric) > 0 {
+		report["pipeline_metric"] = pipelineMetric
+	}
+	if len(advancedSceneGuard) > 0 {
+		report["advanced_scene_guard_v1"] = advancedSceneGuard
+	}
+	sceneBaselineDiff := buildPipelineSceneBaselineDiffV1(format, scene, strategyProfile, ai2Instruction, technicalRejectRequested)
+	if len(sceneBaselineDiff) > 0 {
+		report["scene_baseline_diff_v1"] = sceneBaselineDiff
+	}
+
+	checks := make([]map[string]interface{}, 0, 8)
+	appendCheck := func(key, label, status, detail string, value interface{}) {
+		entry := map[string]interface{}{
+			"key":    strings.TrimSpace(key),
+			"label":  strings.TrimSpace(label),
+			"status": strings.TrimSpace(strings.ToLower(status)),
+			"detail": strings.TrimSpace(detail),
+		}
+		if value != nil {
+			entry["value"] = value
+		}
+		checks = append(checks, entry)
+	}
+
+	if scene == "" {
+		appendCheck("scene_resolved", "场景解析", "warn", "未解析到场景，已按默认策略运行。", nil)
+	} else {
+		appendCheck("scene_resolved", "场景解析", "pass", "已解析场景并注入 AI1/AI2。", map[string]interface{}{
+			"scene":       scene,
+			"scene_label": sceneLabel,
+		})
+	}
+	if len(advancedSceneGuard) > 0 {
+		appendCheck("scene_guard_applied", "PNG主线场景收敛", "pass", "场景已按主线范围收敛。", advancedSceneGuard)
+	}
+	if len(sceneBaselineDiff) > 0 {
+		sceneChanged := boolFromAny(sceneBaselineDiff["scene_changed"])
+		weightsDiffKeys := parseStringSliceFromAny(sceneBaselineDiff["weight_diff_keys"])
+		mustAdded := parseStringSliceFromAny(sceneBaselineDiff["must_capture_added"])
+		avoidAdded := parseStringSliceFromAny(sceneBaselineDiff["avoid_added"])
+		technicalChanged := parseStringSliceFromAny(sceneBaselineDiff["technical_reject_changed_keys"])
+		if sceneChanged {
+			detail := "当前场景已与 default 基线形成可视化差异。"
+			if len(weightsDiffKeys) > 0 || len(mustAdded) > 0 || len(avoidAdded) > 0 || len(technicalChanged) > 0 {
+				detail = "当前场景相对 default 基线存在已配置差异（权重/规则/门槛）。"
+			}
+			appendCheck("scene_baseline_diff", "场景基线差异", "pass", detail, map[string]interface{}{
+				"weight_diff_keys":              weightsDiffKeys,
+				"must_capture_added":            mustAdded,
+				"avoid_added":                   avoidAdded,
+				"technical_reject_changed_keys": technicalChanged,
+			})
+		} else {
+			appendCheck("scene_baseline_diff", "场景基线差异", "warn", "当前即 default 场景，基线差异仅用于参考。", map[string]interface{}{
+				"weight_diff_keys":              weightsDiffKeys,
+				"technical_reject_changed_keys": technicalChanged,
+			})
+		}
+	}
+
+	strategyStyle := strings.ToLower(strings.TrimSpace(stringFromAny(strategyProfile["style_direction"])))
+	directiveStyle := strings.ToLower(strings.TrimSpace(stringFromAny(ai2Instruction["style_direction"])))
+	switch {
+	case strategyStyle == "" && directiveStyle == "":
+		appendCheck("style_direction_locked", "风格方向锁定", "warn", "未配置 style_direction，当前依赖模型自动输出。", nil)
+	case strategyStyle == "":
+		appendCheck("style_direction_locked", "风格方向锁定", "pass", "策略未强制 style_direction，AI2 指令已有风格方向。", map[string]interface{}{
+			"directive_style_direction": directiveStyle,
+		})
+	case directiveStyle == "":
+		appendCheck("style_direction_locked", "风格方向锁定", "warn", "策略已配置 style_direction，但 AI2 指令为空。", map[string]interface{}{
+			"strategy_style_direction": strategyStyle,
+		})
+	case strategyStyle == directiveStyle:
+		appendCheck("style_direction_locked", "风格方向锁定", "pass", "AI2 指令风格方向与策略一致。", map[string]interface{}{
+			"style_direction": strategyStyle,
+		})
+	default:
+		appendCheck("style_direction_locked", "风格方向锁定", "fail", "AI2 指令风格方向与策略不一致。", map[string]interface{}{
+			"strategy_style_direction":  strategyStyle,
+			"directive_style_direction": directiveStyle,
+		})
+	}
+
+	if len(requestedWeights) == 0 && len(effectiveWeights) == 0 {
+		appendCheck("quality_weights_applied", "质量权重生效", "warn", "未检测到请求权重与执行权重。", nil)
+	} else if len(requestedWeights) == 0 {
+		appendCheck("quality_weights_applied", "质量权重生效", "warn", "缺少 AI2 请求权重，无法完成严格比对。", map[string]interface{}{
+			"effective_quality_weights": effectiveWeights,
+		})
+	} else if len(effectiveWeights) == 0 {
+		appendCheck("quality_weights_applied", "质量权重生效", "fail", "未检测到执行生效权重。", map[string]interface{}{
+			"requested_quality_weights": requestedWeights,
+		})
+	} else {
+		mismatchKeys := diffAI2QualityWeightsForDebug(requestedWeights, effectiveWeights, 0.03)
+		if len(mismatchKeys) == 0 {
+			appendCheck("quality_weights_applied", "质量权重生效", "pass", "AI2 请求权重与执行权重一致。", map[string]interface{}{
+				"requested_quality_weights": requestedWeights,
+				"effective_quality_weights": effectiveWeights,
+			})
+		} else {
+			appendCheck("quality_weights_applied", "质量权重生效", "fail", "检测到权重漂移。", map[string]interface{}{
+				"mismatch_keys":             mismatchKeys,
+				"requested_quality_weights": requestedWeights,
+				"effective_quality_weights": effectiveWeights,
+			})
+		}
+	}
+
+	requestedAvoidWatermarks := boolFromAny(technicalRejectRequested["avoid_watermarks"])
+	effectiveAvoidWatermarks := boolFromAny(technicalRejectEffective["avoid_watermarks"])
+	watermarkRejectCount := intFromAnyValue(rejectCounts["watermark"])
+	switch {
+	case requestedAvoidWatermarks && effectiveAvoidWatermarks:
+		detail := "水印硬门槛已生效。"
+		if watermarkRejectCount > 0 {
+			detail = fmt.Sprintf("水印硬门槛已生效，已拒绝 %d 帧。", watermarkRejectCount)
+		}
+		appendCheck("watermark_gate_active", "水印门槛生效", "pass", detail, map[string]interface{}{
+			"requested_avoid_watermarks": requestedAvoidWatermarks,
+			"effective_avoid_watermarks": effectiveAvoidWatermarks,
+			"rejected_watermark_frames":  watermarkRejectCount,
+		})
+	case requestedAvoidWatermarks && !effectiveAvoidWatermarks:
+		appendCheck("watermark_gate_active", "水印门槛生效", "fail", "AI2 指令要求避开水印，但 Worker 未确认生效。", map[string]interface{}{
+			"requested_avoid_watermarks": requestedAvoidWatermarks,
+			"effective_avoid_watermarks": effectiveAvoidWatermarks,
+		})
+	default:
+		appendCheck("watermark_gate_active", "水印门槛生效", "warn", "当前场景未开启 avoid_watermarks 硬门槛。", map[string]interface{}{
+			"requested_avoid_watermarks": requestedAvoidWatermarks,
+		})
+	}
+
+	ai3Stage := strings.ToLower(strings.TrimSpace(stringFromAny(stageStatus["ai3"])))
+	if len(ai3Metric) > 0 {
+		appendCheck("ai3_review_available", "AI3 评审产物", "pass", "已生成 AI3 审核摘要。", map[string]interface{}{
+			"stage": ai3Stage,
+		})
+	} else if ai3Stage == "running" || ai3Stage == "pending" {
+		appendCheck("ai3_review_available", "AI3 评审产物", "warn", "AI3 阶段尚在执行中。", map[string]interface{}{
+			"stage": ai3Stage,
+		})
+	} else {
+		appendCheck("ai3_review_available", "AI3 评审产物", "warn", "未检测到 AI3 评审摘要。", map[string]interface{}{
+			"stage": ai3Stage,
+		})
+	}
+
+	ai1Stage := strings.ToLower(strings.TrimSpace(stringFromAny(stageStatus["ai1"])))
+	ai2Stage := strings.ToLower(strings.TrimSpace(stringFromAny(stageStatus["ai2"])))
+	workerStage := strings.ToLower(strings.TrimSpace(stringFromAny(stageStatus["worker"])))
+	if isPipelineStageDoneForDebug(ai1Stage) && isPipelineStageDoneForDebug(ai2Stage) && isPipelineStageDoneForDebug(workerStage) {
+		appendCheck("mainline_stage_status", "主线阶段状态", "pass", "AI1/AI2/Worker 阶段均已完成。", map[string]interface{}{
+			"ai1":    ai1Stage,
+			"ai2":    ai2Stage,
+			"worker": workerStage,
+		})
+	} else {
+		appendCheck("mainline_stage_status", "主线阶段状态", "warn", "主线阶段存在未完成状态，请结合 stage_status 排查。", map[string]interface{}{
+			"ai1":    ai1Stage,
+			"ai2":    ai2Stage,
+			"worker": workerStage,
+		})
+	}
+
+	passCount := 0
+	warnCount := 0
+	failCount := 0
+	for _, item := range checks {
+		switch strings.ToLower(strings.TrimSpace(stringFromAny(item["status"]))) {
+		case "pass":
+			passCount++
+		case "fail":
+			failCount++
+		default:
+			warnCount++
+		}
+	}
+
+	finalStatus := "pass"
+	if failCount > 0 {
+		finalStatus = "fail"
+	} else if warnCount > 0 {
+		finalStatus = "warn"
+	}
+	report["consistency_checks"] = checks
+	report["summary"] = map[string]interface{}{
+		"status":       finalStatus,
+		"pass_count":   passCount,
+		"warn_count":   warnCount,
+		"fail_count":   failCount,
+		"total_checks": len(checks),
+	}
+	return report
+}
+
+func buildPipelineAI2DirectiveSeedFields(ai2Instruction map[string]interface{}) map[string]interface{} {
+	if len(ai2Instruction) == 0 {
+		return map[string]interface{}{}
+	}
+	out := map[string]interface{}{
+		"objective":        strings.TrimSpace(stringFromAny(ai2Instruction["objective"])),
+		"must_capture":     parseStringSliceFromAny(ai2Instruction["must_capture"]),
+		"avoid":            parseStringSliceFromAny(ai2Instruction["avoid"]),
+		"style_direction":  strings.TrimSpace(stringFromAny(ai2Instruction["style_direction"])),
+		"quality_weights":  parseAI2QualityWeightsFlexible(ai2Instruction["quality_weights"]),
+		"technical_reject": mapFromAnyValue(ai2Instruction["technical_reject"]),
+	}
+	return out
+}
+
+func buildPipelineSceneBaselineDiffV1(
+	requestedFormat string,
+	scene string,
+	strategyProfile map[string]interface{},
+	ai2Instruction map[string]interface{},
+	technicalRejectRequested map[string]interface{},
+) map[string]interface{} {
+	if normalizeRequestedFormatForDebug(requestedFormat) != "png" {
+		return nil
+	}
+
+	currentScene := videojobs.NormalizeAdvancedScenario(scene)
+	if currentScene == "" {
+		currentScene = videojobs.AdvancedScenarioDefault
+	}
+	baselineScene := videojobs.AdvancedScenarioDefault
+	baselineProfile := videojobs.ResolveVideoJobAI1StrategyProfile(
+		"png",
+		videojobs.VideoJobAdvancedOptions{Scene: baselineScene},
+	)
+
+	currentWeights := resolveFirstAI2QualityWeightsForBaselineDiff(
+		ai2Instruction["quality_weights"],
+		strategyProfile["quality_weights"],
+	)
+	if len(currentWeights) == 0 {
+		currentWeights = normalizeAI2QualityWeightsForDebug(map[string]float64{
+			"semantic":   baselineProfile.QualityWeights["semantic"],
+			"clarity":    baselineProfile.QualityWeights["clarity"],
+			"loop":       baselineProfile.QualityWeights["loop"],
+			"efficiency": baselineProfile.QualityWeights["efficiency"],
+		})
+	}
+	baselineWeights := resolveFirstAI2QualityWeightsForBaselineDiff(baselineProfile.QualityWeights)
+
+	weightDelta := map[string]float64{}
+	weightDiffKeys := make([]string, 0, 4)
+	for _, key := range []string{"semantic", "clarity", "loop", "efficiency"} {
+		delta := currentWeights[key] - baselineWeights[key]
+		weightDelta[key] = delta
+		if delta < -0.03 || delta > 0.03 {
+			weightDiffKeys = append(weightDiffKeys, key)
+		}
+	}
+
+	currentMustCapture := parseStringSliceFromAny(ai2Instruction["must_capture"])
+	if len(currentMustCapture) == 0 {
+		currentMustCapture = parseStringSliceFromAny(strategyProfile["must_capture_bias"])
+	}
+	currentAvoid := parseStringSliceFromAny(ai2Instruction["avoid"])
+	if len(currentAvoid) == 0 {
+		currentAvoid = parseStringSliceFromAny(strategyProfile["avoid_bias"])
+	}
+	baselineMustCapture := append([]string{}, baselineProfile.MustCaptureBias...)
+	baselineAvoid := append([]string{}, baselineProfile.AvoidBias...)
+	mustAdded, mustRemoved := diffStringSliceForBaseline(currentMustCapture, baselineMustCapture)
+	avoidAdded, avoidRemoved := diffStringSliceForBaseline(currentAvoid, baselineAvoid)
+
+	currentTechnical := mapFromAnyValue(ai2Instruction["technical_reject"])
+	if len(currentTechnical) == 0 {
+		currentTechnical = mapFromAnyValue(strategyProfile["technical_reject"])
+	}
+	if len(currentTechnical) == 0 {
+		currentTechnical = baselineProfile.TechnicalReject
+	}
+	technicalChangedKeys := diffTechnicalRejectForBaseline(currentTechnical, baselineProfile.TechnicalReject)
+
+	return map[string]interface{}{
+		"schema_version":                "scene_baseline_diff_v1",
+		"requested_format":              "png",
+		"baseline_scene":                baselineScene,
+		"current_scene":                 currentScene,
+		"scene_changed":                 currentScene != baselineScene,
+		"quality_weights_current":       currentWeights,
+		"quality_weights_baseline":      baselineWeights,
+		"quality_weight_delta":          weightDelta,
+		"weight_diff_keys":              weightDiffKeys,
+		"must_capture_current":          normalizeStringSliceForBaseline(currentMustCapture),
+		"must_capture_baseline":         normalizeStringSliceForBaseline(baselineMustCapture),
+		"must_capture_added":            mustAdded,
+		"must_capture_removed":          mustRemoved,
+		"avoid_current":                 normalizeStringSliceForBaseline(currentAvoid),
+		"avoid_baseline":                normalizeStringSliceForBaseline(baselineAvoid),
+		"avoid_added":                   avoidAdded,
+		"avoid_removed":                 avoidRemoved,
+		"technical_reject_current":      currentTechnical,
+		"technical_reject_baseline":     baselineProfile.TechnicalReject,
+		"technical_reject_changed_keys": technicalChangedKeys,
+		"recommendation_summary":        buildSceneBaselineDiffSummary(currentScene, weightDiffKeys, mustAdded, avoidAdded, technicalChangedKeys),
+	}
+}
+
+func resolveFirstAI2QualityWeightsForBaselineDiff(candidates ...interface{}) map[string]float64 {
+	for _, candidate := range candidates {
+		weights := parseAI2QualityWeightsFlexible(candidate)
+		if len(weights) == 0 {
+			continue
+		}
+		return normalizeAI2QualityWeightsForDebug(weights)
+	}
+	return map[string]float64{}
+}
+
+func normalizeStringSliceForBaseline(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, item := range values {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func diffStringSliceForBaseline(current []string, baseline []string) (added []string, removed []string) {
+	currentNorm := normalizeStringSliceForBaseline(current)
+	baselineNorm := normalizeStringSliceForBaseline(baseline)
+	currentSet := map[string]string{}
+	for _, item := range currentNorm {
+		currentSet[strings.ToLower(strings.TrimSpace(item))] = item
+	}
+	baselineSet := map[string]string{}
+	for _, item := range baselineNorm {
+		baselineSet[strings.ToLower(strings.TrimSpace(item))] = item
+	}
+	for key, item := range currentSet {
+		if _, exists := baselineSet[key]; exists {
+			continue
+		}
+		added = append(added, item)
+	}
+	for key, item := range baselineSet {
+		if _, exists := currentSet[key]; exists {
+			continue
+		}
+		removed = append(removed, item)
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
+}
+
+func normalizeTechnicalRejectValueForDiff(raw interface{}) string {
+	switch value := raw.(type) {
+	case nil:
+		return ""
+	case bool:
+		if value {
+			return "true"
+		}
+		return "false"
+	case string:
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return strings.TrimSpace(strings.ToLower(stringFromAny(raw)))
+	}
+}
+
+func diffTechnicalRejectForBaseline(current map[string]interface{}, baseline map[string]interface{}) []string {
+	if len(current) == 0 && len(baseline) == 0 {
+		return nil
+	}
+	keySet := map[string]struct{}{}
+	for key := range current {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		keySet[key] = struct{}{}
+	}
+	for key := range baseline {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		keySet[key] = struct{}{}
+	}
+	keys := make([]string, 0, len(keySet))
+	for key := range keySet {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	changed := make([]string, 0, len(keys))
+	for _, key := range keys {
+		cv := normalizeTechnicalRejectValueForDiff(current[key])
+		bv := normalizeTechnicalRejectValueForDiff(baseline[key])
+		if cv == bv {
+			continue
+		}
+		changed = append(changed, key)
+	}
+	return changed
+}
+
+func buildSceneBaselineDiffSummary(
+	currentScene string,
+	weightDiffKeys []string,
+	mustAdded []string,
+	avoidAdded []string,
+	technicalChangedKeys []string,
+) string {
+	if currentScene == videojobs.AdvancedScenarioDefault {
+		return "当前场景为 default，作为主线基线参考。"
+	}
+	parts := make([]string, 0, 4)
+	if len(weightDiffKeys) > 0 {
+		parts = append(parts, fmt.Sprintf("权重差异 %d 项", len(weightDiffKeys)))
+	}
+	if len(mustAdded) > 0 {
+		parts = append(parts, fmt.Sprintf("must_capture 新增 %d 项", len(mustAdded)))
+	}
+	if len(avoidAdded) > 0 {
+		parts = append(parts, fmt.Sprintf("avoid 新增 %d 项", len(avoidAdded)))
+	}
+	if len(technicalChangedKeys) > 0 {
+		parts = append(parts, fmt.Sprintf("技术门槛变化 %d 项", len(technicalChangedKeys)))
+	}
+	if len(parts) == 0 {
+		return "当前场景与 default 基线差异较小。"
+	}
+	return "相对 default 基线：" + strings.Join(parts, "，") + "。"
+}
+
+func resolvePipelineSceneLabelForDebug(scene string) string {
+	switch videojobs.NormalizeAdvancedScenario(scene) {
+	case videojobs.AdvancedScenarioXiaohongshu:
+		return "小红书网感"
+	case videojobs.AdvancedScenarioWallpaper:
+		return "手机壁纸"
+	case videojobs.AdvancedScenarioNews:
+		return "新闻配图"
+	default:
+		return "通用截图"
+	}
+}
+
+func parseAI2QualityWeightsFlexible(raw interface{}) map[string]float64 {
+	switch value := raw.(type) {
+	case map[string]float64:
+		if len(value) == 0 {
+			return map[string]float64{}
+		}
+		return normalizeAI2QualityWeightsForDebug(value)
+	case map[string]interface{}:
+		return parseAI2QualityWeightsForDebug(value)
+	default:
+		return parseAI2QualityWeightsForDebug(raw)
+	}
+}
+
+func diffAI2QualityWeightsForDebug(a, b map[string]float64, tolerance float64) []string {
+	keys := []string{"semantic", "clarity", "loop", "efficiency"}
+	out := make([]string, 0, len(keys))
+	if tolerance < 0 {
+		tolerance = 0
+	}
+	for _, key := range keys {
+		diff := a[key] - b[key]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > tolerance {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func isPipelineStageDoneForDebug(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "done", "reused", "completed", "success":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildAI2CandidateExplainabilitySummary(raw interface{}) map[string]interface{} {
+	items, ok := raw.([]interface{})
+	if !ok || len(items) == 0 {
+		return nil
+	}
+
+	decisionCounts := map[string]int{}
+	mustCaptureHitFrames := 0
+	avoidHitFrames := 0
+	topRows := make([]map[string]interface{}, 0, 8)
+	totalRows := 0
+
+	for _, item := range items {
+		row := mapFromAnyValue(item)
+		if len(row) == 0 {
+			continue
+		}
+		totalRows++
+		decision := strings.ToLower(strings.TrimSpace(stringFromAny(row["decision"])))
+		if decision == "" {
+			decision = "unknown"
+		}
+		decisionCounts[decision]++
+
+		mustCaptureHits := parseStringSliceFromAny(row["must_capture_hits"])
+		avoidHits := parseStringSliceFromAny(row["avoid_hits"])
+		if len(mustCaptureHits) > 0 {
+			mustCaptureHitFrames++
+		}
+		if len(avoidHits) > 0 {
+			avoidHitFrames++
+		}
+
+		if len(topRows) >= 8 {
+			continue
+		}
+		topRows = append(topRows, map[string]interface{}{
+			"rank":              intFromAnyValue(row["rank"]),
+			"frame_name":        firstNonEmptyStringValueForDebug(row["frame_name"], row["frame_path"]),
+			"decision":          decision,
+			"reject_reason":     strings.TrimSpace(stringFromAny(row["reject_reason"])),
+			"must_capture_hits": mustCaptureHits,
+			"avoid_hits":        avoidHits,
+			"summary":           strings.TrimSpace(stringFromAny(row["explain_summary"])),
+		})
+	}
+
+	if totalRows == 0 {
+		return nil
+	}
+	return map[string]interface{}{
+		"total_candidates":        totalRows,
+		"decision_counts":         decisionCounts,
+		"must_capture_hit_frames": mustCaptureHitFrames,
+		"avoid_hit_frames":        avoidHitFrames,
+		"top_rows":                topRows,
+	}
 }
 
 func parseStringSliceFromAny(raw interface{}) []string {
@@ -2698,6 +4734,145 @@ func parseStringSliceFromAny(raw interface{}) []string {
 		out = append(out, text)
 	}
 	return out
+}
+
+func normalizeAI1EditableStringSlice(raw []string, maxN int) []string {
+	if maxN <= 0 {
+		maxN = 16
+	}
+	out := make([]string, 0, minIntValue(len(raw), maxN))
+	seen := map[string]struct{}{}
+	for _, item := range raw {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+		if len(out) >= maxN {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return []string{}
+	}
+	return out
+}
+
+func normalizeAI1PatchRiskFlags(raw []string, maxN int) []string {
+	if maxN <= 0 {
+		maxN = 16
+	}
+	out := make([]string, 0, minIntValue(len(raw), maxN))
+	seen := map[string]struct{}{}
+	for _, item := range raw {
+		value := strings.ToLower(strings.TrimSpace(item))
+		if value == "" {
+			continue
+		}
+		value = strings.ReplaceAll(value, " ", "_")
+		value = strings.ReplaceAll(value, "-", "_")
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		if len(out) >= maxN {
+			break
+		}
+	}
+	return out
+}
+
+func normalizeAI1PatchQualityWeights(raw map[string]float64) (map[string]float64, error) {
+	out := map[string]float64{
+		"semantic":   0,
+		"clarity":    0,
+		"loop":       0,
+		"efficiency": 0,
+	}
+	sum := 0.0
+	for key, value := range raw {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if _, ok := out[normalizedKey]; !ok {
+			continue
+		}
+		if value < 0 {
+			value = 0
+		}
+		if value > 1 {
+			value = 1
+		}
+		out[normalizedKey] = value
+		sum += value
+	}
+	if sum <= 0 {
+		return nil, fmt.Errorf("quality_weights must contain at least one positive value")
+	}
+	for key, value := range out {
+		out[key] = value / sum
+	}
+	return out, nil
+}
+
+func normalizeAI1PatchQualityWeightsFromAny(raw interface{}) map[string]float64 {
+	out := map[string]float64{}
+	value := mapFromAnyValue(raw)
+	for _, key := range []string{"semantic", "clarity", "loop", "efficiency"} {
+		v := floatFromAnyValue(value[key])
+		if v <= 0 {
+			continue
+		}
+		out[key] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	normalized, err := normalizeAI1PatchQualityWeights(out)
+	if err != nil {
+		return nil
+	}
+	return normalized
+}
+
+func defaultAI1PatchMaxBlurTolerance(targetFormat string) string {
+	switch normalizeRequestedFormatForDebug(targetFormat) {
+	case "png", "jpg", "webp":
+		return "low"
+	default:
+		return "medium"
+	}
+}
+
+func normalizeAI1PatchMaxBlurTolerance(raw string, targetFormat string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "low", "medium", "high":
+		return value, nil
+	case "":
+		return defaultAI1PatchMaxBlurTolerance(targetFormat), nil
+	default:
+		return "", fmt.Errorf("max_blur_tolerance must be one of: low, medium, high")
+	}
+}
+
+func extractAI1PlanRevision(plan map[string]interface{}) int {
+	revision := intFromAnyValue(plan["plan_revision"])
+	if revision <= 0 {
+		return 1
+	}
+	return revision
+}
+
+func minIntValue(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func intFromAnyValue(raw interface{}) int {
@@ -2802,10 +4977,17 @@ func buildAI1OutputContractReport(ai1OutputV2 map[string]interface{}) map[string
 			"strategy_summary",
 			"interactive_action",
 			"risk_warning",
+			"confidence",
 		} {
 			if userFeedback[key] == nil || strings.TrimSpace(stringFromAny(userFeedback[key])) == "" {
 				if key == "risk_warning" {
 					if len(mapFromAnyValue(userFeedback["risk_warning"])) == 0 {
+						missing = append(missing, "user_feedback."+key)
+					}
+					continue
+				}
+				if key == "confidence" {
+					if _, exists := userFeedback["confidence"]; !exists {
 						missing = append(missing, "user_feedback."+key)
 					}
 					continue
@@ -2816,6 +4998,20 @@ func buildAI1OutputContractReport(ai1OutputV2 map[string]interface{}) map[string
 		action := strings.TrimSpace(strings.ToLower(stringFromAny(userFeedback["interactive_action"])))
 		if action != "" && action != "proceed" && action != "need_clarify" {
 			invalid = append(invalid, "user_feedback.interactive_action")
+		}
+		if _, exists := userFeedback["confidence"]; !exists {
+			missing = append(missing, "user_feedback.confidence")
+		} else {
+			confidence, _ := strconv.ParseFloat(strings.TrimSpace(stringFromAny(userFeedback["confidence"])), 64)
+			if confidence < 0 || confidence > 1 {
+				invalid = append(invalid, "user_feedback.confidence")
+			}
+		}
+		clarifyQuestions, clarifyExists := userFeedback["clarify_questions"]
+		if !clarifyExists {
+			missing = append(missing, "user_feedback.clarify_questions")
+		} else if action == "need_clarify" && len(parseStringSliceFromAny(clarifyQuestions)) == 0 {
+			invalid = append(invalid, "user_feedback.clarify_questions")
 		}
 		riskWarning := mapFromAnyValue(userFeedback["risk_warning"])
 		if len(riskWarning) == 0 {
@@ -2845,6 +5041,27 @@ func buildAI1OutputContractReport(ai1OutputV2 map[string]interface{}) map[string
 			case "low", "medium", "high":
 			default:
 				invalid = append(invalid, "ai2_directive.technical_reject.max_blur_tolerance")
+			}
+		}
+		qualityWeights := parseAI2QualityWeightsForDebug(ai2Directive["quality_weights"])
+		if len(qualityWeights) == 0 {
+			missing = append(missing, "ai2_directive.quality_weights")
+		} else {
+			required := []string{"semantic", "clarity", "loop", "efficiency"}
+			sum := 0.0
+			for _, key := range required {
+				weight, ok := qualityWeights[key]
+				if !ok {
+					missing = append(missing, "ai2_directive.quality_weights."+key)
+					continue
+				}
+				if weight < 0 || weight > 1 {
+					invalid = append(invalid, "ai2_directive.quality_weights."+key)
+				}
+				sum += weight
+			}
+			if sum < 0.98 || sum > 1.02 {
+				invalid = append(invalid, "ai2_directive.quality_weights.sum")
 			}
 		}
 		switch strings.TrimSpace(strings.ToLower(stringFromAny(ai2Directive["visual_focus_area"]))) {
@@ -2995,6 +5212,7 @@ func buildAI1DebugTimelineV1(
 	modelResponse map[string]interface{},
 	output map[string]interface{},
 	contractReport map[string]interface{},
+	ai2ExecutionObservability map[string]interface{},
 ) []map[string]interface{} {
 	timeline := make([]map[string]interface{}, 0, 5)
 	format := strings.ToUpper(strings.TrimSpace(requestedFormat))
@@ -3079,6 +5297,35 @@ func buildAI1DebugTimelineV1(
 		map[string]interface{}{
 			"contract_report": contractReport,
 		},
+	)
+
+	ai2ExecutionStatus := "pending"
+	ai2ExecutionSummary := "尚未采集到 AI2/Worker 实际执行观测数据。"
+	ai2ExecutionDetails := mapFromAnyValue(ai2ExecutionObservability)
+	if len(ai2ExecutionDetails) > 0 {
+		weights := mapFromAnyValue(ai2ExecutionDetails["effective_quality_weights"])
+		riskFlags := parseStringSliceFromAny(ai2ExecutionDetails["risk_flags_applied"])
+		selectorVersion := strings.TrimSpace(stringFromAny(ai2ExecutionDetails["selector_version"]))
+		scoringMode := strings.TrimSpace(stringFromAny(ai2ExecutionDetails["scoring_mode"]))
+		candidateExplainability := mapFromAnyValue(ai2ExecutionDetails["candidate_explainability"])
+		if len(weights) > 0 || len(riskFlags) > 0 || selectorVersion != "" || scoringMode != "" || len(candidateExplainability) > 0 {
+			ai2ExecutionStatus = "done"
+			if len(candidateExplainability) > 0 {
+				ai2ExecutionSummary = "已记录 AI2 权重生效、Worker 风险策略，并输出候选命中解释。"
+			} else {
+				ai2ExecutionSummary = "已记录 AI2 权重生效与 Worker 风险策略执行结果。"
+			}
+		} else {
+			ai2ExecutionStatus = "warn"
+			ai2ExecutionSummary = "已进入执行观测阶段，但关键字段仍不完整。"
+		}
+	}
+	appendStep(
+		"ai2_execution",
+		"AI2/Worker 执行观测",
+		ai2ExecutionStatus,
+		ai2ExecutionSummary,
+		ai2ExecutionDetails,
 	)
 
 	finalOutputStatus := "done"

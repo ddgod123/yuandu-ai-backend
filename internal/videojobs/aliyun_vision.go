@@ -3,6 +3,7 @@ package videojobs
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -38,17 +39,26 @@ type pngAliyunSuperResConfig struct {
 	CostPerImageCNY  float64
 	MaxCostPerJobCNY float64
 	TimeoutSec       int
+	QualityGuard     bool
+	ReplaceMinGain   float64
 }
 
 type pngAliyunFaceEnhanceConfig struct {
-	Mode             string
-	RegionID         string
-	Endpoint         string
-	MinShortSide     int
-	MaxFrames        int
-	TimeoutSec       int
-	CostPerImageCNY  float64
-	MaxCostPerJobCNY float64
+	Mode                   string
+	RegionID               string
+	Endpoint               string
+	MinShortSide           int
+	MaxFrames              int
+	TimeoutSec             int
+	CostPerImageCNY        float64
+	MaxCostPerJobCNY       float64
+	DetectFaceGate         bool
+	MinFaceAreaRatio       float64
+	MinFaceConfidence      float64
+	SkipHighBlurScore      float64
+	QualityGuard           bool
+	ReplaceMinGain         float64
+	DetectFaceMaxFaceCount int
 }
 
 type aliyunVisionClient struct {
@@ -59,6 +69,13 @@ type aliyunVisionClient struct {
 type aliyunFaceVisionClient struct {
 	faceClient *facebody.Client
 	endpoint   string
+}
+
+type faceDetectionSummary struct {
+	FaceCount       int
+	MaxAreaRatio    float64
+	MaxProbability  float64
+	QualityScoreMax float64
 }
 
 func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
@@ -81,6 +98,8 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 		CostPerImageCNY:  envFloatOrDefault("PNG_ALIYUN_SUPERRES_COST_PER_IMAGE_CNY", 0.02),
 		MaxCostPerJobCNY: envFloatOrDefault("PNG_ALIYUN_SUPERRES_MAX_COST_PER_JOB_CNY", 0.08),
 		TimeoutSec:       envIntOrDefault("PNG_ALIYUN_SUPERRES_TIMEOUT_SECONDS", 25),
+		QualityGuard:     parseEnvBool("PNG_ALIYUN_SUPERRES_QUALITY_GUARD_ENABLED", true),
+		ReplaceMinGain:   envFloatOrDefault("PNG_ALIYUN_SUPERRES_REPLACE_MIN_GAIN", 0.005),
 	}
 	if cfg.RegionID == "" {
 		cfg.RegionID = "cn-shanghai"
@@ -118,6 +137,7 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 	if cfg.TimeoutSec < 5 {
 		cfg.TimeoutSec = 25
 	}
+	cfg.ReplaceMinGain = clampFloat(cfg.ReplaceMinGain, -0.05, 0.2)
 	return cfg
 }
 
@@ -131,14 +151,21 @@ func loadPNGAliyunFaceEnhanceConfig() pngAliyunFaceEnhanceConfig {
 	}
 
 	cfg := pngAliyunFaceEnhanceConfig{
-		Mode:             mode,
-		RegionID:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
-		Endpoint:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_FACEBODY_ENDPOINT")),
-		MinShortSide:     envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_SHORT_SIDE", 360),
-		MaxFrames:        envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_FRAMES", 2),
-		TimeoutSec:       envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_TIMEOUT_SECONDS", 25),
-		CostPerImageCNY:  envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_COST_PER_IMAGE_CNY", 0.01),
-		MaxCostPerJobCNY: envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_COST_PER_JOB_CNY", 0.02),
+		Mode:                   mode,
+		RegionID:               strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
+		Endpoint:               strings.TrimSpace(os.Getenv("ALIYUN_VISION_FACEBODY_ENDPOINT")),
+		MinShortSide:           envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_SHORT_SIDE", 360),
+		MaxFrames:              envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_FRAMES", 2),
+		TimeoutSec:             envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_TIMEOUT_SECONDS", 25),
+		CostPerImageCNY:        envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_COST_PER_IMAGE_CNY", 0.01),
+		MaxCostPerJobCNY:       envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_COST_PER_JOB_CNY", 0.02),
+		DetectFaceGate:         parseEnvBool("PNG_ALIYUN_FACE_ENHANCE_DETECT_FACE_GATE", true),
+		MinFaceAreaRatio:       envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_FACE_AREA_RATIO", 0.03),
+		MinFaceConfidence:      envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_FACE_CONFIDENCE", 0.62),
+		SkipHighBlurScore:      envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_SKIP_HIGH_BLUR_SCORE", 1200),
+		QualityGuard:           parseEnvBool("PNG_ALIYUN_FACE_ENHANCE_QUALITY_GUARD_ENABLED", true),
+		ReplaceMinGain:         envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_REPLACE_MIN_GAIN", 0.005),
+		DetectFaceMaxFaceCount: envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_DETECT_FACE_MAX_FACE_COUNT", 3),
 	}
 	if cfg.RegionID == "" {
 		cfg.RegionID = "cn-shanghai"
@@ -164,6 +191,11 @@ func loadPNGAliyunFaceEnhanceConfig() pngAliyunFaceEnhanceConfig {
 	if cfg.MaxCostPerJobCNY < 0 {
 		cfg.MaxCostPerJobCNY = 0
 	}
+	cfg.MinFaceAreaRatio = clampFloat(cfg.MinFaceAreaRatio, 0.005, 0.6)
+	cfg.MinFaceConfidence = clampFloat(cfg.MinFaceConfidence, 0, 1)
+	cfg.SkipHighBlurScore = clampFloat(cfg.SkipHighBlurScore, 0, 100000)
+	cfg.ReplaceMinGain = clampFloat(cfg.ReplaceMinGain, -0.05, 0.2)
+	cfg.DetectFaceMaxFaceCount = clampInt(cfg.DetectFaceMaxFaceCount, 1, 8)
 	return cfg
 }
 
@@ -289,6 +321,112 @@ func (c *aliyunFaceVisionClient) enhanceFaceFromFile(
 	return strings.TrimSpace(*resp.Body.Data.ImageURL), requestID, durationMs, nil
 }
 
+func (c *aliyunFaceVisionClient) detectFaceFromFile(
+	srcPath string,
+	timeoutSec int,
+	maxFaceCount int,
+	imageWidth int,
+	imageHeight int,
+) (summary faceDetectionSummary, requestID string, durationMs int64, err error) {
+	if c == nil || c.faceClient == nil {
+		return summary, "", 0, errors.New("aliyun face client is nil")
+	}
+	file, err := os.Open(strings.TrimSpace(srcPath))
+	if err != nil {
+		return summary, "", 0, err
+	}
+	defer file.Close()
+
+	req := &facebody.DetectFaceAdvanceRequest{
+		ImageURLObject: file,
+	}
+	if maxFaceCount <= 0 {
+		maxFaceCount = 3
+	}
+	req.SetMaxFaceNumber(int64(maxFaceCount))
+	req.SetQuality(true)
+
+	runtime := &dara.RuntimeOptions{}
+	runtime.SetReadTimeout(timeoutSec * 1000)
+	runtime.SetConnectTimeout(timeoutSec * 1000)
+
+	started := time.Now()
+	resp, err := c.faceClient.DetectFaceAdvance(req, runtime)
+	durationMs = clampDurationMillis(started)
+	if err != nil {
+		return summary, "", durationMs, err
+	}
+	if resp != nil && resp.Body != nil && resp.Body.RequestId != nil {
+		requestID = strings.TrimSpace(*resp.Body.RequestId)
+	}
+	if resp == nil || resp.Body == nil || resp.Body.Data == nil {
+		return summary, requestID, durationMs, nil
+	}
+	data := resp.Body.Data
+	if data.FaceCount != nil {
+		summary.FaceCount = int(*data.FaceCount)
+	}
+	summary.MaxProbability = maxFloat32Slice(data.FaceProbabilityList)
+	summary.MaxAreaRatio = computeFaceAreaRatioFromRectangles(data.FaceRectangles, imageWidth, imageHeight)
+	if data.Qualities != nil {
+		summary.QualityScoreMax = maxFloat32Slice(data.Qualities.ScoreList)
+	}
+	return summary, requestID, durationMs, nil
+}
+
+func computeFaceAreaRatioFromRectangles(rects []*int32, width int, height int) float64 {
+	if width <= 0 || height <= 0 || len(rects) < 4 {
+		return 0
+	}
+	frameArea := float64(width * height)
+	if frameArea <= 0 {
+		return 0
+	}
+	maxRatio := 0.0
+	for idx := 0; idx+3 < len(rects); idx += 4 {
+		a := float64(int32Value(rects[idx]))
+		b := float64(int32Value(rects[idx+1]))
+		c := float64(int32Value(rects[idx+2]))
+		d := float64(int32Value(rects[idx+3]))
+
+		faceW := math.Abs(c)
+		faceH := math.Abs(d)
+		if faceW <= 0 || faceH <= 0 {
+			faceW = math.Abs(c - a)
+			faceH = math.Abs(d - b)
+		}
+		if faceW <= 0 || faceH <= 0 {
+			continue
+		}
+		ratio := (faceW * faceH) / frameArea
+		if ratio > maxRatio {
+			maxRatio = ratio
+		}
+	}
+	return clampFloat(maxRatio, 0, 1)
+}
+
+func int32Value(v *int32) int32 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func maxFloat32Slice(values []*float32) float64 {
+	maxValue := 0.0
+	for _, item := range values {
+		if item == nil {
+			continue
+		}
+		v := float64(*item)
+		if v > maxValue {
+			maxValue = v
+		}
+	}
+	return maxValue
+}
+
 func shouldAutoApplyPNGAliyunFaceEnhancement(guidance imageAI2Guidance) bool {
 	if hasVisualFocus(guidance.VisualFocus, "portrait") || guidance.EnableMatting {
 		return true
@@ -324,6 +462,56 @@ func containsFaceIntentKeyword(input string) bool {
 	return false
 }
 
+func computeEnhancementDecisionScore(sample frameQualitySample, pairMaxBlur float64) float64 {
+	if pairMaxBlur <= 0 {
+		pairMaxBlur = 1
+	}
+	blurNorm := clampZeroOne(sample.BlurScore / pairMaxBlur)
+	subject := clampZeroOne(sample.SubjectScore)
+	exposure := clampZeroOne(sample.Exposure)
+	return roundTo((blurNorm*0.58)+(subject*0.24)+(exposure*0.18), 6)
+}
+
+func computeEnhancementResolutionBonus(before, after frameQualitySample) float64 {
+	beforePixels := float64(before.Width * before.Height)
+	if beforePixels <= 0 {
+		beforePixels = 1
+	}
+	afterPixels := float64(after.Width * after.Height)
+	if afterPixels <= 0 {
+		afterPixels = 1
+	}
+	if afterPixels <= beforePixels {
+		return 0
+	}
+	linearGain := math.Sqrt(afterPixels / beforePixels)
+	bonus := (linearGain - 1.0) * 0.05
+	return roundTo(clampFloat(bonus, 0, 0.08), 6)
+}
+
+func decideEnhancedFrameReplacement(originalPath, enhancedPath string, minGain float64) (replace bool, beforeScore float64, afterScore float64, reason string) {
+	beforeSample, okBefore := analyzeFrameQuality(strings.TrimSpace(originalPath))
+	afterSample, okAfter := analyzeFrameQuality(strings.TrimSpace(enhancedPath))
+	if !okBefore || !okAfter {
+		return true, 0, 0, "fallback_replace_without_quality_compare"
+	}
+	pairMaxBlur := maxFloat(beforeSample.BlurScore, afterSample.BlurScore)
+	if pairMaxBlur <= 0 {
+		pairMaxBlur = 1
+	}
+	beforeScore = computeEnhancementDecisionScore(beforeSample, pairMaxBlur)
+	afterScoreRaw := computeEnhancementDecisionScore(afterSample, pairMaxBlur)
+	resolutionBonus := computeEnhancementResolutionBonus(beforeSample, afterSample)
+	afterScore = roundTo(afterScoreRaw+resolutionBonus, 6)
+	if afterScore >= beforeScore+minGain {
+		if resolutionBonus > 0 && afterScoreRaw < beforeScore+minGain {
+			return true, beforeScore, afterScore, "enhanced_quality_improved_with_resolution_bonus"
+		}
+		return true, beforeScore, afterScore, "enhanced_quality_improved"
+	}
+	return false, beforeScore, afterScore, "kept_original_better_or_equal"
+}
+
 func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 	ctx context.Context,
 	job models.VideoJob,
@@ -355,6 +543,12 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 	report["scene"] = guidance.Scene
 	report["visual_focus"] = guidance.VisualFocus
 	report["enable_matting"] = guidance.EnableMatting
+	report["detect_face_gate"] = cfg.DetectFaceGate
+	report["min_face_area_ratio"] = roundTo(cfg.MinFaceAreaRatio, 4)
+	report["min_face_confidence"] = roundTo(cfg.MinFaceConfidence, 4)
+	report["skip_high_blur_score"] = roundTo(cfg.SkipHighBlurScore, 2)
+	report["quality_guard"] = cfg.QualityGuard
+	report["replace_min_gain"] = roundTo(cfg.ReplaceMinGain, 4)
 
 	if cfg.Mode == pngAliyunFaceEnhanceModeOff {
 		report["status"] = "disabled"
@@ -386,6 +580,10 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 	totalCostCNY := 0.0
 	items := make([]map[string]interface{}, 0, minInt(len(framePaths), cfg.MaxFrames))
 
+	skippedNoFace := 0
+	skippedFaceTooSmall := 0
+	skippedFaceConfidence := 0
+	skippedAlreadyClear := 0
 	for idx, framePath := range framePaths {
 		if attempted >= cfg.MaxFrames {
 			break
@@ -407,6 +605,53 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 			"frame_path": framePath,
 			"width":      width,
 			"height":     height,
+		}
+		if cfg.SkipHighBlurScore > 0 {
+			if sample, ok := analyzeFrameQuality(framePath); ok {
+				item["local_blur_score"] = roundTo(sample.BlurScore, 2)
+				if sample.BlurScore >= cfg.SkipHighBlurScore {
+					skipped++
+					skippedAlreadyClear++
+					item["status"] = "skipped_already_clear"
+					items = append(items, item)
+					continue
+				}
+			}
+		}
+		if cfg.DetectFaceGate {
+			faceSummary, faceRequestID, faceDurationMs, faceErr := client.detectFaceFromFile(framePath, cfg.TimeoutSec, cfg.DetectFaceMaxFaceCount, width, height)
+			item["face_probe_duration_ms"] = faceDurationMs
+			item["face_probe_request_id"] = faceRequestID
+			item["face_count"] = faceSummary.FaceCount
+			item["face_max_area_ratio"] = roundTo(faceSummary.MaxAreaRatio, 4)
+			item["face_max_confidence"] = roundTo(faceSummary.MaxProbability, 4)
+			item["face_max_quality_score"] = roundTo(faceSummary.QualityScoreMax, 4)
+			if faceErr != nil {
+				item["face_probe_error"] = faceErr.Error()
+			}
+			if faceErr == nil {
+				if faceSummary.FaceCount <= 0 {
+					skipped++
+					skippedNoFace++
+					item["status"] = "skipped_no_face"
+					items = append(items, item)
+					continue
+				}
+				if faceSummary.MaxAreaRatio < cfg.MinFaceAreaRatio {
+					skipped++
+					skippedFaceTooSmall++
+					item["status"] = "skipped_face_too_small"
+					items = append(items, item)
+					continue
+				}
+				if faceSummary.MaxProbability > 0 && faceSummary.MaxProbability < cfg.MinFaceConfidence {
+					skipped++
+					skippedFaceConfidence++
+					item["status"] = "skipped_low_face_confidence"
+					items = append(items, item)
+					continue
+				}
+			}
 		}
 		url, requestID, durationMs, callErr := client.enhanceFaceFromFile(framePath, cfg.TimeoutSec)
 		item["duration_ms"] = durationMs
@@ -463,11 +708,26 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 		item["enhanced_path"] = enhancedPath
 		item["enhanced_width"] = ew
 		item["enhanced_height"] = eh
-		item["status"] = "ok"
 		succeeded++
 		totalCostCNY += cfg.CostPerImageCNY
-		replacedPaths[idx] = enhancedPath
-		replaced++
+		replace := true
+		beforeScore := 0.0
+		afterScore := 0.0
+		decisionReason := "quality_guard_disabled"
+		if cfg.QualityGuard {
+			replace, beforeScore, afterScore, decisionReason = decideEnhancedFrameReplacement(framePath, enhancedPath, cfg.ReplaceMinGain)
+			item["quality_before_score"] = roundTo(beforeScore, 4)
+			item["quality_after_score"] = roundTo(afterScore, 4)
+			item["quality_delta"] = roundTo(afterScore-beforeScore, 4)
+			item["quality_decision_reason"] = decisionReason
+		}
+		if replace {
+			replacedPaths[idx] = enhancedPath
+			replaced++
+			item["status"] = "ok_replaced"
+		} else {
+			item["status"] = "ok_kept_original"
+		}
 		items = append(items, item)
 		p.recordAliyunFaceEnhancementUsage(job, client.endpoint, "ok", durationMs, cfg.CostPerImageCNY, map[string]interface{}{
 			"frame_index":     idx,
@@ -477,6 +737,8 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 			"enhanced_height": eh,
 			"request_id":      requestID,
 			"mode":            cfg.Mode,
+			"replaced":        replace,
+			"decision_reason": decisionReason,
 		})
 	}
 
@@ -486,6 +748,10 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 	report["replaced"] = replaced
 	report["failed"] = failed
 	report["skipped"] = skipped
+	report["skipped_no_face"] = skippedNoFace
+	report["skipped_face_too_small"] = skippedFaceTooSmall
+	report["skipped_low_face_confidence"] = skippedFaceConfidence
+	report["skipped_already_clear"] = skippedAlreadyClear
 	report["cost_capped"] = costCapped
 	report["total_cost_cny"] = roundTo(totalCostCNY, 6)
 	report["remaining_budget_cny"] = roundTo(maxFloat(0, cfg.MaxCostPerJobCNY-totalCostCNY), 6)
@@ -494,6 +760,23 @@ func (p *Processor) maybeApplyPNGAliyunFaceEnhancement(
 	}
 	report["items"] = items
 	return replacedPaths, report
+}
+
+func buildPNGAliyunSuperResCandidateOrder(framePaths []string) []int {
+	if len(framePaths) == 0 {
+		return nil
+	}
+	faceFirst := make([]int, 0, len(framePaths))
+	others := make([]int, 0, len(framePaths))
+	for idx, framePath := range framePaths {
+		name := strings.ToLower(strings.TrimSpace(framePath))
+		if strings.Contains(name, ".face.") {
+			faceFirst = append(faceFirst, idx)
+			continue
+		}
+		others = append(others, idx)
+	}
+	return append(faceFirst, others...)
 }
 
 func (p *Processor) maybeApplyPNGAliyunSuperResolution(
@@ -520,6 +803,8 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 	report["max_cost_per_job_cny"] = roundTo(cfg.MaxCostPerJobCNY, 6)
 	report["endpoint"] = cfg.Endpoint
 	report["region_id"] = cfg.RegionID
+	report["quality_guard"] = cfg.QualityGuard
+	report["replace_min_gain"] = roundTo(cfg.ReplaceMinGain, 4)
 
 	if cfg.Mode == pngAliyunSuperResModeOff {
 		report["status"] = "disabled"
@@ -549,7 +834,10 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 	costCapped := false
 	items := make([]map[string]interface{}, 0, minInt(len(framePaths), cfg.MaxFrames))
 
-	for idx, framePath := range framePaths {
+	candidateOrder := buildPNGAliyunSuperResCandidateOrder(framePaths)
+	report["candidate_order_mode"] = "face_first_then_default"
+	for _, idx := range candidateOrder {
+		framePath := framePaths[idx]
 		if attempted >= cfg.MaxFrames {
 			break
 		}
@@ -626,12 +914,28 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 		item["enhanced_path"] = enhancedPath
 		item["enhanced_width"] = ew
 		item["enhanced_height"] = eh
-		item["status"] = "ok"
 		succeeded++
 		totalCostCNY += cfg.CostPerImageCNY
+		replace := cfg.Mode == pngAliyunSuperResModeOn
+		beforeScore := 0.0
+		afterScore := 0.0
+		decisionReason := "shadow_mode_no_replace"
 		if cfg.Mode == pngAliyunSuperResModeOn {
+			decisionReason = "quality_guard_disabled"
+			if cfg.QualityGuard {
+				replace, beforeScore, afterScore, decisionReason = decideEnhancedFrameReplacement(framePath, enhancedPath, cfg.ReplaceMinGain)
+				item["quality_before_score"] = roundTo(beforeScore, 4)
+				item["quality_after_score"] = roundTo(afterScore, 4)
+				item["quality_delta"] = roundTo(afterScore-beforeScore, 4)
+				item["quality_decision_reason"] = decisionReason
+			}
+		}
+		if replace {
 			replacedPaths[idx] = enhancedPath
 			replaced++
+			item["status"] = "ok_replaced"
+		} else {
+			item["status"] = "ok_kept_original"
 		}
 		items = append(items, item)
 
@@ -645,6 +949,8 @@ func (p *Processor) maybeApplyPNGAliyunSuperResolution(
 			"mode":            cfg.Mode,
 			"upscale_factor":  cfg.UpscaleFactor,
 			"output_quality":  cfg.OutputQuality,
+			"replaced":        replace,
+			"decision_reason": decisionReason,
 		})
 	}
 

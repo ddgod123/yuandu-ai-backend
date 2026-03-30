@@ -528,3 +528,123 @@ func TestApplyImageAI1StrategyHardOverrides_LockMainlineQualityWeights(t *testin
 		t.Fatalf("expected has_override=true")
 	}
 }
+
+func TestApplyPNGMainlineOutputCountPolicy_BumpsDefaultWhenNotUserPinned(t *testing.T) {
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_GUARD_ENABLED", "1")
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_MIN", "12")
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_MAX", "36")
+	options := jobOptions{MaxStatic: 8}
+	guidance := imageAI2Guidance{
+		SelectionPolicy: "ai2_scene_diversity_first",
+		VisualFocus:     []string{"action"},
+		Scene:           AdvancedScenarioXiaohongshu,
+	}
+	next, report := applyPNGMainlineOutputCountPolicy(options, "png", videoProbeMeta{DurationSec: 18.0}, guidance, false)
+	if !boolFromAny(report["applied"]) {
+		t.Fatalf("expected applied=true, report=%+v", report)
+	}
+	if next.MaxStatic <= options.MaxStatic {
+		t.Fatalf("expected max_static bump, before=%d after=%d", options.MaxStatic, next.MaxStatic)
+	}
+	if got := stringFromAny(report["status"]); got != "applied" {
+		t.Fatalf("expected status applied, got %q", got)
+	}
+}
+
+func TestApplyPNGMainlineOutputCountPolicy_DefaultConfigFloorIs12(t *testing.T) {
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_GUARD_ENABLED", "1")
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_MIN", "")
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_MAX", "")
+	options := jobOptions{MaxStatic: 8}
+	next, report := applyPNGMainlineOutputCountPolicy(
+		options,
+		"png",
+		videoProbeMeta{DurationSec: 9.2},
+		imageAI2Guidance{SelectionPolicy: "ai2_global_quality_first", Scene: AdvancedScenarioDefault},
+		false,
+	)
+	if next.MaxStatic != 12 {
+		t.Fatalf("expected default max_static bump to 12, got %d (report=%+v)", next.MaxStatic, report)
+	}
+	if got := intFromAny(report["config_floor"]); got != 12 {
+		t.Fatalf("expected config_floor=12, got %d", got)
+	}
+}
+
+func TestApplyPNGMainlineOutputCountPolicy_RespectsUserPinned(t *testing.T) {
+	t.Setenv("PNG_MAINLINE_OUTPUT_COUNT_GUARD_ENABLED", "1")
+	options := jobOptions{MaxStatic: 7}
+	next, report := applyPNGMainlineOutputCountPolicy(
+		options,
+		"png",
+		videoProbeMeta{DurationSec: 30.0},
+		imageAI2Guidance{SelectionPolicy: "ai2_scene_diversity_first"},
+		true,
+	)
+	if next.MaxStatic != options.MaxStatic {
+		t.Fatalf("expected no change when user pinned, before=%d after=%d", options.MaxStatic, next.MaxStatic)
+	}
+	if got := stringFromAny(report["status"]); got != "skipped_user_pinned" {
+		t.Fatalf("expected skipped_user_pinned, got %q", got)
+	}
+}
+
+func TestApplyPNGMainlineCoverageWindowPolicy_BroadenToFullVideo(t *testing.T) {
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_GUARD_ENABLED", "1")
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_TARGET_MIN", "12")
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_REQUIRED_RATIO", "0.75")
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_MIN_RATIO", "0.45")
+
+	options := jobOptions{
+		MaxStatic:        19,
+		StartSec:         21.0,
+		EndSec:           25.0,
+		FrameIntervalSec: 0.8,
+	}
+	next, report := applyPNGMainlineCoverageWindowPolicy(
+		options,
+		"png",
+		videoProbeMeta{DurationSec: 44.8},
+		imageAI2Guidance{SelectionPolicy: "ai2_scene_diversity_first"},
+		false,
+	)
+	if !boolFromAny(report["applied"]) {
+		t.Fatalf("expected applied=true, report=%+v", report)
+	}
+	if got := stringFromAny(report["status"]); got != "broaden_to_full_video" {
+		t.Fatalf("expected broaden_to_full_video, got %q", got)
+	}
+	if next.StartSec != 0 || next.EndSec != 0 {
+		t.Fatalf("expected cleared focus window, got start=%.3f end=%.3f", next.StartSec, next.EndSec)
+	}
+}
+
+func TestApplyPNGMainlineCoverageWindowPolicy_KeepWindowWhenEnoughCoverage(t *testing.T) {
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_GUARD_ENABLED", "1")
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_TARGET_MIN", "12")
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_REQUIRED_RATIO", "0.75")
+	t.Setenv("PNG_MAINLINE_COVERAGE_WINDOW_MIN_RATIO", "0.45")
+
+	options := jobOptions{
+		MaxStatic:        19,
+		StartSec:         2.0,
+		EndSec:           30.0,
+		FrameIntervalSec: 1.0,
+	}
+	next, report := applyPNGMainlineCoverageWindowPolicy(
+		options,
+		"png",
+		videoProbeMeta{DurationSec: 44.8},
+		imageAI2Guidance{SelectionPolicy: "ai2_global_quality_first"},
+		false,
+	)
+	if boolFromAny(report["applied"]) {
+		t.Fatalf("expected applied=false, report=%+v", report)
+	}
+	if got := stringFromAny(report["status"]); got != "kept_focus_window" {
+		t.Fatalf("expected kept_focus_window, got %q", got)
+	}
+	if next.StartSec != options.StartSec || next.EndSec != options.EndSec {
+		t.Fatalf("expected unchanged window, got start=%.3f end=%.3f", next.StartSec, next.EndSec)
+	}
+}

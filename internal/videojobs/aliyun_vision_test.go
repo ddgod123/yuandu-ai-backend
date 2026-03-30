@@ -1,6 +1,10 @@
 package videojobs
 
-import "testing"
+import (
+	"image/color"
+	"path/filepath"
+	"testing"
+)
 
 func TestLoadPNGAliyunSuperResConfig_ModeDefaultOn(t *testing.T) {
 	t.Setenv("PNG_ALIYUN_SUPERRES_MODE", "")
@@ -136,6 +140,15 @@ func TestLoadPNGAliyunFaceEnhanceConfig_BoundsAndDefaults(t *testing.T) {
 	if cfg.MaxCostPerJobCNY != 0 {
 		t.Fatalf("expected non-negative max cost clamp=0, got=%f", cfg.MaxCostPerJobCNY)
 	}
+	if !cfg.DetectFaceGate {
+		t.Fatalf("expected detect face gate default enabled")
+	}
+	if cfg.MinFaceAreaRatio <= 0 {
+		t.Fatalf("expected min face area ratio > 0")
+	}
+	if cfg.ReplaceMinGain < -0.05 || cfg.ReplaceMinGain > 0.2 {
+		t.Fatalf("unexpected replace min gain clamp: %f", cfg.ReplaceMinGain)
+	}
 }
 
 func TestShouldAutoApplyPNGAliyunFaceEnhancement(t *testing.T) {
@@ -157,5 +170,54 @@ func TestShouldAutoApplyPNGAliyunFaceEnhancement(t *testing.T) {
 		MustCapture: []string{"全景氛围"},
 	}) {
 		t.Fatal("expected non-portrait vibe scene to skip auto face enhancement")
+	}
+}
+
+func TestBuildPNGAliyunSuperResCandidateOrder_FaceFirst(t *testing.T) {
+	in := []string{
+		"/tmp/frame_0001.png",
+		"/tmp/frame_0002.png.face.png",
+		"/tmp/frame_0003.png",
+		"/tmp/frame_0004.png.face.png",
+	}
+	order := buildPNGAliyunSuperResCandidateOrder(in)
+	if len(order) != len(in) {
+		t.Fatalf("unexpected order length %d", len(order))
+	}
+	if order[0] != 1 || order[1] != 3 {
+		t.Fatalf("expected face frames first, got %+v", order)
+	}
+}
+
+func TestDecideEnhancedFrameReplacement(t *testing.T) {
+	tmpDir := t.TempDir()
+	origin := filepath.Join(tmpDir, "origin.jpg")
+	enhanced := filepath.Join(tmpDir, "enhanced.jpg")
+	if err := writeJPEG(origin, buildSolidImage(160, 100, color.Gray{Y: 128})); err != nil {
+		t.Fatalf("write origin: %v", err)
+	}
+	if err := writeJPEG(enhanced, buildCheckerImage(160, 100)); err != nil {
+		t.Fatalf("write enhanced: %v", err)
+	}
+	replace, beforeScore, afterScore, reason := decideEnhancedFrameReplacement(origin, enhanced, 0.001)
+	if !replace {
+		t.Fatalf("expected replace=true, reason=%s", reason)
+	}
+	if afterScore <= beforeScore {
+		t.Fatalf("expected after score > before score, before=%.4f after=%.4f", beforeScore, afterScore)
+	}
+}
+
+func TestComputeEnhancementResolutionBonus(t *testing.T) {
+	before := frameQualitySample{Width: 720, Height: 1280}
+	after := frameQualitySample{Width: 1440, Height: 2560}
+	bonus := computeEnhancementResolutionBonus(before, after)
+	if bonus <= 0 {
+		t.Fatalf("expected positive bonus for upscaled frame, got=%.6f", bonus)
+	}
+
+	flat := computeEnhancementResolutionBonus(before, before)
+	if flat != 0 {
+		t.Fatalf("expected zero bonus for same resolution, got=%.6f", flat)
 	}
 }

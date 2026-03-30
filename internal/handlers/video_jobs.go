@@ -482,6 +482,7 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 			req.MaxStatic = 80
 		}
 		options["max_static"] = req.MaxStatic
+		options["user_requested_max_static"] = req.MaxStatic
 	}
 	if req.FrameIntervalSec > 0 {
 		options["frame_interval_sec"] = req.FrameIntervalSec

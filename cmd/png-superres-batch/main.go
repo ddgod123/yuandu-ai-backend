@@ -29,6 +29,7 @@ type runSummary struct {
 	FileName                  string  `json:"file_name"`
 	SourceVideoKey            string  `json:"source_video_key"`
 	JobID                     uint64  `json:"job_id"`
+	UserID                    uint64  `json:"user_id"`
 	Status                    string  `json:"status"`
 	Stage                     string  `json:"stage"`
 	Progress                  int     `json:"progress"`
@@ -44,6 +45,16 @@ type runSummary struct {
 	SuperResReplaced          int64   `json:"superres_replaced"`
 	SuperResFailed            int64   `json:"superres_failed"`
 	SuperResTotalCostCNY      float64 `json:"superres_total_cost_cny"`
+	AI2LLMRerankMode          string  `json:"ai2_llm_rerank_mode"`
+	AI2LLMRerankStatus        string  `json:"ai2_llm_rerank_status"`
+	AI2LLMRerankApplied       bool    `json:"ai2_llm_rerank_applied"`
+	AI2LLMRerankPostMode      string  `json:"ai2_llm_rerank_post_mode"`
+	AI2LLMRerankPostStatus    string  `json:"ai2_llm_rerank_post_status"`
+	AI2LLMRerankPostApplied   bool    `json:"ai2_llm_rerank_post_applied"`
+	OutputCountPolicyStatus   string  `json:"output_count_policy_status"`
+	OutputCountPolicyApplied  bool    `json:"output_count_policy_applied"`
+	OutputCountPolicyBefore   int64   `json:"output_count_policy_before"`
+	OutputCountPolicyAfter    int64   `json:"output_count_policy_after"`
 	WorkerSuperResUsageCalls  int64   `json:"worker_superres_usage_calls"`
 	WorkerSuperResUsageCostUS float64 `json:"worker_superres_usage_cost_usd"`
 	EstimatedCostCNY          float64 `json:"estimated_cost_cny"`
@@ -97,6 +108,14 @@ func main() {
 	if mode == "" {
 		mode = "off"
 	}
+	userID := uint64(envInt("PNG_BATCH_USER_ID", 5))
+	maxStatic := envInt("PNG_BATCH_MAX_STATIC", 0)
+	if maxStatic < 0 {
+		maxStatic = 0
+	}
+	if maxStatic > 80 {
+		maxStatic = 80
+	}
 
 	files, err := pickVideoFiles(videoDir, only)
 	if err != nil {
@@ -129,7 +148,7 @@ func main() {
 			panic(fmt.Errorf("upload failed for %s: %w", fileName, err))
 		}
 
-		job, err := createPNGJob(database, sourceKey, fileName, scene)
+		job, err := createPNGJob(database, sourceKey, fileName, scene, userID, maxStatic)
 		if err != nil {
 			panic(fmt.Errorf("create job failed for %s: %w", fileName, err))
 		}
@@ -189,14 +208,13 @@ func pickVideoFiles(dir, only string) ([]string, error) {
 	return out, nil
 }
 
-func createPNGJob(dbConn *gorm.DB, sourceKey, fileName, scene string) (models.VideoJob, error) {
+func createPNGJob(dbConn *gorm.DB, sourceKey, fileName, scene string, userID uint64, maxStatic int) (models.VideoJob, error) {
 	title := fmt.Sprintf("PNG批量实测-%s", trimTitle(fileName))
 	optionsMap := map[string]interface{}{
 		"auto_highlight":     true,
 		"flow_mode":          "direct",
 		"requested_format":   "png",
 		"frame_interval_sec": 0.8,
-		"max_static":         8,
 		"estimate_points":    24,
 		"ai1_advanced_options_v1": map[string]interface{}{
 			"scene":          scene,
@@ -204,9 +222,13 @@ func createPNGJob(dbConn *gorm.DB, sourceKey, fileName, scene string) (models.Vi
 			"enable_matting": false,
 		},
 	}
+	if maxStatic > 0 {
+		optionsMap["max_static"] = maxStatic
+		optionsMap["user_requested_max_static"] = maxStatic
+	}
 	optionsJSON, _ := json.Marshal(optionsMap)
 	job := models.VideoJob{
-		UserID:         1,
+		UserID:         userID,
 		Title:          title,
 		SourceVideoKey: sourceKey,
 		OutputFormats:  "png",
@@ -246,6 +268,7 @@ func collectPNGRunSummary(dbConn *gorm.DB, fileName, sourceKey string, jobID uin
 	s := runSummary{FileName: fileName, SourceVideoKey: sourceKey, JobID: jobID, ProcessingCallSec: round(callElapsed, 3)}
 
 	var row struct {
+		UserID     uint64
 		Status     string
 		Stage      string
 		Progress   int
@@ -253,12 +276,13 @@ func collectPNGRunSummary(dbConn *gorm.DB, fileName, sourceKey string, jobID uin
 		Metrics    datatypes.JSON
 	}
 	_ = dbConn.Raw(`
-SELECT status, stage, progress,
+SELECT user_id, status, stage, progress,
   CASE WHEN started_at IS NOT NULL AND finished_at IS NOT NULL
        THEN EXTRACT(EPOCH FROM (finished_at - started_at))
        ELSE 0 END AS elapsed_sec,
   metrics
 FROM archive.video_jobs WHERE id = ?`, jobID).Scan(&row).Error
+	s.UserID = uint64(int64FromAny(row.UserID))
 	s.Status = row.Status
 	s.Stage = row.Stage
 	s.Progress = row.Progress
@@ -274,6 +298,17 @@ FROM archive.video_jobs WHERE id = ?`, jobID).Scan(&row).Error
 	s.SuperResReplaced = int64FromAny(super["replaced"])
 	s.SuperResFailed = int64FromAny(super["failed"])
 	s.SuperResTotalCostCNY = round(floatFromAny(super["total_cost_cny"]), 6)
+	qualitySettings := mapFromAny(metrics["png_quality_settings_v1"])
+	s.AI2LLMRerankMode = strings.TrimSpace(stringFromAny(qualitySettings["ai2_llm_rerank_mode"]))
+	s.AI2LLMRerankStatus = strings.TrimSpace(stringFromAny(qualitySettings["ai2_llm_rerank_status"]))
+	s.AI2LLMRerankApplied = boolFromAny(qualitySettings["ai2_llm_rerank_applied"])
+	s.AI2LLMRerankPostMode = strings.TrimSpace(stringFromAny(qualitySettings["ai2_llm_rerank_post_mode"]))
+	s.AI2LLMRerankPostStatus = strings.TrimSpace(stringFromAny(qualitySettings["ai2_llm_rerank_post_status"]))
+	s.AI2LLMRerankPostApplied = boolFromAny(qualitySettings["ai2_llm_rerank_post_applied"])
+	s.OutputCountPolicyStatus = strings.TrimSpace(stringFromAny(qualitySettings["output_count_policy_status"]))
+	s.OutputCountPolicyApplied = boolFromAny(qualitySettings["output_count_policy_applied"])
+	s.OutputCountPolicyBefore = int64FromAny(qualitySettings["output_count_policy_before"])
+	s.OutputCountPolicyAfter = int64FromAny(qualitySettings["output_count_policy_after"])
 
 	var outAgg struct {
 		Cnt int64
@@ -404,9 +439,19 @@ func int64FromAny(raw interface{}) int64 {
 	switch v := raw.(type) {
 	case int:
 		return int64(v)
+	case uint:
+		return int64(v)
 	case int64:
 		return v
 	case int32:
+		return int64(v)
+	case uint64:
+		return int64(v)
+	case uint32:
+		return int64(v)
+	case uint16:
+		return int64(v)
+	case uint8:
 		return int64(v)
 	case float64:
 		return int64(v)
@@ -439,6 +484,31 @@ func floatFromAny(raw interface{}) float64 {
 		return fv
 	default:
 		return 0
+	}
+}
+
+func boolFromAny(raw interface{}) bool {
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		value := strings.ToLower(strings.TrimSpace(v))
+		return value == "1" || value == "true" || value == "yes" || value == "on"
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	case float64:
+		return v != 0
+	case json.Number:
+		iv, err := v.Int64()
+		if err == nil {
+			return iv != 0
+		}
+		fv, _ := v.Float64()
+		return fv != 0
+	default:
+		return false
 	}
 }
 

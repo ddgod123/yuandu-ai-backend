@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,6 +76,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	}
 
 	preOptions := parseJSONMap(job.Options)
+	userRequestedMaxStatic := intFromAny(preOptions["user_requested_max_static"]) > 0
 	if isFlowAwaitingAI1Confirm(preOptions) {
 		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "waiting for user confirmation before continuing", map[string]interface{}{
 			"flow_mode": "ai1_confirm",
@@ -446,8 +448,26 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 
 	extractOptions := applyStillProfileDefaults(options, requestedFormats, qualitySettings)
 	workerQualitySettings, extractOptions, workerStrategy := applyImageAI2WorkerStrategy(qualitySettings, extractOptions, ai2Guidance)
+	extractOptions, outputCountPolicy := applyPNGMainlineOutputCountPolicy(extractOptions, primaryFormat, meta, ai2Guidance, userRequestedMaxStatic)
+	extractOptions, coverageWindowPolicy := applyPNGMainlineCoverageWindowPolicy(extractOptions, primaryFormat, meta, ai2Guidance, userRequestedMaxStatic)
+	workerStrategy["output_count_policy_v1"] = outputCountPolicy
+	workerStrategy["coverage_window_policy_v1"] = coverageWindowPolicy
 	metrics[fmt.Sprintf("%s_worker_strategy_v1", metricPrefix)] = workerStrategy
 	optionsPayload["ai2_worker_strategy_v1"] = workerStrategy
+	if boolFromAny(outputCountPolicy["applied"]) {
+		optionsPayload["max_static"] = extractOptions.MaxStatic
+	}
+	if boolFromAny(coverageWindowPolicy["applied"]) {
+		optionsPayload["start_sec"] = extractOptions.StartSec
+		optionsPayload["end_sec"] = extractOptions.EndSec
+		optionsPayload["frame_interval_sec"] = extractOptions.FrameIntervalSec
+	}
+	if outputCountPolicy != nil {
+		optionsPayload["png_output_count_policy_v1"] = outputCountPolicy
+	}
+	if coverageWindowPolicy != nil {
+		optionsPayload["png_coverage_window_policy_v1"] = coverageWindowPolicy
+	}
 	optionsUpdated = true
 
 	if optionsUpdated {
@@ -484,6 +504,10 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	if len(optimizedFramePaths) > 0 {
 		framePaths = optimizedFramePaths
 	}
+	framePaths, ai2LLMRerankReport := p.maybeApplyPNGAI2LLMRerank(ctx, job, primaryFormat, framePaths, qualityReport, ai2Guidance, "pre_enhance")
+	if len(ai2LLMRerankReport) > 0 {
+		metrics[fmt.Sprintf("%s_ai2_llm_rerank_v1", metricPrefix)] = ai2LLMRerankReport
+	}
 
 	framePaths, faceEnhancementReport := p.maybeApplyPNGAliyunFaceEnhancement(ctx, job, primaryFormat, framePaths, ai2Guidance)
 	if len(faceEnhancementReport) > 0 {
@@ -493,6 +517,23 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	framePaths, superResolutionReport := p.maybeApplyPNGAliyunSuperResolution(ctx, job, primaryFormat, framePaths)
 	if len(superResolutionReport) > 0 {
 		metrics[fmt.Sprintf("%s_worker_super_resolution_v1", metricPrefix)] = superResolutionReport
+	}
+
+	postEnhanceFramePaths, postEnhanceQualityReport := rerankEnhancedFramePaths(framePaths, workerQualitySettings, ai2Guidance)
+	if len(postEnhanceFramePaths) > 0 {
+		framePaths = postEnhanceFramePaths
+		qualityReport = postEnhanceQualityReport
+	}
+	if postEnhanceQualityReport.TotalFrames > 0 {
+		metrics[fmt.Sprintf("%s_post_enhance_quality_v1", metricPrefix)] = postEnhanceQualityReport
+	}
+	framePaths, ai2LLMRerankPostEnhanceReport := p.maybeApplyPNGAI2LLMRerank(ctx, job, primaryFormat, framePaths, qualityReport, ai2Guidance, "post_enhance")
+	if len(ai2LLMRerankPostEnhanceReport) > 0 {
+		metrics[fmt.Sprintf("%s_ai2_llm_rerank_post_enhance_v1", metricPrefix)] = ai2LLMRerankPostEnhanceReport
+	}
+	framePaths, finalQualityGuardReport := applyPNGFinalQualityGuards(framePaths, workerQualitySettings, ai2Guidance)
+	if len(finalQualityGuardReport) > 0 {
+		metrics[fmt.Sprintf("%s_final_quality_guard_v1", metricPrefix)] = finalQualityGuardReport
 	}
 
 	metrics["frame_quality"] = qualityReport
@@ -518,19 +559,45 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"ai2_risk_flags":              ai2Guidance.RiskFlags,
 		"ai2_max_blur_tolerance":      ai2Guidance.MaxBlurTolerance,
 		"ai2_selection_policy":        qualityReport.SelectionPolicy,
+		"ai2_llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
+		"ai2_llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
+		"ai2_llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
+		"ai2_llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
+		"ai2_llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
+		"ai2_llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
+		"output_count_policy_status":  stringFromAny(outputCountPolicy["status"]),
+		"output_count_policy_applied": boolFromAny(outputCountPolicy["applied"]),
+		"output_count_policy_before":  intFromAny(outputCountPolicy["before_max_static"]),
+		"output_count_policy_after":   intFromAny(outputCountPolicy["after_max_static"]),
+		"coverage_window_status":      stringFromAny(coverageWindowPolicy["status"]),
+		"coverage_window_applied":     boolFromAny(coverageWindowPolicy["applied"]),
+		"coverage_window_before_sec":  roundTo(floatFromAny(coverageWindowPolicy["window_duration_before_sec"]), 3),
+		"coverage_window_after_sec":   roundTo(floatFromAny(coverageWindowPolicy["window_duration_after_sec"]), 3),
+		"final_quality_guard_status":  stringFromAny(finalQualityGuardReport["status"]),
+		"final_quality_guard_applied": boolFromAny(finalQualityGuardReport["applied"]),
+		"final_quality_guard_output":  intFromAny(finalQualityGuardReport["output_count"]),
 	}
 	metrics[fmt.Sprintf("%s_quality_settings_v1", metricPrefix)] = qualitySettingsMetric
 	metrics[extractionMetricKey] = map[string]interface{}{
-		"frame_count":        len(framePaths),
-		"candidate_count":    len(qualityReport.CandidateScores),
-		"candidate_budget":   candidateBudget,
-		"interval_sec":       roundTo(interval, 3),
-		"effective_duration": roundTo(effectiveDurationSec, 3),
-		"selector_version":   qualityReport.SelectorVersion,
-		"scoring_mode":       qualityReport.ScoringMode,
-		"selection_policy":   qualityReport.SelectionPolicy,
-		"must_capture_hits":  countFrameCandidateMustCaptureHits(qualityReport.CandidateScores),
-		"avoid_hits":         countFrameCandidateAvoidHits(qualityReport.CandidateScores),
+		"frame_count":             len(framePaths),
+		"candidate_count":         len(qualityReport.CandidateScores),
+		"candidate_budget":        candidateBudget,
+		"interval_sec":            roundTo(interval, 3),
+		"effective_duration":      roundTo(effectiveDurationSec, 3),
+		"selector_version":        qualityReport.SelectorVersion,
+		"scoring_mode":            qualityReport.ScoringMode,
+		"selection_policy":        qualityReport.SelectionPolicy,
+		"must_capture_hits":       countFrameCandidateMustCaptureHits(qualityReport.CandidateScores),
+		"avoid_hits":              countFrameCandidateAvoidHits(qualityReport.CandidateScores),
+		"llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
+		"llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
+		"llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
+		"llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
+		"llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
+		"llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
+		"final_guard_status":      stringFromAny(finalQualityGuardReport["status"]),
+		"final_guard_applied":     boolFromAny(finalQualityGuardReport["applied"]),
+		"final_guard_output":      intFromAny(finalQualityGuardReport["output_count"]),
 	}
 
 	pipelineStageStatus["worker"] = "done"
@@ -553,6 +620,12 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"quality_selector_version":    qualityReport.SelectorVersion,
 		"quality_scoring_mode":        qualityReport.ScoringMode,
 		"quality_selection_policy":    qualityReport.SelectionPolicy,
+		"ai2_llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
+		"ai2_llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
+		"ai2_llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
+		"ai2_llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
+		"ai2_llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
+		"ai2_llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
 		"face_enhance_mode":           stringFromAny(faceEnhancementReport["mode"]),
 		"face_enhance_attempted":      intFromAny(faceEnhancementReport["attempted"]),
 		"face_enhance_succeeded":      intFromAny(faceEnhancementReport["succeeded"]),
@@ -565,6 +638,9 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"superres_replaced":           intFromAny(superResolutionReport["replaced"]),
 		"superres_total_cost_cny":     roundTo(floatFromAny(superResolutionReport["total_cost_cny"]), 6),
 		"superres_cost_capped":        boolFromAny(superResolutionReport["cost_capped"]),
+		"final_guard_status":          stringFromAny(finalQualityGuardReport["status"]),
+		"final_guard_applied":         boolFromAny(finalQualityGuardReport["applied"]),
+		"final_guard_output":          intFromAny(finalQualityGuardReport["output_count"]),
 	})
 
 	if p.isJobCancelled(job.ID) {
@@ -844,6 +920,200 @@ func clampImageTargetCount(value int) int {
 		return 80
 	}
 	return value
+}
+
+func applyPNGMainlineOutputCountPolicy(
+	options jobOptions,
+	primaryFormat string,
+	meta videoProbeMeta,
+	guidance imageAI2Guidance,
+	userPinned bool,
+) (jobOptions, map[string]interface{}) {
+	report := map[string]interface{}{
+		"schema_version": "png_output_count_policy_v1",
+		"format":         NormalizeRequestedFormat(primaryFormat),
+	}
+	if report["format"] != "png" {
+		report["status"] = "skipped_not_png"
+		return options, report
+	}
+
+	before := clampImageTargetCount(options.MaxStatic)
+	report["before_max_static"] = before
+	report["user_pinned"] = userPinned
+	if userPinned {
+		report["status"] = "skipped_user_pinned"
+		report["after_max_static"] = before
+		report["applied"] = false
+		return options, report
+	}
+
+	enabled := parseEnvBool("PNG_MAINLINE_OUTPUT_COUNT_GUARD_ENABLED", true)
+	report["enabled"] = enabled
+	if !enabled {
+		report["status"] = "disabled"
+		report["after_max_static"] = before
+		report["applied"] = false
+		return options, report
+	}
+
+	dynamicFloor := resolvePNGCoverageMinOutputCount(meta.DurationSec, guidance)
+	configFloor := clampInt(envIntOrDefault("PNG_MAINLINE_OUTPUT_COUNT_MIN", 12), 4, 64)
+	targetMin := configFloor
+	if dynamicFloor > targetMin {
+		targetMin = dynamicFloor
+	}
+	targetMax := clampInt(envIntOrDefault("PNG_MAINLINE_OUTPUT_COUNT_MAX", 36), targetMin, 80)
+	after := before
+	if after < targetMin {
+		after = targetMin
+	}
+	if after > targetMax {
+		after = targetMax
+	}
+	after = clampImageTargetCount(after)
+
+	report["dynamic_floor"] = dynamicFloor
+	report["config_floor"] = configFloor
+	report["target_min"] = targetMin
+	report["target_max"] = targetMax
+	report["after_max_static"] = after
+	report["applied"] = after != before
+	if after != before {
+		options.MaxStatic = after
+		report["status"] = "applied"
+		return options, report
+	}
+	report["status"] = "unchanged"
+	return options, report
+}
+
+func resolvePNGCoverageMinOutputCount(durationSec float64, guidance imageAI2Guidance) int {
+	minCount := 10
+	switch {
+	case durationSec <= 0:
+		minCount = 10
+	case durationSec <= 6:
+		minCount = 6
+	case durationSec <= 12:
+		minCount = 10
+	case durationSec <= 24:
+		minCount = 14
+	case durationSec <= 45:
+		minCount = 18
+	default:
+		minCount = 22
+	}
+	if guidance.SelectionPolicy == "ai2_scene_diversity_first" || guidance.SelectionPolicy == "scene_diversity_first" {
+		minCount += 2
+	}
+	if hasVisualFocus(guidance.VisualFocus, "action") || hasVisualFocus(guidance.VisualFocus, "vibe") {
+		minCount += 2
+	}
+	if guidance.Scene == AdvancedScenarioXiaohongshu {
+		minCount++
+	}
+	return clampInt(minCount, 4, 64)
+}
+
+func applyPNGMainlineCoverageWindowPolicy(
+	options jobOptions,
+	primaryFormat string,
+	meta videoProbeMeta,
+	guidance imageAI2Guidance,
+	userPinned bool,
+) (jobOptions, map[string]interface{}) {
+	report := map[string]interface{}{
+		"schema_version": "png_coverage_window_policy_v1",
+		"format":         NormalizeRequestedFormat(primaryFormat),
+		"user_pinned":    userPinned,
+	}
+	if report["format"] != "png" {
+		report["status"] = "skipped_not_png"
+		return options, report
+	}
+	if userPinned {
+		report["status"] = "skipped_user_pinned"
+		return options, report
+	}
+	enabled := parseEnvBool("PNG_MAINLINE_COVERAGE_WINDOW_GUARD_ENABLED", true)
+	report["enabled"] = enabled
+	if !enabled {
+		report["status"] = "disabled"
+		return options, report
+	}
+
+	windowStart, windowDuration := resolveClipWindow(meta, options)
+	totalDuration := maxFloat(meta.DurationSec, 0)
+	report["window_start_sec"] = roundTo(windowStart, 3)
+	report["window_duration_before_sec"] = roundTo(windowDuration, 3)
+	report["total_duration_sec"] = roundTo(totalDuration, 3)
+	report["before_start_sec"] = roundTo(options.StartSec, 3)
+	report["before_end_sec"] = roundTo(options.EndSec, 3)
+	report["before_interval_sec"] = roundTo(options.FrameIntervalSec, 3)
+	report["before_max_static"] = clampImageTargetCount(options.MaxStatic)
+	if windowDuration <= 0 {
+		report["status"] = "no_focus_window"
+		report["window_duration_after_sec"] = roundTo(effectiveSampleDuration(meta, options), 3)
+		return options, report
+	}
+
+	targetCount := clampImageTargetCount(options.MaxStatic)
+	if targetCount < clampInt(envIntOrDefault("PNG_MAINLINE_COVERAGE_WINDOW_TARGET_MIN", 12), 6, 80) {
+		report["status"] = "skipped_target_count_low"
+		report["window_duration_after_sec"] = roundTo(windowDuration, 3)
+		return options, report
+	}
+
+	interval := options.FrameIntervalSec
+	if interval <= 0 {
+		interval = resolveImagePlanInterval(0, targetCount, meta, windowStart, windowStart+windowDuration)
+	}
+	if interval <= 0 {
+		interval = 0.8
+	}
+	windowCandidateEstimate := int(math.Floor(windowDuration/interval)) + 1
+	if windowCandidateEstimate < 1 {
+		windowCandidateEstimate = 1
+	}
+	requiredCoverageRatio := clampFloat(parseFloat(firstNonEmptyString(os.Getenv("PNG_MAINLINE_COVERAGE_WINDOW_REQUIRED_RATIO"), "0.75")), 0.45, 0.98)
+	if guidance.SelectionPolicy == "ai2_scene_diversity_first" || guidance.SelectionPolicy == "scene_diversity_first" {
+		requiredCoverageRatio = clampFloat(requiredCoverageRatio+0.1, 0.5, 0.99)
+	}
+	requiredMinCandidates := int(math.Ceil(float64(targetCount) * requiredCoverageRatio))
+	if requiredMinCandidates < 4 {
+		requiredMinCandidates = 4
+	}
+	report["window_candidate_estimate"] = windowCandidateEstimate
+	report["required_candidate_min"] = requiredMinCandidates
+	report["required_coverage_ratio"] = roundTo(requiredCoverageRatio, 3)
+
+	windowRatio := 0.0
+	if totalDuration > 0 {
+		windowRatio = clampZeroOne(windowDuration / totalDuration)
+	}
+	report["window_ratio"] = roundTo(windowRatio, 3)
+
+	windowRatioMin := clampFloat(parseFloat(firstNonEmptyString(os.Getenv("PNG_MAINLINE_COVERAGE_WINDOW_MIN_RATIO"), "0.45")), 0.2, 0.95)
+	report["window_ratio_min"] = roundTo(windowRatioMin, 3)
+
+	if windowCandidateEstimate >= requiredMinCandidates && (totalDuration <= 0 || windowRatio >= windowRatioMin) {
+		report["status"] = "kept_focus_window"
+		report["window_duration_after_sec"] = roundTo(windowDuration, 3)
+		report["applied"] = false
+		return options, report
+	}
+
+	options.StartSec = 0
+	options.EndSec = 0
+	options.FrameIntervalSec = 0
+	report["status"] = "broaden_to_full_video"
+	report["applied"] = true
+	report["after_start_sec"] = 0
+	report["after_end_sec"] = 0
+	report["after_interval_sec"] = 0
+	report["window_duration_after_sec"] = roundTo(effectiveSampleDuration(meta, options), 3)
+	return options, report
 }
 
 func resolveImageFocusWindow(meta videoProbeMeta, localSuggestion highlightSuggestion) (startSec float64, endSec float64, source string) {

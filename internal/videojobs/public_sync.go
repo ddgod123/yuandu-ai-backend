@@ -169,11 +169,14 @@ func lookupPublicVideoImageRequestedFormatFromSplitTables(db *gorm.DB, jobID uin
 		var row struct {
 			RequestedFormat string `gorm:"column:requested_format"`
 		}
-		err := db.Table(tableName).Select("requested_format").Where("id = ?", jobID).First(&row).Error
+		err := db.Table(tableName).Select("requested_format").Where("id = ?", jobID).Limit(1).Scan(&row).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) || isMissingTableError(err, tableName) || isMissingTableError(err, tableOnlyName(tableName)) {
 				continue
 			}
+			continue
+		}
+		if strings.TrimSpace(row.RequestedFormat) == "" {
 			continue
 		}
 		if format := normalizePublicVideoImageSplitFormat(row.RequestedFormat); format != "" {

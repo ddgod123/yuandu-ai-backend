@@ -90,7 +90,9 @@ func buildVideoJobCostSnapshot(db *gorm.DB, jobID uint64) (*models.VideoJobCost,
 	computeCostCNY, breakdown := estimateVideoJobCostCNY(cpuMs, sourceDurationSec, sourceBytes, agg.OutputBytes, agg.OutputCount)
 	aiAgg, aiAggErr := loadVideoJobAIAggregate(db, jobID)
 	usdToCNYRate := loadUSDtoCNYRate()
-	aiCostCNY := roundTo(aiAgg.CostUSD*usdToCNYRate, 6)
+	aiLLMCostCNY := roundTo(aiAgg.CostUSD*usdToCNYRate, 6)
+	aiImageEnhanceCostCNY, aiFaceEnhanceCostCNY, aiSuperResCostCNY := extractPNGWorkerEnhancementCostCNY(metrics)
+	aiCostCNY := roundTo(aiLLMCostCNY+aiImageEnhanceCostCNY, 6)
 	estimatedCost := roundTo(computeCostCNY+aiCostCNY, 6)
 
 	status := strings.TrimSpace(job.Status)
@@ -99,30 +101,36 @@ func buildVideoJobCostSnapshot(db *gorm.DB, jobID uint64) (*models.VideoJobCost,
 	}
 
 	details := map[string]interface{}{
-		"breakdown":              breakdown,
-		"source_duration_sec":    roundTo(sourceDurationSec, 3),
-		"source_bytes":           sourceBytes,
-		"output_count":           agg.OutputCount,
-		"output_bytes":           agg.OutputBytes,
-		"ai_usage_calls":         aiAgg.Calls,
-		"ai_usage_error_calls":   aiAgg.ErrorCalls,
-		"ai_usage_duration_ms":   aiAgg.DurationMs,
-		"ai_input_tokens":        aiAgg.InputTokens,
-		"ai_output_tokens":       aiAgg.OutputTokens,
-		"ai_cached_input_tokens": aiAgg.CachedInputTokens,
-		"ai_image_tokens":        aiAgg.ImageTokens,
-		"ai_video_tokens":        aiAgg.VideoTokens,
-		"ai_audio_seconds":       aiAgg.AudioSeconds,
-		"ai_cost_usd":            aiAgg.CostUSD,
-		"ai_cost_cny":            aiCostCNY,
-		"usd_to_cny_rate":        usdToCNYRate,
-		"ai_aggregate_loaded":    aiAggErr == nil,
+		"breakdown":                 breakdown,
+		"source_duration_sec":       roundTo(sourceDurationSec, 3),
+		"source_bytes":              sourceBytes,
+		"output_count":              agg.OutputCount,
+		"output_bytes":              agg.OutputBytes,
+		"ai_usage_calls":            aiAgg.Calls,
+		"ai_usage_error_calls":      aiAgg.ErrorCalls,
+		"ai_usage_duration_ms":      aiAgg.DurationMs,
+		"ai_input_tokens":           aiAgg.InputTokens,
+		"ai_output_tokens":          aiAgg.OutputTokens,
+		"ai_cached_input_tokens":    aiAgg.CachedInputTokens,
+		"ai_image_tokens":           aiAgg.ImageTokens,
+		"ai_video_tokens":           aiAgg.VideoTokens,
+		"ai_audio_seconds":          aiAgg.AudioSeconds,
+		"ai_cost_usd":               aiAgg.CostUSD,
+		"ai_llm_cost_cny":           aiLLMCostCNY,
+		"ai_image_enhance_cost_cny": aiImageEnhanceCostCNY,
+		"ai_face_enhance_cost_cny":  aiFaceEnhanceCostCNY,
+		"ai_superres_cost_cny":      aiSuperResCostCNY,
+		"ai_cost_cny":               aiCostCNY,
+		"usd_to_cny_rate":           usdToCNYRate,
+		"ai_aggregate_loaded":       aiAggErr == nil,
 	}
 	if aiAggErr != nil {
 		details["ai_aggregate_error"] = aiAggErr.Error()
 	}
 	breakdown["compute_total"] = roundTo(computeCostCNY, 6)
-	breakdown["ai_token_cny"] = aiCostCNY
+	breakdown["ai_token_cny"] = aiLLMCostCNY
+	breakdown["ai_image_enhance_cny"] = aiImageEnhanceCostCNY
+	breakdown["ai_total_cny"] = aiCostCNY
 	breakdown["total"] = estimatedCost
 
 	snapshot := &models.VideoJobCost{
@@ -142,6 +150,16 @@ func buildVideoJobCostSnapshot(db *gorm.DB, jobID uint64) (*models.VideoJobCost,
 		Details:            mustJSON(details),
 	}
 	return snapshot, nil
+}
+
+func extractPNGWorkerEnhancementCostCNY(metrics map[string]interface{}) (total float64, face float64, super float64) {
+	if len(metrics) == 0 {
+		return 0, 0, 0
+	}
+	face = roundTo(maxFloat(0, parseOptionFloat(mapFromAny(metrics["png_worker_face_enhancement_v1"]), "total_cost_cny")), 6)
+	super = roundTo(maxFloat(0, parseOptionFloat(mapFromAny(metrics["png_worker_super_resolution_v1"]), "total_cost_cny")), 6)
+	total = roundTo(face+super, 6)
+	return total, face, super
 }
 
 func computeCPUms(startedAt, finishedAt *time.Time) int64 {

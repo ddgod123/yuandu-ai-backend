@@ -1,4 +1,4 @@
-# Backend 部署说明（生产）
+# 元都AI Backend 部署说明（生产）
 
 > 适用于 Linux + systemd + Nginx 反向代理。
 
@@ -59,7 +59,7 @@ done
 
 ```ini
 [Unit]
-Description=Emoji Backend API
+Description=Yuandu AI Backend API
 After=network.target
 
 [Service]
@@ -80,7 +80,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=Emoji Backend Worker
+Description=Yuandu AI Backend Worker
 After=network.target
 
 [Service]

@@ -1,6 +1,12 @@
 # Yuandu AI Backend
 
+[![Website](https://img.shields.io/badge/Website-www.emoji.icu-0ea5e9?style=flat-square&logo=googlechrome&logoColor=white)](https://www.emoji.icu)
+![Platform](https://img.shields.io/badge/Platform-AI%20Visual%20Asset%20Production-111827?style=flat-square)
+![Role](https://img.shields.io/badge/Role-Backend%20Control%20Plane-2563eb?style=flat-square)
+
 > Industrial AI Visual Asset Production Platform · Backend Control Plane
+
+**Live Website:** [https://www.emoji.icu](https://www.emoji.icu)
 
 ## 1) 定位（Positioning）
 
@@ -13,7 +19,13 @@
 
 ---
 
-## 2) 平台架构图（Platform Architecture）
+## 2) 架构总览图（Architecture Overview）
+
+![Yuandu AI Architecture Overview](./docs/assets/architecture-overview.png)
+
+---
+
+## 3) 平台架构图（Platform Architecture）
 
 ```mermaid
 flowchart LR
@@ -42,7 +54,7 @@ flowchart LR
 
 ---
 
-## 3) 模块关系图（Backend Modules）
+## 4) 模块关系图（Backend Modules）
 
 ```mermaid
 flowchart TD
@@ -63,7 +75,7 @@ flowchart TD
 
 ---
 
-## 4) 路线图目录（Roadmap）
+## 5) 路线图目录（Roadmap）
 
 | 阶段 | 目标 | 状态 |
 |---|---|---|
@@ -73,7 +85,7 @@ flowchart TD
 
 ---
 
-## 5) Tech Stack
+## 6) Tech Stack
 
 - Go 1.25+
 - Gin + GORM
@@ -84,7 +96,7 @@ flowchart TD
 
 ---
 
-## 6) Quick Start
+## 7) Quick Start
 
 ```bash
 cp .env.example .env
@@ -98,7 +110,7 @@ go run ./cmd/worker
 
 ---
 
-## 7) Database Migration
+## 8) Database Migration
 
 ```bash
 for f in migrations/*.sql; do
@@ -108,19 +120,19 @@ done
 
 ---
 
-## 8) Deployment
+## 9) Deployment
 
 See: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 
 ---
 
-## 9) Open-source Safety
+## 10) Open-source Safety
 
 - Do **not** commit real secrets (`.env` is ignored)
 - Do **not** commit private model weights / private prompts / private datasets
 
 ---
 
-## 10) License
+## 11) License
 
 See `LICENSE`.

@@ -495,7 +495,12 @@ func checkSourceVideoKeyHealth(key string) (string, map[string]interface{}) {
 	if key == "" {
 		return "fail", detail
 	}
-	if !strings.HasPrefix(key, "emoji/") {
+	parts := strings.SplitN(key, "/", 2)
+	if len(parts) < 2 {
+		return "warn", detail
+	}
+	root := strings.ToLower(strings.TrimSpace(parts[0]))
+	if root == "" || (root != "emoji" && !strings.HasPrefix(root, "emoji-")) {
 		return "warn", detail
 	}
 	ext := strings.ToLower(filepath.Ext(key))
@@ -800,8 +805,9 @@ func (h *Handler) checkStorageObjectHealth(collector *adminHealthCheckCollector,
 	}
 
 	bm := h.qiniu.BucketManager()
+	videoImagePrefix := strings.TrimSuffix(h.qiniuVideoImagePrefix(), "/") + "/"
 	for _, key := range keys {
-		if !strings.HasPrefix(key, "emoji/video-image/") {
+		if !strings.HasPrefix(key, videoImagePrefix) {
 			if _, isSource := sourceSet[key]; isSource {
 				continue
 			}

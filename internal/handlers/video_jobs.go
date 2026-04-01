@@ -1033,6 +1033,13 @@ func (h *Handler) ListMyVideoJobs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	visibleJobs, err := h.filterVisibleJobsForWorkbench(jobs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	jobs = visibleJobs
+
 	costMap := h.loadVideoJobCostMap(jobs)
 	pointHoldMap := h.loadVideoJobPointHoldMap(jobs)
 
@@ -1065,6 +1072,37 @@ func (h *Handler) ListMyVideoJobs(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (h *Handler) filterVisibleJobsForWorkbench(jobs []models.VideoJob) ([]models.VideoJob, error) {
+	if len(jobs) == 0 {
+		return jobs, nil
+	}
+	out := make([]models.VideoJob, 0, len(jobs))
+	for _, job := range jobs {
+		if strings.TrimSpace(strings.ToLower(job.Status)) == string(models.VideoJobStatusDone) &&
+			(job.ResultCollectionID == nil || *job.ResultCollectionID == 0) {
+			// 作品合集已被删除后的 done 任务，不再在任务工作台展示，避免出现“已完成但无结果”的空卡片。
+			continue
+		}
+		if job.ResultCollectionID == nil || *job.ResultCollectionID == 0 {
+			out = append(out, job)
+			continue
+		}
+		if strings.TrimSpace(strings.ToLower(job.Status)) != string(models.VideoJobStatusDone) {
+			out = append(out, job)
+			continue
+		}
+		if _, err := h.loadVideoJobResultCollectionByDomain(*job.ResultCollectionID, job.AssetDomain); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// 用户已删除作品合集：任务页不再展示该历史任务卡片。
+				continue
+			}
+			return nil, err
+		}
+		out = append(out, job)
+	}
+	return out, nil
 }
 
 // GetVideoJob godoc
@@ -2657,8 +2695,8 @@ func (h *Handler) normalizeSourceVideoKey(raw string) (string, error) {
 	if key == "" {
 		return "", errors.New("invalid source video key")
 	}
-	if !strings.HasPrefix(key, "emoji/") {
-		return "", errors.New("source_video_key must start with emoji/")
+	if !h.hasQiniuAllowedRootPrefix(key) {
+		return "", fmt.Errorf("source_video_key must start with %s", h.qiniuRootPrefix())
 	}
 	ext := strings.ToLower(filepath.Ext(key))
 	if _, ok := allowedVideoFileExt[ext]; !ok {

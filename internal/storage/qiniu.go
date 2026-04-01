@@ -12,13 +12,14 @@ import (
 )
 
 type QiniuClient struct {
-	Mac      *qbox.Mac
-	Cfg      *qiniustorage.Config
-	Bucket   string
-	Domain   string
-	UseHTTPS bool
-	Private  bool
-	SignTTL  int
+	Mac        *qbox.Mac
+	Cfg        *qiniustorage.Config
+	Bucket     string
+	Domain     string
+	RootPrefix string
+	UseHTTPS   bool
+	Private    bool
+	SignTTL    int
 }
 
 func NewQiniuClient(cfg config.Config) (*QiniuClient, error) {
@@ -44,13 +45,14 @@ func NewQiniuClient(cfg config.Config) (*QiniuClient, error) {
 	}
 
 	return &QiniuClient{
-		Mac:      qbox.NewMac(ak, sk),
-		Cfg:      qcfg,
-		Bucket:   bucket,
-		Domain:   strings.TrimSpace(cfg.QiniuDomain),
-		UseHTTPS: cfg.QiniuUseHTTPS,
-		Private:  cfg.QiniuPrivate,
-		SignTTL:  cfg.QiniuSignTTL,
+		Mac:        qbox.NewMac(ak, sk),
+		Cfg:        qcfg,
+		Bucket:     bucket,
+		Domain:     strings.TrimSpace(cfg.QiniuDomain),
+		RootPrefix: NormalizeRootPrefix(cfg.QiniuRootPrefix),
+		UseHTTPS:   cfg.QiniuUseHTTPS,
+		Private:    cfg.QiniuPrivate,
+		SignTTL:    cfg.QiniuSignTTL,
 	}, nil
 }
 

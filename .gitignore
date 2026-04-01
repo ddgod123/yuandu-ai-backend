@@ -1,4 +1,8 @@
 .DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # Local env (do not commit secrets)
 .env
@@ -7,9 +11,32 @@
 
 # Binaries / build outputs
 api
+worker
 *.exe
 *.out
+*.test
+bin/
+dist/
+coverage.out
 
 # Local runtime files
 tmp/
 *.log
+__pycache__/
+*.pyc
+*.pyo
+
+# AI/ML private assets (keep out of OSS repo)
+weights/
+checkpoints/
+models/private/
+datasets/private/
+prompts/private/
+configs/private/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.gguf
+*.pkl

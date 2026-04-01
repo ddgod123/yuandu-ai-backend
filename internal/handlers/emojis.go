@@ -157,6 +157,7 @@ func (h *Handler) BatchUploadEmoji(c *gin.Context) {
 
 	var uploaded []models.Emoji
 	uploader := qiniustorage.NewFormUploader(h.qiniu.Cfg)
+	rootPrefix := strings.TrimSuffix(h.qiniuRootPrefix(), "/")
 	for _, file := range files {
 		src, err := file.Open()
 		if err != nil {
@@ -168,9 +169,9 @@ func (h *Handler) BatchUploadEmoji(c *gin.Context) {
 			continue
 		}
 
-		objectName := path.Join("emoji", file.Filename)
+		objectName := path.Join(rootPrefix, file.Filename)
 		if collectionID > 0 {
-			objectName = path.Join("emoji", fmt.Sprintf("%d", collectionID), file.Filename)
+			objectName = path.Join(rootPrefix, fmt.Sprintf("%d", collectionID), file.Filename)
 		}
 		if err := uploadReaderToQiniu(uploader, h.qiniu, objectName, bytes.NewReader(buf), int64(len(buf))); err != nil {
 			continue
@@ -418,14 +419,14 @@ func extractQiniuObjectKey(raw string, qiniuClient *storage.QiniuClient) (string
 	domainHost, domainPath, ok := qiniuDomainInfo(qiniuClient)
 	if !ok || !strings.EqualFold(parsedURL.Hostname(), domainHost) {
 		// Legacy compatibility: if an old absolute URL still embeds a storage key
-		// under emoji/, treat it as a Qiniu object key so responses can be rewritten
+		// under storage root prefix, treat it as a Qiniu object key so responses can be rewritten
 		// to the current configured domain.
 		fallback := strings.TrimLeft(parsedURL.EscapedPath(), "/")
 		if decoded, err := url.PathUnescape(fallback); err == nil {
 			fallback = decoded
 		}
 		fallback = strings.TrimSpace(fallback)
-		if strings.HasPrefix(fallback, "emoji/") {
+		if storage.HasRootPrefix(fallback, configuredQiniuRootPrefix(qiniuClient)) || storage.HasRootPrefix(fallback, qiniuLegacyRootPrefix) {
 			return fallback, true
 		}
 		return "", false
@@ -448,6 +449,13 @@ func extractQiniuObjectKey(raw string, qiniuClient *storage.QiniuClient) (string
 		pathKey = decoded
 	}
 	return pathKey, true
+}
+
+func configuredQiniuRootPrefix(qiniuClient *storage.QiniuClient) string {
+	if qiniuClient == nil {
+		return ""
+	}
+	return qiniuClient.RootPrefix
 }
 
 func qiniuDomainInfo(qiniuClient *storage.QiniuClient) (host string, pathPrefix string, ok bool) {

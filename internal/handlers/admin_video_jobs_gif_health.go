@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -317,20 +318,24 @@ WHERE format = 'gif'
 		return
 	}
 
+	videoImagePrefix := strings.TrimSuffix(h.qiniuVideoImagePrefix(), "/") + "/"
+	newPathLike := videoImagePrefix + "%"
+	newPathStrictRegex := fmt.Sprintf("^%s[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+", regexp.QuoteMeta(videoImagePrefix))
+
 	if err := h.db.Raw(`
 SELECT
   COUNT(*)::bigint AS total,
-  COUNT(*) FILTER (WHERE object_key LIKE 'emoji/video-image/%')::bigint AS new_path_prefix_count,
+  COUNT(*) FILTER (WHERE object_key LIKE ?)::bigint AS new_path_prefix_count,
   COUNT(*) FILTER (
-    WHERE object_key ~ '^emoji/video-image/[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
+    WHERE object_key ~ ?
   )::bigint AS new_path_strict_count,
   COALESCE(
-    COUNT(*) FILTER (WHERE object_key LIKE 'emoji/video-image/%')::double precision / NULLIF(COUNT(*), 0)::double precision,
+    COUNT(*) FILTER (WHERE object_key LIKE ?)::double precision / NULLIF(COUNT(*), 0)::double precision,
     0
   ) AS new_path_prefix_rate,
   COALESCE(
     COUNT(*) FILTER (
-      WHERE object_key ~ '^emoji/video-image/[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
+      WHERE object_key ~ ?
     )::double precision / NULLIF(COUNT(*), 0)::double precision,
     0
   ) AS new_path_strict_rate
@@ -338,7 +343,7 @@ FROM public.video_image_outputs_gif
 WHERE format = 'gif'
   AND file_role = 'main'
   AND created_at >= ?
-`, since).Scan(&out.Path).Error; err != nil {
+`, newPathLike, newPathStrictRegex, newPathLike, newPathStrictRegex, since).Scan(&out.Path).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -682,6 +687,8 @@ func (h *Handler) loadAdminGIFHealthTrendPoints(since time.Time, until time.Time
 	}
 
 	rows := make([]row, 0, 200)
+	videoImagePrefix := strings.TrimSuffix(h.qiniuVideoImagePrefix(), "/") + "/"
+	newPathStrictRegex := fmt.Sprintf("^%s[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+", regexp.QuoteMeta(videoImagePrefix))
 	err := h.db.Raw(`
 WITH buckets AS (
   SELECT generate_series(
@@ -711,7 +718,7 @@ output_agg AS (
     COUNT(*) FILTER (WHERE gif_loop_tune_applied = TRUE)::bigint AS loop_applied,
     COUNT(*) FILTER (WHERE gif_loop_tune_fallback_to_base = TRUE)::bigint AS loop_fallback,
     COUNT(*) FILTER (
-      WHERE object_key ~ '^emoji/video-image/[^/]+/(f/[^/]+/)?u/[0-9]{1,2}/[0-9]+/j/[0-9]+/outputs/gif/.+'
+      WHERE object_key ~ ?
     )::bigint AS new_path_strict,
     COALESCE(AVG(size_bytes), 0)::double precision AS avg_size_bytes,
     COALESCE(AVG(gif_loop_tune_score) FILTER (WHERE gif_loop_tune_applied = TRUE), 0)::double precision AS avg_loop_score
@@ -756,7 +763,7 @@ FROM buckets b
 LEFT JOIN job_agg j ON j.bucket_start = b.bucket_start
 LEFT JOIN output_agg o ON o.bucket_start = b.bucket_start
 ORDER BY b.bucket_start ASC
-`, since, until, since, until, since, until).Scan(&rows).Error
+`, since, until, since, until, newPathStrictRegex, since, until).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}

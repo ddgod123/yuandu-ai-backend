@@ -71,7 +71,7 @@ func (h *Handler) UploadCollectionEmojis(c *gin.Context) {
 
 	prefix := strings.TrimSpace(collection.QiniuPrefix)
 	if prefix == "" {
-		prefix = "emoji/collections/"
+		prefix = h.qiniuCollectionsPrefix()
 	}
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"

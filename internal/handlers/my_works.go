@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"emoji/internal/models"
+	"emoji/internal/storage"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/datatypes"
@@ -59,12 +61,15 @@ type myWorkSummaryAccumulator struct {
 	QualityCount          int
 }
 
+const myWorkCardPreviewTransform = "imageMogr2/thumbnail/!640x400r/gravity/Center/crop/640x400/format/webp"
+
 // ListMyWorks godoc
 // @Summary List current user works cards
 // @Tags user
 // @Produce json
 // @Param format query string false "format: all|gif|png|jpg|webp|live|mp4"
 // @Param status query string false "status filter, default done"
+// @Param page query int false "page number (default 1)"
 // @Param limit query int false "limit (default 80, max 200)"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/my/works [get]
@@ -82,6 +87,10 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 	if limit > 200 {
 		limit = 200
 	}
+	page, _ := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("page", "1")))
+	if page <= 0 {
+		page = 1
+	}
 
 	statusFilter := strings.ToLower(strings.TrimSpace(c.DefaultQuery("status", models.VideoJobStatusDone)))
 	if statusFilter == "all" {
@@ -91,13 +100,38 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 	formatFilter := normalizeVideoImageFormatFilter(c.Query("format"))
 	tables := resolveVideoImageReadTables(formatFilter)
 
-	jobs, resolvedTables, err := h.queryMyWorkJobsRows(userID, statusFilter, formatFilter, limit, tables)
+	total, resolvedTables, err := h.countMyWorkJobsRows(userID, statusFilter, formatFilter, tables)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	totalPages := 0
+	if total > 0 {
+		totalPages = int((total + int64(limit) - 1) / int64(limit))
+		if totalPages <= 0 {
+			totalPages = 1
+		}
+		if page > totalPages {
+			page = totalPages
+		}
+	}
+	offset := (page - 1) * limit
+
+	jobs, resolvedTables, err := h.queryMyWorkJobsRows(userID, statusFilter, formatFilter, limit, offset, resolvedTables)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if len(jobs) == 0 {
-		c.JSON(http.StatusOK, gin.H{"items": []VideoJobResponse{}})
+		c.JSON(http.StatusOK, gin.H{
+			"items":       []VideoJobResponse{},
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_more":    false,
+		})
 		return
 	}
 
@@ -168,7 +202,18 @@ func (h *Handler) ListMyWorks(c *gin.Context) {
 	}
 
 	h.upsertVideoWorkCardsProjection(userID, items)
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	hasMore := false
+	if totalPages > 0 && page < totalPages {
+		hasMore = true
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":       items,
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": totalPages,
+		"has_more":    hasMore,
+	})
 }
 
 func (h *Handler) queryMyWorkJobsRows(
@@ -176,6 +221,7 @@ func (h *Handler) queryMyWorkJobsRows(
 	statusFilter string,
 	formatFilter string,
 	limit int,
+	offset int,
 	tables videoImageReadTables,
 ) ([]myWorkJobRow, videoImageReadTables, error) {
 	activeTables := tables
@@ -185,7 +231,8 @@ func (h *Handler) queryMyWorkJobsRows(
 		var rows []myWorkJobRow
 		query := h.db.Table(resolveGORMTableExpr(activeTables.Jobs, "wj")).
 			Select("id", "title", "requested_format", "status", "stage", "progress", "options", "metrics", "started_at", "finished_at", "created_at", "updated_at").
-			Where("user_id = ?", userID)
+			Where("user_id = ?", userID).
+			Where(buildMyWorkHasOutputExistsPredicate(activeTables.Outputs, activeTables.Jobs, "wo", "wj"))
 
 		if statusFilter != "" {
 			query = query.Where("LOWER(COALESCE(status, '')) = ?", statusFilter)
@@ -194,17 +241,54 @@ func (h *Handler) queryMyWorkJobsRows(
 			query = query.Where("LOWER(COALESCE(requested_format, '')) = ?", formatFilter)
 		}
 
-		err := query.Order("updated_at DESC, id DESC").Limit(limit).Find(&rows).Error
+		err := query.Order("updated_at DESC, id DESC").Offset(offset).Limit(limit).Find(&rows).Error
 		if err == nil {
 			return rows, activeTables, nil
 		}
-		if activeTables.Jobs != baseTables.Jobs && isMissingTableError(err, activeTables.Jobs) {
+		if (activeTables.Jobs != baseTables.Jobs && isMissingTableError(err, activeTables.Jobs)) ||
+			(activeTables.Outputs != baseTables.Outputs && isMissingTableError(err, activeTables.Outputs)) {
 			activeTables = baseTables
 			continue
 		}
 		return nil, activeTables, err
 	}
 	return []myWorkJobRow{}, activeTables, nil
+}
+
+func (h *Handler) countMyWorkJobsRows(
+	userID uint64,
+	statusFilter string,
+	formatFilter string,
+	tables videoImageReadTables,
+) (int64, videoImageReadTables, error) {
+	activeTables := tables
+	baseTables := resolveVideoImageReadTables("")
+
+	for i := 0; i < 2; i++ {
+		query := h.db.Table(resolveGORMTableExpr(activeTables.Jobs, "wj")).
+			Where("user_id = ?", userID).
+			Where(buildMyWorkHasOutputExistsPredicate(activeTables.Outputs, activeTables.Jobs, "wo", "wj"))
+
+		if statusFilter != "" {
+			query = query.Where("LOWER(COALESCE(status, '')) = ?", statusFilter)
+		}
+		if formatFilter != "" && activeTables.Jobs == baseTables.Jobs {
+			query = query.Where("LOWER(COALESCE(requested_format, '')) = ?", formatFilter)
+		}
+
+		var total int64
+		err := query.Count(&total).Error
+		if err == nil {
+			return total, activeTables, nil
+		}
+		if (activeTables.Jobs != baseTables.Jobs && isMissingTableError(err, activeTables.Jobs)) ||
+			(activeTables.Outputs != baseTables.Outputs && isMissingTableError(err, activeTables.Outputs)) {
+			activeTables = baseTables
+			continue
+		}
+		return 0, activeTables, err
+	}
+	return 0, activeTables, nil
 }
 
 func (h *Handler) buildMyWorkResultSummary(
@@ -216,7 +300,7 @@ func (h *Handler) buildMyWorkResultSummary(
 		acc[jobID] = &myWorkSummaryAccumulator{
 			Summary: VideoJobResultSummary{
 				CollectionID:  0,
-				PreviewImages: make([]string, 0, 15),
+				PreviewImages: make([]string, 0, 4),
 				PackageStatus: "processing",
 			},
 			PreviewSet:  map[string]struct{}{},
@@ -269,9 +353,9 @@ func (h *Handler) buildMyWorkResultSummary(
 			}
 		}
 
-		if len(entry.Summary.PreviewImages) < 15 && (fileRole == "main" || fileRole == "cover") {
+		if len(entry.Summary.PreviewImages) < 4 && (fileRole == "main" || fileRole == "cover") {
 			if isMyWorkPreviewFormat(format, row.ObjectKey) {
-				previewURL := strings.TrimSpace(resolvePreviewURL(strings.TrimSpace(row.ObjectKey), h.qiniu))
+				previewURL := strings.TrimSpace(resolveMyWorkCardPreviewURL(strings.TrimSpace(row.ObjectKey), h.qiniu))
 				if previewURL != "" {
 					if _, exists := entry.PreviewSet[previewURL]; !exists {
 						entry.PreviewSet[previewURL] = struct{}{}
@@ -365,6 +449,80 @@ func resolveMyWorkPackageStatus(jobStatus string, metrics map[string]interface{}
 		return "failed"
 	}
 	return "processing"
+}
+
+func resolveMyWorkCardPreviewURL(fileURL string, qiniuClient *storage.QiniuClient) string {
+	fileURL = strings.TrimSpace(fileURL)
+	if fileURL == "" {
+		return ""
+	}
+	if qiniuClient == nil {
+		return fileURL
+	}
+
+	key, ok := extractQiniuObjectKey(fileURL, qiniuClient)
+	if !ok {
+		return resolvePreviewURL(fileURL, qiniuClient)
+	}
+
+	// GIF 封面使用现有静态首帧策略，兼顾私有桶兼容性。
+	if isGIFObjectKey(key) {
+		return resolveListStaticPreviewURL(key, qiniuClient)
+	}
+
+	if qiniuClient.Private {
+		if signed, err := qiniuClient.SignedURLWithQuery(key, myWorkCardPreviewTransform, 0); err == nil && strings.TrimSpace(signed) != "" {
+			return signed
+		}
+		return resolvePreviewURL(key, qiniuClient)
+	}
+	return qiniuClient.PublicURLWithQuery(key, myWorkCardPreviewTransform)
+}
+
+func buildMyWorkHasOutputExistsPredicate(outputTableExpr string, jobTableExpr string, outputAlias string, jobAlias string) string {
+	outputTableExpr = strings.TrimSpace(outputTableExpr)
+	if outputTableExpr == "" {
+		outputTableExpr = resolveVideoImageReadTables("").Outputs
+	}
+	jobTableExpr = strings.TrimSpace(jobTableExpr)
+	outputAlias = strings.TrimSpace(outputAlias)
+	if outputAlias == "" {
+		outputAlias = "wo"
+	}
+	jobAlias = strings.TrimSpace(jobAlias)
+	if jobAlias == "" {
+		jobAlias = "wj"
+	}
+	outputRef := resolveGORMTableExpr(outputTableExpr, outputAlias)
+	jobIDRef := qualifyMyWorkTableColumn(jobTableExpr, jobAlias, "id")
+	outputJobIDRef := qualifyMyWorkTableColumn(outputTableExpr, outputAlias, "job_id")
+	outputRoleRef := qualifyMyWorkTableColumn(outputTableExpr, outputAlias, "file_role")
+	return fmt.Sprintf(
+		"EXISTS (SELECT 1 FROM %s WHERE %s = %s AND LOWER(COALESCE(%s, '')) IN ('main', 'cover'))",
+		outputRef,
+		outputJobIDRef,
+		jobIDRef,
+		outputRoleRef,
+	)
+}
+
+func qualifyMyWorkTableColumn(tableExpr string, alias string, column string) string {
+	tableExpr = strings.TrimSpace(tableExpr)
+	alias = strings.TrimSpace(alias)
+	column = strings.TrimSpace(column)
+	if strings.HasPrefix(tableExpr, "(") {
+		if alias == "" {
+			alias = "t"
+		}
+		return alias + "." + column
+	}
+	if tableExpr != "" {
+		return tableExpr + "." + column
+	}
+	if alias != "" {
+		return alias + "." + column
+	}
+	return column
 }
 
 func resolveGORMTableExpr(tableName string, alias string) string {

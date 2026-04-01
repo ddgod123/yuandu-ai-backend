@@ -367,6 +367,58 @@ func (p *Processor) loadGIFAIJudgeConfig() aiModelCallConfig {
 	}
 }
 
+func parseVideoJobAIModelPreference(raw string) (provider string, model string) {
+	text := strings.TrimSpace(strings.ToLower(raw))
+	if text == "" || text == "auto" {
+		return "", ""
+	}
+
+	switch text {
+	case "speed":
+		return "qwen", "qwen-turbo"
+	case "quality":
+		return "qwen", "qwen-max"
+	}
+
+	if idx := strings.Index(text, ":"); idx > 0 && idx < len(text)-1 {
+		return strings.TrimSpace(text[:idx]), strings.TrimSpace(text[idx+1:])
+	}
+	if idx := strings.Index(text, "/"); idx > 0 && idx < len(text)-1 {
+		return strings.TrimSpace(text[:idx]), strings.TrimSpace(text[idx+1:])
+	}
+	return "", text
+}
+
+func (p *Processor) applyVideoJobAIModelPreference(cfg aiModelCallConfig, job models.VideoJob) (aiModelCallConfig, map[string]interface{}) {
+	options := parseJSONMap(job.Options)
+	raw := strings.TrimSpace(stringFromAny(options["ai_model_preference"]))
+	provider, model := parseVideoJobAIModelPreference(raw)
+	meta := map[string]interface{}{
+		"requested": raw,
+		"applied":   false,
+	}
+	if model == "" {
+		meta["reason"] = "auto_or_empty"
+		return cfg, meta
+	}
+
+	if provider != "" {
+		currentProvider := strings.TrimSpace(strings.ToLower(cfg.Provider))
+		requestProvider := strings.TrimSpace(strings.ToLower(provider))
+		if currentProvider == "" || currentProvider == requestProvider {
+			cfg.Provider = requestProvider
+		} else {
+			meta["provider_override_ignored"] = requestProvider
+		}
+	}
+
+	cfg.Model = strings.TrimSpace(model)
+	meta["applied"] = true
+	meta["provider"] = cfg.Provider
+	meta["model"] = cfg.Model
+	return cfg, meta
+}
+
 func (p *Processor) persistAIGIFProposals(
 	jobID uint64,
 	userID uint64,

@@ -111,6 +111,8 @@ func (p *Processor) maybeApplyPNGAI2LLMRerank(
 		return framePaths, report
 	}
 	cfg := p.loadPNGAI2LLMRerankConfig()
+	modelCfg, modelPreference := p.applyVideoJobAIModelPreference(cfg.ModelCfg, job)
+	cfg.ModelCfg = modelCfg
 	report["mode"] = cfg.Mode
 	report["max_candidates"] = cfg.MaxCandidates
 	report["min_candidates"] = cfg.MinCandidates
@@ -121,6 +123,7 @@ func (p *Processor) maybeApplyPNGAI2LLMRerank(
 	report["image_max_bytes"] = cfg.ImageMaxBytes
 	report["provider"] = cfg.ModelCfg.Provider
 	report["model"] = cfg.ModelCfg.Model
+	report["model_preference"] = modelPreference
 	report["prompt_version"] = cfg.ModelCfg.PromptVersion
 	if cfg.Mode == pngAI2LLMRerankModeOff {
 		report["status"] = "disabled"

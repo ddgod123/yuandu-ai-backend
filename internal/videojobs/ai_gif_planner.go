@@ -20,12 +20,14 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 	qualitySettings QualitySettings,
 ) (highlightSuggestion, map[string]interface{}, error) {
 	cfg := p.loadGIFAIPlannerConfig()
+	cfg, modelPreference := p.applyVideoJobAIModelPreference(cfg, job)
 	info := map[string]interface{}{
 		"enabled":        cfg.Enabled,
 		"provider":       cfg.Provider,
 		"model":          cfg.Model,
 		"prompt_version": cfg.PromptVersion,
 	}
+	info["model_preference"] = modelPreference
 	if !cfg.Enabled {
 		info["applied"] = false
 		return local, info, fmt.Errorf("planner disabled")

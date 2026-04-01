@@ -131,7 +131,7 @@ func (h *Handler) resolveIPCoverURLs(ctx context.Context, raw string, adminView 
 	}
 
 	key := normalizeStorageObjectKey(raw)
-	if strings.HasPrefix(key, "emoji/") && h.qiniu != nil {
+	if h.qiniu != nil && h.hasQiniuAllowedRootPrefix(key) {
 		coverURL = raw
 		if original, err := h.resolveObjectURLWithCache(ctx, key, 0, false, ""); err == nil && strings.TrimSpace(original.URL) != "" {
 			coverURL = original.URL

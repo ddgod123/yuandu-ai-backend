@@ -238,6 +238,7 @@ type aiGIFJudgeRunSnapshot struct {
 	Enabled                      bool                   `json:"enabled"`
 	Provider                     string                 `json:"provider,omitempty"`
 	Model                        string                 `json:"model,omitempty"`
+	ModelPreference              map[string]interface{} `json:"model_preference,omitempty"`
 	PromptVersion                string                 `json:"prompt_version,omitempty"`
 	Mode                         string                 `json:"mode,omitempty"`
 	Reason                       string                 `json:"reason,omitempty"`

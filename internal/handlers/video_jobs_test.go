@@ -49,6 +49,22 @@ func TestNormalizeSourceVideoKey_RejectsUnsupportedExtension(t *testing.T) {
 	}
 }
 
+func TestNormalizeSourceVideoKey_AllowsConfiguredRootPrefix(t *testing.T) {
+	h := &Handler{}
+	h.cfg.QiniuRootPrefix = "emoji-prod"
+
+	if got, err := h.normalizeSourceVideoKey("emoji-prod/sample.mp4"); err != nil || got != "emoji-prod/sample.mp4" {
+		t.Fatalf("expected configured root key to pass, got=%s err=%v", got, err)
+	}
+	// Legacy prefix still accepted during migration.
+	if got, err := h.normalizeSourceVideoKey("emoji/sample.mp4"); err != nil || got != "emoji/sample.mp4" {
+		t.Fatalf("expected legacy root key to pass during migration, got=%s err=%v", got, err)
+	}
+	if _, err := h.normalizeSourceVideoKey("other/sample.mp4"); err == nil {
+		t.Fatalf("expected root prefix validation error")
+	}
+}
+
 func TestDescribeSourceVideoProbeFailure(t *testing.T) {
 	tests := []struct {
 		name string

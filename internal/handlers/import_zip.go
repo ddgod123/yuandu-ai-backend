@@ -153,7 +153,7 @@ func (h *Handler) ImportCollectionZip(c *gin.Context) {
 
 	categoryPrefix := strings.TrimSpace(category.Prefix)
 	if categoryPrefix == "" {
-		categoryPrefix = "emoji/collections/"
+		categoryPrefix = h.qiniuCollectionsPrefix()
 	}
 	if !strings.HasSuffix(categoryPrefix, "/") {
 		categoryPrefix += "/"

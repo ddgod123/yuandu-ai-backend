@@ -2009,7 +2009,7 @@ func (p *Processor) resolveCollectionPrefix(job models.VideoJob) (string, error)
 	if job.ID == 0 || job.UserID == 0 {
 		return "", errors.New("invalid job for collection prefix")
 	}
-	layout := NewVideoImageStorageLayout(p.cfg.Env)
+	layout := NewVideoImageStorageLayoutWithRoot(p.cfg.Env, p.cfg.QiniuRootPrefix)
 	primaryFormat := PrimaryRequestedFormat(job.OutputFormats)
 	return layout.JobPrefixByFormat(job.UserID, job.ID, primaryFormat), nil
 }

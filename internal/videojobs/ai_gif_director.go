@@ -263,6 +263,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 	targetFormat = normalizeAIPromptTemplateFormat(targetFormat)
 
 	cfg := p.loadGIFAIDirectorConfig()
+	cfg, modelPreference := p.applyVideoJobAIModelPreference(cfg, job)
 	qualitySettings = NormalizeQualitySettings(qualitySettings)
 	promptPack := p.resolveAIGIFDirectorPromptPack(targetFormat, qualitySettings)
 
@@ -282,6 +283,7 @@ func (p *Processor) requestAIGIFPromptDirective(
 		"operator_instruction_render_mode":   promptPack.OperatorInstructionRenderMode,
 		"target_format":                      targetFormat,
 	}
+	info["model_preference"] = modelPreference
 	if len(promptPack.OperatorInstructionSchema) > 0 {
 		info["operator_instruction_schema"] = promptPack.OperatorInstructionSchema
 	}

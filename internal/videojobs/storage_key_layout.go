@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	appstorage "emoji/internal/storage"
 )
 
-const defaultVideoImageStorageRoot = "emoji/video-image"
+const defaultVideoImageStorageRoot = "video-image"
 
 type VideoImageStorageLayout struct {
 	RootPrefix string
@@ -14,7 +16,11 @@ type VideoImageStorageLayout struct {
 }
 
 func NewVideoImageStorageLayout(env string) VideoImageStorageLayout {
-	root := defaultVideoImageStorageRoot
+	return NewVideoImageStorageLayoutWithRoot(env, "")
+}
+
+func NewVideoImageStorageLayoutWithRoot(env, rootPrefix string) VideoImageStorageLayout {
+	root := path.Join(strings.TrimSuffix(appstorage.NormalizeRootPrefix(rootPrefix), "/"), defaultVideoImageStorageRoot)
 	env = strings.TrimSpace(strings.ToLower(env))
 	if env == "" {
 		env = "prod"

@@ -80,15 +80,16 @@ type Config struct {
 	// Default false: strict output_id/candidate_id learning only.
 	EnableLegacyFeedbackFallback bool
 
-	QiniuAccessKey string
-	QiniuSecretKey string
-	QiniuBucket    string
-	QiniuDomain    string
-	QiniuZone      string
-	QiniuUseHTTPS  bool
-	QiniuUseCDN    bool
-	QiniuPrivate   bool
-	QiniuSignTTL   int
+	QiniuAccessKey  string
+	QiniuSecretKey  string
+	QiniuBucket     string
+	QiniuDomain     string
+	QiniuRootPrefix string
+	QiniuZone       string
+	QiniuUseHTTPS   bool
+	QiniuUseCDN     bool
+	QiniuPrivate    bool
+	QiniuSignTTL    int
 	// Allow degraded create path when source preflight probe fails (dev/staging helper).
 	VideoSourceProbeAllowDegraded bool
 
@@ -287,6 +288,7 @@ func Load() Config {
 	cfg.QiniuSecretKey = getEnv("QINIU_SECRET_KEY", "")
 	cfg.QiniuBucket = getEnv("QINIU_BUCKET", "")
 	cfg.QiniuDomain = getEnv("QINIU_DOMAIN", "")
+	cfg.QiniuRootPrefix = getEnv("QINIU_ROOT_PREFIX", "emoji")
 	cfg.QiniuZone = getEnv("QINIU_ZONE", "")
 	cfg.QiniuUseHTTPS = getEnvAsBool("QINIU_USE_HTTPS", true)
 	cfg.QiniuUseCDN = getEnvAsBool("QINIU_USE_CDN", false)

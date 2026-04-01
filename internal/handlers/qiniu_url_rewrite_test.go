@@ -29,6 +29,21 @@ func TestExtractQiniuObjectKey_LegacyAbsoluteURLFallback(t *testing.T) {
 	}
 }
 
+func TestExtractQiniuObjectKey_ConfiguredRootPrefixFallback(t *testing.T) {
+	q := &appstorage.QiniuClient{
+		Domain:     "cdn.emoji.icu",
+		UseHTTPS:   false,
+		RootPrefix: "emoji-prod/",
+	}
+	key, ok := extractQiniuObjectKey("https://legacy.example.com/emoji-prod/demo/a.gif?x=1", q)
+	if !ok {
+		t.Fatalf("expected configured-root absolute url to be parsed as key")
+	}
+	if key != "emoji-prod/demo/a.gif" {
+		t.Fatalf("unexpected key: %s", key)
+	}
+}
+
 func TestResolveDownloadURL_RewriteLegacyAbsoluteURLToCurrentDomain(t *testing.T) {
 	q := &appstorage.QiniuClient{
 		Mac:      qbox.NewMac("test-ak", "test-sk"),
@@ -69,4 +84,3 @@ func TestResolveDownloadURL_KeepUnknownAbsoluteURL(t *testing.T) {
 		t.Fatalf("expected exp=0 for passthrough absolute url, got=%d", exp)
 	}
 }
-

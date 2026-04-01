@@ -169,7 +169,7 @@ func (h *Handler) AppendCollectionZip(c *gin.Context) {
 
 	prefix := strings.TrimSpace(collection.QiniuPrefix)
 	if prefix == "" {
-		prefix = "emoji/collections/"
+		prefix = h.qiniuCollectionsPrefix()
 	}
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"

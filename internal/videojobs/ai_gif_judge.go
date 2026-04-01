@@ -71,6 +71,7 @@ type gifJudgeSample struct {
 
 func (p *Processor) runAIGIFJudgeReview(ctx context.Context, job models.VideoJob, qualitySettings QualitySettings) (map[string]interface{}, error) {
 	cfg := p.loadGIFAIJudgeConfig()
+	cfg, modelPreference := p.applyVideoJobAIModelPreference(cfg, job)
 	result := aiGIFJudgeRunSnapshot{
 		Enabled:       cfg.Enabled,
 		Provider:      cfg.Provider,
@@ -78,6 +79,7 @@ func (p *Processor) runAIGIFJudgeReview(ctx context.Context, job models.VideoJob
 		PromptVersion: cfg.PromptVersion,
 		Applied:       false,
 	}
+	result.ModelPreference = modelPreference
 	if !cfg.Enabled {
 		result.Error = "judge disabled"
 		return normalizeVideoJobAIUsageMetadata(result), fmt.Errorf("judge disabled")

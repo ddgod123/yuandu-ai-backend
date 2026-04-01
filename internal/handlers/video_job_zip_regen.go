@@ -29,6 +29,14 @@ const minValidCollectionZipBytes int64 = 128
 
 // GetVideoJobZipDownload returns a download URL for a job's collection zip.
 // If the zip is missing (e.g., after deleting a single output), it will be regenerated.
+// @Summary Get current user video job zip download URL
+// @Description 权限：仅任务所属用户可下载自己的创作 ZIP；不要求订阅状态。
+// @Tags user
+// @Produce json
+// @Param id path int true "video job id"
+// @Param ttl query int false "ttl (seconds)"
+// @Success 200 {object} DownloadURLResponse
+// @Router /api/video-jobs/{id}/download-zip [get]
 func (h *Handler) GetVideoJobZipDownload(c *gin.Context) {
 	userID, ok := currentUserIDFromContext(c)
 	if !ok || userID == 0 {
@@ -200,7 +208,7 @@ func (h *Handler) regenerateCollectionZip(ctx context.Context, job models.VideoJ
 
 	prefix := normalizeCollectionPrefix(collection.QiniuPrefix)
 	if prefix == "" {
-		layout := videojobs.NewVideoImageStorageLayout(h.cfg.Env)
+		layout := videojobs.NewVideoImageStorageLayoutWithRoot(h.cfg.Env, h.cfg.QiniuRootPrefix)
 		prefix = layout.JobPrefix(job.UserID, job.ID)
 	}
 	packageName := fmt.Sprintf("%d_%s_v1.zip", job.ID, formatLabel)

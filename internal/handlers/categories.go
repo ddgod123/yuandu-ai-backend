@@ -19,11 +19,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	qiniuRootPrefix  = "emoji/"
-	qiniuTrashPrefix = "emoji/_trash/"
-)
-
 type CategoryRequest struct {
 	Name        string  `json:"name"`
 	Slug        string  `json:"slug"`
@@ -272,7 +267,7 @@ func (h *Handler) CreateCategory(c *gin.Context) {
 	if slug == "" && parent == nil {
 		prefixSeed := strings.TrimSpace(req.Prefix)
 		if prefixSeed != "" {
-			slug = deriveSlug(name, prefixSeed)
+			slug = deriveSlug(name, prefixSeed, h.qiniuRootPrefix())
 		}
 	}
 	if slug == "" {
@@ -294,12 +289,14 @@ func (h *Handler) CreateCategory(c *gin.Context) {
 		prefixCandidate = path.Join(parentPrefix, base)
 	}
 
-	prefix, err := normalizePrefix(prefixCandidate, slug, name)
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
+	prefix, err := normalizePrefix(prefixCandidate, slug, name, rootPrefix)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if prefix == qiniuRootPrefix || strings.HasPrefix(prefix, qiniuTrashPrefix) {
+	if prefix == rootPrefix || strings.HasPrefix(prefix, trashPrefix) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid prefix"})
 		return
 	}
@@ -463,7 +460,9 @@ func (h *Handler) DeleteCategory(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if cat.Prefix == qiniuRootPrefix || strings.HasPrefix(cat.Prefix, qiniuTrashPrefix) {
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
+	if cat.Prefix == rootPrefix || strings.HasPrefix(cat.Prefix, trashPrefix) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete reserved prefix"})
 		return
 	}
@@ -610,15 +609,17 @@ func (h *Handler) AdminDeleteObject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing key"})
 		return
 	}
-	if !strings.HasPrefix(key, qiniuRootPrefix) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "key must start with emoji/"})
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
+	if !strings.HasPrefix(key, rootPrefix) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "key must start with " + rootPrefix})
 		return
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(c.DefaultQuery("mode", "trash")))
 	bm := h.qiniu.BucketManager()
 	if mode == "trash" {
-		destKey := buildTrashKey(key, time.Now())
+		destKey := buildTrashKey(key, time.Now(), rootPrefix, trashPrefix)
 		if err := bm.Move(h.qiniu.Bucket, key, h.qiniu.Bucket, destKey, true); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -667,6 +668,8 @@ func (h *Handler) BatchDeleteObjects(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be trash or delete"})
 		return
 	}
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
 
 	uniqueKeys := make([]string, 0, len(req.Keys))
 	seen := map[string]struct{}{}
@@ -675,11 +678,11 @@ func (h *Handler) BatchDeleteObjects(c *gin.Context) {
 		if key == "" {
 			continue
 		}
-		if !strings.HasPrefix(key, qiniuRootPrefix) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "key must start with emoji/"})
+		if !strings.HasPrefix(key, rootPrefix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "key must start with " + rootPrefix})
 			return
 		}
-		if mode == "trash" && strings.HasPrefix(key, qiniuTrashPrefix) {
+		if mode == "trash" && strings.HasPrefix(key, trashPrefix) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "trash objects cannot be trashed again"})
 			return
 		}
@@ -697,7 +700,7 @@ func (h *Handler) BatchDeleteObjects(c *gin.Context) {
 	bm := h.qiniu.BucketManager()
 	trashBase := ""
 	if mode == "trash" {
-		trashBase = path.Join(qiniuTrashPrefix, time.Now().Format("20060102-150405"))
+		trashBase = path.Join(trashPrefix, time.Now().Format("20060102-150405"))
 	}
 
 	success := 0
@@ -713,7 +716,7 @@ func (h *Handler) BatchDeleteObjects(c *gin.Context) {
 			if mode == "delete" {
 				ops = append(ops, qiniustorage.URIDelete(h.qiniu.Bucket, key))
 			} else {
-				destKey := buildTrashKeyWithBase(key, trashBase)
+				destKey := buildTrashKeyWithBase(key, trashBase, rootPrefix)
 				ops = append(ops, qiniustorage.URIMove(h.qiniu.Bucket, key, h.qiniu.Bucket, destKey, true))
 			}
 		}
@@ -744,7 +747,7 @@ func (h *Handler) BatchDeleteObjects(c *gin.Context) {
 // @Summary List trash objects
 // @Tags admin
 // @Produce json
-// @Param prefix query string false "prefix" default(emoji/_trash/)
+// @Param prefix query string false "prefix" default(configured trash prefix)
 // @Param marker query string false "marker"
 // @Param limit query int false "limit" default(50)
 // @Success 200 {object} TrashListResponse
@@ -754,9 +757,10 @@ func (h *Handler) ListTrashObjects(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
 		return
 	}
-	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", qiniuTrashPrefix)), "/")
-	if !strings.HasPrefix(prefix, qiniuTrashPrefix) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with emoji/_trash/"})
+	trashPrefix := h.qiniuTrashPrefix()
+	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", trashPrefix)), "/")
+	if !strings.HasPrefix(prefix, trashPrefix) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with " + trashPrefix})
 		return
 	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
@@ -782,7 +786,7 @@ func (h *Handler) ListTrashObjects(c *gin.Context) {
 // @Summary Search objects in storage
 // @Tags admin
 // @Produce json
-// @Param prefix query string false "prefix" default(emoji/)
+// @Param prefix query string false "prefix" default(configured root prefix)
 // @Param keyword query string false "keyword"
 // @Param type query string false "type (image|gif|video|other)"
 // @Param sort query string false "sort (put_time|size|key)"
@@ -796,9 +800,10 @@ func (h *Handler) AdminSearchObjects(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
 		return
 	}
-	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", qiniuRootPrefix)), "/")
-	if !strings.HasPrefix(prefix, qiniuRootPrefix) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with emoji/"})
+	rootPrefix := h.qiniuRootPrefix()
+	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", rootPrefix)), "/")
+	if !strings.HasPrefix(prefix, rootPrefix) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with " + rootPrefix})
 		return
 	}
 	keyword := strings.ToLower(strings.TrimSpace(c.Query("keyword")))
@@ -853,11 +858,13 @@ func (h *Handler) RestoreTrashObject(c *gin.Context) {
 		return
 	}
 	key := strings.TrimLeft(strings.TrimSpace(req.Key), "/")
-	if key == "" || !strings.HasPrefix(key, qiniuTrashPrefix) {
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
+	if key == "" || !strings.HasPrefix(key, trashPrefix) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid trash key"})
 		return
 	}
-	destKey, err := restoreKeyFromTrash(key)
+	destKey, err := restoreKeyFromTrash(key, rootPrefix, trashPrefix)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -897,6 +904,8 @@ func (h *Handler) BatchRestoreTrashObjects(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "keys required"})
 		return
 	}
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
 
 	unique := make([]string, 0, len(req.Keys))
 	seen := map[string]struct{}{}
@@ -905,8 +914,8 @@ func (h *Handler) BatchRestoreTrashObjects(c *gin.Context) {
 		if key == "" {
 			continue
 		}
-		if !strings.HasPrefix(key, qiniuTrashPrefix) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "trash key must start with emoji/_trash/"})
+		if !strings.HasPrefix(key, trashPrefix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trash key must start with " + trashPrefix})
 			return
 		}
 		if _, ok := seen[key]; ok {
@@ -931,7 +940,7 @@ func (h *Handler) BatchRestoreTrashObjects(c *gin.Context) {
 		keys := unique[start:end]
 		ops := make([]string, 0, len(keys))
 		for _, key := range keys {
-			destKey, err := restoreKeyFromTrash(key)
+			destKey, err := restoreKeyFromTrash(key, rootPrefix, trashPrefix)
 			if err != nil {
 				failed++
 				continue
@@ -966,7 +975,7 @@ func (h *Handler) BatchRestoreTrashObjects(c *gin.Context) {
 // @Summary Empty trash prefix
 // @Tags admin
 // @Produce json
-// @Param prefix query string false "prefix" default(emoji/_trash/)
+// @Param prefix query string false "prefix" default(configured trash prefix)
 // @Success 200 {object} TrashEmptyResponse
 // @Router /api/admin/storage/trash [delete]
 func (h *Handler) EmptyTrash(c *gin.Context) {
@@ -974,9 +983,10 @@ func (h *Handler) EmptyTrash(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "qiniu not configured"})
 		return
 	}
-	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", qiniuTrashPrefix)), "/")
-	if !strings.HasPrefix(prefix, qiniuTrashPrefix) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with emoji/_trash/"})
+	trashPrefix := h.qiniuTrashPrefix()
+	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", trashPrefix)), "/")
+	if !strings.HasPrefix(prefix, trashPrefix) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with " + trashPrefix})
 		return
 	}
 
@@ -1048,7 +1058,7 @@ func mapCategory(cat models.Category) CategoryResponse {
 	}
 }
 
-func normalizePrefix(prefix, slug, name string) (string, error) {
+func normalizePrefix(prefix, slug, name, rootPrefix string) (string, error) {
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" {
 		base := ""
@@ -1065,23 +1075,32 @@ func normalizePrefix(prefix, slug, name string) (string, error) {
 	if prefix == "" {
 		return "", errors.New("prefix required")
 	}
+	rootPrefix = storage.NormalizeRootPrefix(rootPrefix)
 	prefix = strings.TrimLeft(prefix, "/")
-	if !strings.HasPrefix(prefix, qiniuRootPrefix) {
-		prefix = path.Join(qiniuRootPrefix, prefix)
+	if !strings.HasPrefix(prefix, rootPrefix) {
+		legacyRoot := storage.NormalizeRootPrefix(qiniuLegacyRootPrefix)
+		if legacyRoot != rootPrefix && strings.HasPrefix(prefix, legacyRoot) {
+			return "", fmt.Errorf("prefix must start with %s", rootPrefix)
+		}
+		prefix = path.Join(rootPrefix, prefix)
 	}
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	if !strings.HasPrefix(prefix, qiniuRootPrefix) {
-		return "", errors.New("prefix must start with emoji/")
+	if !strings.HasPrefix(prefix, rootPrefix) {
+		return "", fmt.Errorf("prefix must start with %s", rootPrefix)
 	}
 	return prefix, nil
 }
 
-func deriveSlug(name, prefix string) string {
+func deriveSlug(name, prefix, rootPrefix string) string {
 	candidate := ""
+	rootPrefix = storage.NormalizeRootPrefix(rootPrefix)
 	if prefix != "" {
-		candidate = strings.TrimPrefix(prefix, qiniuRootPrefix)
+		candidate = strings.TrimPrefix(prefix, rootPrefix)
+		if candidate == prefix {
+			candidate = strings.TrimPrefix(prefix, storage.NormalizeRootPrefix(qiniuLegacyRootPrefix))
+		}
 		candidate = strings.Trim(candidate, "/")
 		if strings.HasPrefix(candidate, "collections/") {
 			candidate = strings.TrimPrefix(candidate, "collections/")
@@ -1131,7 +1150,9 @@ func (h *Handler) movePrefixToTrash(prefix string) (int, string, error) {
 	marker := ""
 	moved := 0
 	segment := time.Now().Format("20060102-150405")
-	trashBase := path.Join(qiniuTrashPrefix, segment)
+	rootPrefix := h.qiniuRootPrefix()
+	trashPrefix := h.qiniuTrashPrefix()
+	trashBase := path.Join(trashPrefix, segment)
 	for {
 		items, _, nextMarker, hasNext, err := bm.ListFiles(h.qiniu.Bucket, prefix, "", marker, 1000)
 		if err != nil {
@@ -1142,7 +1163,7 @@ func (h *Handler) movePrefixToTrash(prefix string) (int, string, error) {
 		}
 		ops := make([]string, 0, len(items))
 		for _, item := range items {
-			destKey := buildTrashKeyWithBase(item.Key, trashBase)
+			destKey := buildTrashKeyWithBase(item.Key, trashBase, rootPrefix)
 			ops = append(ops, qiniustorage.URIMove(h.qiniu.Bucket, item.Key, h.qiniu.Bucket, destKey, true))
 		}
 		if len(ops) > 0 {
@@ -1173,23 +1194,31 @@ func (h *Handler) movePrefixToTrash(prefix string) (int, string, error) {
 	return moved, trashBase, nil
 }
 
-func buildTrashKey(key string, now time.Time) string {
+func buildTrashKey(key string, now time.Time, rootPrefix, trashPrefix string) string {
 	segment := now.Format("20060102-150405")
-	trashBase := path.Join(qiniuTrashPrefix, segment)
-	return buildTrashKeyWithBase(key, trashBase)
+	trashBase := path.Join(trashPrefix, segment)
+	return buildTrashKeyWithBase(key, trashBase, rootPrefix)
 }
 
-func buildTrashKeyWithBase(key, trashBase string) string {
-	rel := strings.TrimPrefix(key, qiniuRootPrefix)
+func buildTrashKeyWithBase(key, trashBase, rootPrefix string) string {
+	rootPrefix = storage.NormalizeRootPrefix(rootPrefix)
+	rel := strings.TrimPrefix(key, rootPrefix)
 	rel = strings.TrimLeft(rel, "/")
 	return path.Join(trashBase, rel)
 }
 
-func restoreKeyFromTrash(key string) (string, error) {
-	if !strings.HasPrefix(key, qiniuTrashPrefix) {
+func restoreKeyFromTrash(key, rootPrefix, trashPrefix string) (string, error) {
+	rootPrefix = storage.NormalizeRootPrefix(rootPrefix)
+	trashPrefix = strings.TrimLeft(strings.TrimSpace(trashPrefix), "/")
+	if trashPrefix == "" {
+		trashPrefix = storage.TrashPrefix(rootPrefix)
+	} else if !strings.HasSuffix(trashPrefix, "/") {
+		trashPrefix += "/"
+	}
+	if !strings.HasPrefix(key, trashPrefix) {
 		return "", errors.New("invalid trash key")
 	}
-	trimmed := strings.TrimPrefix(key, qiniuTrashPrefix)
+	trimmed := strings.TrimPrefix(key, trashPrefix)
 	trimmed = strings.TrimLeft(trimmed, "/")
 	parts := strings.SplitN(trimmed, "/", 2)
 	if len(parts) < 2 {
@@ -1199,7 +1228,7 @@ func restoreKeyFromTrash(key string) (string, error) {
 	if rel == "" {
 		return "", errors.New("invalid trash key")
 	}
-	return path.Join(qiniuRootPrefix, rel), nil
+	return path.Join(rootPrefix, rel), nil
 }
 
 func mapAdminItems(items []qiniustorage.ListItem, q *storage.QiniuClient) []AdminStorageItem {

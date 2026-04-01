@@ -1335,6 +1335,91 @@ e.updated_at
 	c.JSON(http.StatusOK, CollectionDownloadEntitlementListResponse{Items: items, Total: total})
 }
 
+// ListMyCollectionDownloadRedeemRecords godoc
+// @Summary List my collection card redeem records
+// @Tags auth
+// @Produce json
+// @Router /api/me/collection-download-redeem-records [get]
+func (h *Handler) ListMyCollectionDownloadRedeemRecords(c *gin.Context) {
+	user, ok := h.requireActiveUser(c)
+	if !ok {
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin_not_supported"})
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 20
+	}
+	collectionID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("collection_id")), 10, 64)
+
+	base := h.db.Table("ops.collection_download_redemptions AS r").
+		Select(`
+r.id,
+r.code_id,
+COALESCE(c.code_mask, '') AS code_mask,
+r.user_id,
+COALESCE(u.display_name, '') AS user_display_name,
+COALESCE(u.phone, '') AS user_phone,
+r.collection_id,
+COALESCE(col.title, '') AS collection_title,
+r.granted_download_times,
+r.expires_at,
+r.ip,
+r.user_agent,
+r.created_at
+		`).
+		Joins("LEFT JOIN ops.collection_download_codes c ON c.id = r.code_id").
+		Joins(`LEFT JOIN "user".users u ON u.id = r.user_id`).
+		Joins("LEFT JOIN archive.collections col ON col.id = r.collection_id").
+		Where("r.user_id = ?", user.ID)
+	if collectionID > 0 {
+		base = base.Where("r.collection_id = ?", collectionID)
+	}
+
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var rows []collectionDownloadRedemptionQueryRow
+	if err := base.Order("r.id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	items := make([]CollectionDownloadRedemptionRecord, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, CollectionDownloadRedemptionRecord{
+			ID:                   row.ID,
+			CodeID:               row.CodeID,
+			CodeMask:             row.CodeMask,
+			UserID:               row.UserID,
+			UserDisplayName:      row.UserDisplayName,
+			UserPhone:            row.UserPhone,
+			CollectionID:         row.CollectionID,
+			CollectionTitle:      row.CollectionTitle,
+			GrantedDownloadTimes: row.GrantedDownloadTimes,
+			ExpiresAt:            row.ExpiresAt,
+			IP:                   row.IP,
+			UserAgent:            row.UserAgent,
+			CreatedAt:            row.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, CollectionDownloadRedemptionListResponse{Items: items, Total: total})
+}
+
 // ListAdminCollectionDownloadEntitlements godoc
 // @Summary List collection download entitlements for admin
 // @Tags admin

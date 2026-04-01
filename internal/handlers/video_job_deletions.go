@@ -330,7 +330,7 @@ func (h *Handler) hardDeleteCollectionWithDomain(collection models.Collection, a
 	result := collectionDeleteResult{CollectionID: collection.ID}
 
 	prefix := normalizeCollectionPrefix(collection.QiniuPrefix)
-	if prefix == "emoji/" {
+	if prefix == h.qiniuRootPrefix() || prefix == h.qiniuLegacyRootPrefix() {
 		return result, errors.New("unsafe qiniu prefix")
 	}
 

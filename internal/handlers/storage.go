@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	appstorage "emoji/internal/storage"
+
 	"github.com/gin-gonic/gin"
 	qiniustorage "github.com/qiniu/go-sdk/v7/storage"
 )
@@ -96,7 +98,7 @@ func normalizeUploadHost(raw string) string {
 
 // GetUploadToken godoc
 // @Summary Get upload token
-// @Description Generate Qiniu upload token for key or prefix (default emoji/)
+// @Description Generate Qiniu upload token for key or prefix (default configured root prefix)
 // @Tags storage
 // @Accept json
 // @Produce json
@@ -117,23 +119,24 @@ func (h *Handler) GetUploadToken(c *gin.Context) {
 
 	key := strings.TrimSpace(req.Key)
 	prefix := strings.TrimSpace(req.Prefix)
+	rootPrefix := h.qiniuRootPrefix()
 	if req.Collection > 0 && prefix == "" && key == "" {
-		prefix = path.Join("emoji", strconv.FormatUint(req.Collection, 10)) + "/"
+		prefix = path.Join(strings.TrimSuffix(rootPrefix, "/"), strconv.FormatUint(req.Collection, 10)) + "/"
 	}
 	if prefix == "" && key == "" {
-		prefix = "emoji/"
+		prefix = rootPrefix
 	}
 	if key != "" {
 		key = strings.TrimLeft(key, "/")
-		if !strings.HasPrefix(key, "emoji/") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "key must start with emoji/"})
+		if !appstorage.HasRootPrefix(key, h.cfg.QiniuRootPrefix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "key must start with " + rootPrefix})
 			return
 		}
 	}
 	if prefix != "" {
 		prefix = strings.TrimLeft(prefix, "/")
-		if !strings.HasPrefix(prefix, "emoji/") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with emoji/"})
+		if !appstorage.HasRootPrefix(prefix, h.cfg.QiniuRootPrefix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "prefix must start with " + rootPrefix})
 			return
 		}
 	}
@@ -145,7 +148,7 @@ func (h *Handler) GetUploadToken(c *gin.Context) {
 
 // GetVideoJobUploadToken godoc
 // @Summary Get upload token for video-job source upload
-// @Description Authenticated user upload token, scoped to emoji/user-video/...
+// @Description Authenticated user upload token, scoped to configured root user-video path
 // @Tags storage
 // @Accept json
 // @Produce json
@@ -169,8 +172,9 @@ func (h *Handler) GetVideoJobUploadToken(c *gin.Context) {
 		return
 	}
 
-	userPrefix := path.Join("emoji", "user-video", strconv.FormatUint(userID, 10)) + "/"
-	legacyPrefix := "emoji/user-video/"
+	userPrefix := h.qiniuUserVideoPrefix(userID)
+	legacyUserPrefix := h.qiniuLegacyUserVideoPrefix(userID)
+	legacyPrefix := path.Join(strings.TrimSuffix(h.qiniuLegacyRootPrefix(), "/"), "user-video") + "/"
 
 	key := strings.TrimLeft(strings.TrimSpace(req.Key), "/")
 	prefix := strings.TrimLeft(strings.TrimSpace(req.Prefix), "/")
@@ -179,13 +183,13 @@ func (h *Handler) GetVideoJobUploadToken(c *gin.Context) {
 		prefix = userPrefix
 	}
 	if key != "" {
-		if !strings.HasPrefix(key, userPrefix) && !strings.HasPrefix(key, legacyPrefix) {
+		if !hasAnyPrefix(key, userPrefix, legacyUserPrefix, legacyPrefix) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
 			return
 		}
 	}
 	if prefix != "" {
-		if !strings.HasPrefix(prefix, userPrefix) && !strings.HasPrefix(prefix, legacyPrefix) {
+		if !hasAnyPrefix(prefix, userPrefix, legacyUserPrefix, legacyPrefix) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
 			return
 		}
@@ -249,7 +253,7 @@ func (h *Handler) GetObject(c *gin.Context) {
 // @Summary Proxy object content (temporary fallback)
 // @Tags storage
 // @Produce application/octet-stream
-// @Param key query string false "object key (emoji/...)"
+// @Param key query string false "object key"
 // @Param url query string false "raw object url"
 // @Success 200 {string} string
 // @Router /api/storage/proxy [get]
@@ -275,7 +279,7 @@ func (h *Handler) ProxyObject(c *gin.Context) {
 	}
 	if isAdminRole(c) {
 		// Admin callers can proxy arbitrary keys for operational workflows.
-	} else if !canProxyStorageKeyPublic(key) {
+	} else if !h.canProxyStorageKeyPublic(key) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden key"})
 		return
 	}
@@ -335,7 +339,7 @@ type ListObjectsResponse struct {
 // @Summary List objects
 // @Tags storage
 // @Produce json
-// @Param prefix query string false "prefix" default(emoji/)
+// @Param prefix query string false "prefix" default(configured root prefix)
 // @Param marker query string false "marker"
 // @Param limit query int false "limit" default(50)
 // @Success 200 {object} ListObjectsResponse
@@ -346,7 +350,8 @@ func (h *Handler) ListObjects(c *gin.Context) {
 		return
 	}
 
-	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", "emoji/")), "/")
+	defaultPrefix := h.qiniuRootPrefix()
+	prefix := strings.TrimLeft(strings.TrimSpace(c.DefaultQuery("prefix", defaultPrefix)), "/")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	if limit <= 0 || limit > 1000 {
 		limit = 50
@@ -488,12 +493,12 @@ func normalizeStorageObjectKey(raw string) string {
 	return key
 }
 
-func canProxyStorageKeyPublic(key string) bool {
+func (h *Handler) canProxyStorageKeyPublic(key string) bool {
 	normalized := normalizeStorageObjectKey(key)
 	if normalized == "" {
 		return false
 	}
-	if !strings.HasPrefix(normalized, "emoji/") {
+	if !h.hasQiniuAllowedRootPrefix(normalized) {
 		return false
 	}
 	lower := strings.ToLower(normalized)
@@ -503,6 +508,23 @@ func canProxyStorageKeyPublic(key string) bool {
 	ext := strings.ToLower(path.Ext(lower))
 	_, ok := publicProxyAllowedImageExt[ext]
 	return ok
+}
+
+func hasAnyPrefix(key string, prefixes ...string) bool {
+	key = strings.TrimLeft(strings.TrimSpace(key), "/")
+	if key == "" {
+		return false
+	}
+	for _, prefix := range prefixes {
+		prefix = strings.TrimLeft(strings.TrimSpace(prefix), "/")
+		if prefix == "" {
+			continue
+		}
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func canAccessStorageKey(c *gin.Context, key string) bool {

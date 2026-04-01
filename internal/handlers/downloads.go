@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,6 +121,7 @@ func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
 
 // GetCollectionZipDownload returns a download URL for the latest zip of a collection.
 // @Summary Get collection zip download URL
+// @Description 权限：需登录且账号激活；合集 ZIP 支持「订阅会员」或「合集次卡权益（entitlement）」任一满足即可下载。
 // @Tags collections
 // @Produce json
 // @Param id path int true "collection id"
@@ -316,6 +318,7 @@ func (h *Handler) GetCollectionZipList(c *gin.Context) {
 
 // GetCollectionZipDownloadAll returns a ticket URL for downloading all zip parts as one archive.
 // @Summary Get collection aggregated zip download URL
+// @Description 权限：需登录且账号激活；合集 ZIP（全分片聚合）支持「订阅会员」或「合集次卡权益（entitlement）」任一满足即可下载。
 // @Tags collections
 // @Produce json
 // @Param id path int true "collection id"
@@ -410,6 +413,7 @@ func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
 
 // GetCollectionDownloadList returns ordered emoji download URLs.
 // @Summary Get collection download list
+// @Description 权限：需登录且账号激活；当前接口仅订阅会员可调用（次卡用户请走 ZIP 下载接口）。
 // @Tags collections
 // @Produce json
 // @Param id path int true "collection id"
@@ -475,6 +479,7 @@ func (h *Handler) GetCollectionDownloadList(c *gin.Context) {
 
 // GetEmojiDownload returns download URL for a single emoji.
 // @Summary Get emoji download URL
+// @Description 权限：需登录且账号激活；不要求订阅状态（仍受限频与风控策略约束）。
 // @Tags emojis
 // @Produce json
 // @Param id path int true "emoji id"
@@ -550,6 +555,7 @@ func (h *Handler) GetEmojiDownload(c *gin.Context) {
 
 // DownloadEmojiFile streams emoji file directly for local download.
 // @Summary Download emoji file directly
+// @Description 权限：需登录且账号激活；不要求订阅状态（仍受限频与风控策略约束）。
 // @Tags emojis
 // @Produce application/octet-stream
 // @Param id path int true "emoji id"
@@ -626,6 +632,124 @@ func (h *Handler) DownloadEmojiFile(c *gin.Context) {
 
 	if _, err := io.Copy(c.Writer, resp.Body); err == nil {
 		h.recordEmojiDownload(c, emoji.ID, 0)
+	}
+}
+
+// DownloadVideoJobEmojiFile streams a job output file directly for local download.
+// @Summary Download video job output file directly
+// @Description 权限：仅任务所属用户可下载自己的创作产物；不要求订阅状态（仍受限频与风控策略约束）。
+// @Tags user
+// @Produce application/octet-stream
+// @Param id path int true "video job id"
+// @Param emojiID path int true "emoji/output id in result collection"
+// @Param ttl query int false "ttl (seconds)"
+// @Router /api/video-jobs/{id}/emojis/{emojiID}/download-file [get]
+func (h *Handler) DownloadVideoJobEmojiFile(c *gin.Context) {
+	user, ok := h.requireActiveUser(c)
+	if !ok {
+		return
+	}
+	if user != nil && !h.guardEmojiDownload(c, user.ID) {
+		return
+	}
+	if user != nil && !h.enforceRiskBlock(c, "download", "", "", user.ID) {
+		return
+	}
+
+	jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || jobID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job id"})
+		return
+	}
+	emojiID, err := strconv.ParseUint(c.Param("emojiID"), 10, 64)
+	if err != nil || emojiID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid emoji id"})
+		return
+	}
+
+	var job models.VideoJob
+	query := h.db.Where("id = ?", jobID)
+	if !isAdminRole(c) {
+		if user == nil || user.ID == 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		query = query.Where("user_id = ?", user.ID)
+	}
+	if err := query.First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if job.ResultCollectionID == nil || *job.ResultCollectionID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "result collection not found"})
+		return
+	}
+
+	collection, err := h.loadVideoJobResultCollection(job)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "result collection not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	emoji, err := h.loadVideoJobEmojiByDomain(job.AssetDomain, emojiID, collection.ID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "output not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if status := strings.ToLower(strings.TrimSpace(emoji.Status)); status != "" && status != "active" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "output not found"})
+		return
+	}
+
+	rawURL, _ := resolveDownloadURL(emoji.FileURL, h.qiniu, c.Query("ttl"))
+	if rawURL == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "download url unavailable"})
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := downloadZipPart(client, rawURL)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch output file"})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch output file"})
+		return
+	}
+
+	downloadName := normalizeDownloadFileName(emoji.Title, path.Base(strings.TrimSpace(emoji.FileURL)), inferEmojiDownloadExt(emoji))
+	asciiFallback := normalizeDownloadFileName("", fmt.Sprintf("video-job-emoji-%d", emojiID), inferEmojiDownloadExt(emoji))
+	encodedFilename := strings.ReplaceAll(url.QueryEscape(downloadName), "+", "%20")
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", asciiFallback, encodedFilename))
+	if resp.ContentLength > 0 {
+		c.Header("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	c.Status(http.StatusOK)
+
+	if _, err := io.Copy(c.Writer, resp.Body); err == nil {
+		if user != nil && normalizeVideoJobAssetDomain(job.AssetDomain) != models.VideoJobAssetDomainVideo {
+			h.recordEmojiDownload(c, emoji.ID, user.ID)
+		}
 	}
 }
 

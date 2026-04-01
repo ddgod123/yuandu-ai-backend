@@ -56,3 +56,11 @@ func TestVideoImageStorageLayoutJobPrefixByFormat(t *testing.T) {
 		t.Fatalf("unexpected format prefix: %s", prefix)
 	}
 }
+
+func TestVideoImageStorageLayoutWithCustomRootPrefix(t *testing.T) {
+	layout := NewVideoImageStorageLayoutWithRoot("prod", "emoji-prod")
+	prefix := layout.JobPrefix(9, 100)
+	if prefix != "emoji-prod/video-image/prod/u/09/9/j/100/" {
+		t.Fatalf("unexpected custom root prefix path: %s", prefix)
+	}
+}

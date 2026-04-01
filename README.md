@@ -1,80 +1,69 @@
-# 元都AI Backend（Yuandu AI Backend）
+# Yuandu AI Backend
+
+[中文](#中文简介) | [English](#english)
+
+---
+
+## 中文简介
 
 元都AI（Yuandu AI）是一个**工业级 AI 视觉资产生产平台**。  
-本仓库是平台后端与调度中枢，负责：
+本仓库是平台后端与调度中枢，负责 API、任务编排、Worker 调度、资产交付与可观测能力。
 
-- 用户登录与权限体系
-- 视觉资产（合集/单图/衍生结果）管理
+### 核心能力
+
+- 用户与权限体系（鉴权、下载票据、风控）
+- 视觉资产管理（合集/单图/衍生结果）
 - 视频转视觉资产任务（GIF/PNG/JPG/WebP/MP4/Live）
-- 下载票据、收藏、互动统计
-- 管理后台 API 与任务可观测能力
+- 异步任务编排（Redis + Asynq）
+- 管理中台 API 与质量巡检接口
 
-其中核心生产链路采用「**三脑一引擎**」思路：AI1 理解策划 → AI2 决策筛选 → Worker 执行生成 → AI3 复审交付。
+### 生产架构（简化）
+
+AI1（需求理解） → AI2（候选评分/筛选） → Worker（执行生成） → AI3（复审交付）
 
 ---
 
-## 1. 技术栈
+## English
+
+Yuandu AI is an **industrial AI visual asset production platform**.  
+This repository contains the backend control plane: API, workflow orchestration, worker scheduling, asset delivery, and observability.
+
+### Core Capabilities
+
+- Auth, permission, download ticketing, and risk controls
+- Visual asset management (collections / single assets / derivatives)
+- Video-to-asset production (GIF/PNG/JPG/WebP/MP4/Live)
+- Async orchestration with Redis + Asynq
+- Admin-facing APIs for operations and quality governance
+
+---
+
+## Tech Stack
 
 - Go 1.25+
-- Gin
-- GORM
+- Gin + GORM
 - PostgreSQL
 - Redis + Asynq
-- ffmpeg/ffprobe
-- 七牛云对象存储
+- ffmpeg / ffprobe
+- Qiniu Object Storage
 
 ---
 
-## 2. 目录结构
-
-```text
-cmd/                  # API、Worker、运维/回填工具入口
-internal/             # 业务代码
-migrations/           # SQL 迁移脚本（按编号顺序执行）
-scripts/              # 运维与核查脚本
-docs/                 # 文档
-```
-
----
-
-## 3. 快速开始（本地）
-
-### 3.1 准备环境变量
+## Quick Start
 
 ```bash
 cp .env.example .env
-```
-
-按你的本地环境填写 `.env`（数据库、Redis、对象存储等）。
-
-### 3.2 启动 API
-
-```bash
 go run ./cmd/api
-```
-
-- 默认端口：`5050`
-- 健康检查：`GET /healthz`
-
-### 3.3 启动 Worker
-
-```bash
+# new terminal
 go run ./cmd/worker
 ```
 
-> 不启动 Worker 时，异步视频任务不会被消费。
-
-### 3.4 测试
-
-```bash
-go test ./...
-```
+- API default: `:5050`
+- Health: `GET /healthz`
 
 ---
 
-## 4. 数据库迁移
-
-按文件名顺序执行 `migrations/*.sql`：
+## Database Migration
 
 ```bash
 for f in migrations/*.sql; do
@@ -84,32 +73,19 @@ done
 
 ---
 
-## 5. 生产部署
+## Deployment
 
-详细见：[`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
-
----
-
-## 6. 开源安全与资产治理建议
-
-### 6.1 敏感信息
-
-- 严禁提交真实密钥（AK/SK、Token、密码、私钥）
-- `.env` 已被忽略，提交前仅保留 `.env.example`
-
-### 6.2 AI 资产管理
-
-生产环境建议将以下资产独立治理（私有仓/对象存储/权限分层）：
-
-- 模型参数与权重
-- 私有 Prompt 策略
-- 训练/标注数据
-- 评测样本与基线结果
-
-当前仓库已默认忽略典型私有资产路径与权重文件扩展名。
+See: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 
 ---
 
-## 7. License
+## Open-source Safety
 
-本项目采用仓库内 `LICENSE`。
+- Do **not** commit real secrets (`.env` is ignored)
+- Do **not** commit private model weights / prompt policies / private datasets
+
+---
+
+## License
+
+See `LICENSE`.

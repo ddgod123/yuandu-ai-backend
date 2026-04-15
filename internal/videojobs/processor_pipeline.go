@@ -104,6 +104,7 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 	if used, ok := sourceReadability["used_fallback"].(bool); ok && used {
 		p.appendJobEvent(job.ID, models.VideoJobStagePreprocessing, "info", "source video readability fallback used", sourceReadability)
 	}
+	sourceReadabilityFallbackUsed := boolFromAny(sourceReadability["used_fallback"])
 
 	meta, err := probeVideo(ctx, sourcePath)
 	if err != nil {
@@ -117,102 +118,29 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 		"height":       meta.Height,
 		"fps":          meta.FPS,
 	}
+	taskFramework := newPipelineTaskFramework(p, job.ID, metrics, "", nil)
 	if len(sourceReadability) > 0 {
-		metrics["source_video_readability_v1"] = sourceReadability
+		taskFramework.setMetric("source_video_readability_v1", sourceReadability)
 	}
+	taskFramework.recordFallback(
+		"source_video_readability",
+		sourceReadabilityFallbackUsed,
+		strings.TrimSpace(stringFromAny(sourceReadability["successful_step"])),
+	)
 	if sourceInfo != nil && sourceInfo.Size() > 0 {
-		metrics["source_video_size_bytes"] = sourceInfo.Size()
+		taskFramework.setMetric("source_video_size_bytes", sourceInfo.Size())
 	}
-	gifSubStages := map[string]map[string]interface{}{
+	gifSubStageTracker := newPipelineSubStageTracker(metrics, "gif_pipeline_sub_stages_v1", map[string]map[string]interface{}{
 		gifSubStageBriefing:  {"status": "pending"},
 		gifSubStagePlanning:  {"status": "pending"},
 		gifSubStageScoring:   {"status": "pending"},
 		gifSubStageReviewing: {"status": "pending"},
-	}
-	metrics["gif_pipeline_sub_stages_v1"] = gifSubStages
-
-	markGIFSubStageRunning := func(name string, detail map[string]interface{}) time.Time {
-		started := time.Now()
-		stageDetail := map[string]interface{}{
-			"status":      "running",
-			"started_at":  started.Format(time.RFC3339),
-			"finished_at": "",
-			"duration_ms": int64(0),
-		}
-		for k, v := range detail {
-			stageDetail[k] = v
-		}
-		gifSubStages[name] = stageDetail
-		return started
-	}
-	markGIFSubStageDone := func(name string, started time.Time, status string, detail map[string]interface{}) {
-		finalStatus := strings.ToLower(strings.TrimSpace(status))
-		if finalStatus == "" {
-			finalStatus = "done"
-		}
-		stageDetail := gifSubStages[name]
-		if stageDetail == nil {
-			stageDetail = map[string]interface{}{}
-		}
-		if _, ok := stageDetail["started_at"]; !ok {
-			if !started.IsZero() {
-				stageDetail["started_at"] = started.Format(time.RFC3339)
-			} else {
-				stageDetail["started_at"] = time.Now().Format(time.RFC3339)
-			}
-		}
-		finished := time.Now()
-		stageDetail["status"] = finalStatus
-		stageDetail["finished_at"] = finished.Format(time.RFC3339)
-		if !started.IsZero() {
-			stageDetail["duration_ms"] = clampDurationMillis(started)
-		}
-		for k, v := range detail {
-			stageDetail[k] = v
-		}
-		gifSubStages[name] = stageDetail
-	}
-	markGIFSubStageSkipped := func(name string, reason string) {
-		stageDetail := gifSubStages[name]
-		if stageDetail == nil {
-			stageDetail = map[string]interface{}{}
-		}
-		stageDetail["status"] = "skipped"
-		stageDetail["reason"] = strings.TrimSpace(reason)
-		if _, ok := stageDetail["started_at"]; !ok {
-			stageDetail["started_at"] = ""
-		}
-		if _, ok := stageDetail["finished_at"]; !ok {
-			stageDetail["finished_at"] = ""
-		}
-		if _, ok := stageDetail["duration_ms"]; !ok {
-			stageDetail["duration_ms"] = int64(0)
-		}
-		gifSubStages[name] = stageDetail
-	}
-	hasGIFSubStageFinalStatus := func(name string) bool {
-		stageDetail := gifSubStages[name]
-		if stageDetail == nil {
-			return false
-		}
-		status := strings.ToLower(strings.TrimSpace(stringFromAny(stageDetail["status"])))
-		switch status {
-		case "done", "degraded", "failed", "skipped":
-			return true
-		default:
-			return false
-		}
-	}
-
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageAnalyzing,
-		"progress": 30,
-		"metrics":  mustJSON(metrics),
 	})
-	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "video metadata analyzed", metrics)
+	taskFramework.updateStageProgress(models.VideoJobStageAnalyzing, 30, nil)
+	taskFramework.appendEvent(models.VideoJobStageAnalyzing, "info", "video metadata analyzed", metrics)
 
 	if p.isJobCancelled(job.ID) {
-		p.appendJobEvent(job.ID, models.VideoJobStageCancelled, "info", "job cancelled during analyzing", nil)
+		taskFramework.appendEvent(models.VideoJobStageCancelled, "info", "job cancelled during analyzing", nil)
 		p.syncJobCost(job.ID)
 		p.syncJobPointSettlement(job.ID, models.VideoJobStatusCancelled)
 		p.cleanupSourceVideo(job.ID, "cancelled")
@@ -220,8 +148,12 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 	}
 
 	options := parseJobOptions(job.Options)
-	qualitySettings := p.loadQualitySettings()
 	requestedFormats := normalizeOutputFormats(job.OutputFormats)
+	qualityScope := resolveRuntimeQualitySettingsFormatScope(requestedFormats)
+	qualitySettings, qualityResolution := p.loadQualitySettingsByFormat(qualityScope)
+	if len(qualityResolution) > 0 {
+		taskFramework.setMetric("quality_settings_resolution_v1", qualityResolution)
+	}
 	flowMode := normalizeVideoFlowMode(stringFromAny(optionsPayload["flow_mode"]))
 	ai1Confirmed := boolFromAny(optionsPayload["ai1_confirmed"])
 	ai1PauseConsumed := boolFromAny(optionsPayload["ai1_pause_consumed"])
@@ -439,381 +371,416 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 			})
 		}
 
-		if pipelineModeDecision.EnableAI1 {
-			briefingStarted := markGIFSubStageRunning(gifSubStageBriefing, map[string]interface{}{
-				"entry_stage": models.VideoJobStageAnalyzing,
-			})
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage briefing started", map[string]interface{}{
-				"sub_stage": gifSubStageBriefing,
-				"status":    "running",
-				"mode":      pipelineMode,
-			})
-			resolvedDirective, directorSnapshot, directorErr := p.requestAIGIFPromptDirective(ctx, job, sourcePath, meta, highlightSuggestion{}, qualitySettings)
-			if directorErr != nil {
-				metrics["highlight_ai_director_v1"] = map[string]interface{}{
-					"enabled":        directorSnapshot["enabled"],
-					"provider":       directorSnapshot["provider"],
-					"model":          directorSnapshot["model"],
-					"prompt_version": directorSnapshot["prompt_version"],
-					"applied":        false,
-					"error":          directorErr.Error(),
-					"mode":           pipelineMode,
-				}
-				markGIFSubStageDone(gifSubStageBriefing, briefingStarted, "degraded", map[string]interface{}{
-					"error":    directorErr.Error(),
-					"fallback": true,
-					"mode":     pipelineMode,
+		stageRegistry := newGIFPipelineStageRegistry()
+
+		stageRegistry.Register(gifSubStageBriefing, func() error {
+			if pipelineModeDecision.EnableAI1 {
+				briefingStarted := gifSubStageTracker.Start(gifSubStageBriefing, map[string]interface{}{
+					"entry_stage": models.VideoJobStageAnalyzing,
 				})
-				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "ai director unavailable; fallback to default planner context", map[string]interface{}{
-					"error":     directorErr.Error(),
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage briefing started", map[string]interface{}{
+					"sub_stage": gifSubStageBriefing,
+					"status":    "running",
+					"mode":      pipelineMode,
+				})
+				resolvedDirective, directorSnapshot, directorErr := p.requestAIGIFPromptDirective(ctx, job, sourcePath, meta, highlightSuggestion{}, qualitySettings)
+				if directorErr != nil {
+					metrics["highlight_ai_director_v1"] = map[string]interface{}{
+						"enabled":        directorSnapshot["enabled"],
+						"provider":       directorSnapshot["provider"],
+						"model":          directorSnapshot["model"],
+						"prompt_version": directorSnapshot["prompt_version"],
+						"applied":        false,
+						"error":          directorErr.Error(),
+						"mode":           pipelineMode,
+					}
+					gifSubStageTracker.Done(gifSubStageBriefing, briefingStarted, "degraded", map[string]interface{}{
+						"error":    directorErr.Error(),
+						"fallback": true,
+						"mode":     pipelineMode,
+					})
+					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "ai director unavailable; fallback to default planner context", map[string]interface{}{
+						"error":     directorErr.Error(),
+						"sub_stage": gifSubStageBriefing,
+						"mode":      pipelineMode,
+					})
+				} else {
+					directorDirective = resolvedDirective
+					metrics["highlight_ai_director_v1"] = directorSnapshot
+					gifSubStageTracker.Done(gifSubStageBriefing, briefingStarted, "done", map[string]interface{}{
+						"applied": true,
+						"mode":    pipelineMode,
+					})
+					ai1Event := map[string]interface{}{
+						"business_goal":  directorSnapshot["business_goal"],
+						"clip_count_min": directorSnapshot["clip_count_min"],
+						"clip_count_max": directorSnapshot["clip_count_max"],
+						"sub_stage":      gifSubStageBriefing,
+						"mode":           pipelineMode,
+					}
+					if resolvedDirective != nil {
+						ai1Event["audience"] = strings.TrimSpace(resolvedDirective.Audience)
+						ai1Event["must_capture"] = resolvedDirective.MustCapture
+						ai1Event["avoid"] = resolvedDirective.Avoid
+						ai1Event["risk_flags"] = resolvedDirective.RiskFlags
+						ai1Event["quality_weights"] = resolvedDirective.QualityWeights
+						ai1Event["style_direction"] = strings.TrimSpace(resolvedDirective.StyleDirection)
+						ai1Event["directive_text"] = strings.TrimSpace(resolvedDirective.DirectiveText)
+						ai1Event["loop_preference"] = roundTo(resolvedDirective.LoopPreference, 4)
+						ai1Event["ai_reply"] = strings.TrimSpace(buildAIDirectorNaturalReply(resolvedDirective))
+					}
+					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai director prompt pack generated", ai1Event)
+					p.persistAI1Plan(job, requestedFormats, flowMode, ai1Confirmed, meta, gifSubStageBriefing, ai1Event, directorSnapshot)
+					if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) {
+						if p.pauseForAI1Confirmation(job.ID, metrics, optionsPayload, map[string]interface{}{
+							"flow_mode": flowMode,
+							"stage":     gifSubStageBriefing,
+						}) {
+							return errGIFPipelineHalt
+						}
+					}
+				}
+			} else {
+				gifSubStageTracker.Skip(gifSubStageBriefing, "pipeline_mode_"+pipelineMode+"_director_skipped")
+				metrics["highlight_ai_director_v1"] = map[string]interface{}{
+					"enabled": false,
+					"applied": false,
+					"mode":    pipelineMode,
+					"reason":  "pipeline_mode_director_skipped",
+				}
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage briefing skipped by pipeline mode", map[string]interface{}{
 					"sub_stage": gifSubStageBriefing,
 					"mode":      pipelineMode,
 				})
-			} else {
-				directorDirective = resolvedDirective
-				metrics["highlight_ai_director_v1"] = directorSnapshot
-				markGIFSubStageDone(gifSubStageBriefing, briefingStarted, "done", map[string]interface{}{
-					"applied": true,
-					"mode":    pipelineMode,
-				})
-				ai1Event := map[string]interface{}{
-					"business_goal":  directorSnapshot["business_goal"],
-					"clip_count_min": directorSnapshot["clip_count_min"],
-					"clip_count_max": directorSnapshot["clip_count_max"],
-					"sub_stage":      gifSubStageBriefing,
-					"mode":           pipelineMode,
-				}
-				if resolvedDirective != nil {
-					ai1Event["audience"] = strings.TrimSpace(resolvedDirective.Audience)
-					ai1Event["must_capture"] = resolvedDirective.MustCapture
-					ai1Event["avoid"] = resolvedDirective.Avoid
-					ai1Event["risk_flags"] = resolvedDirective.RiskFlags
-					ai1Event["quality_weights"] = resolvedDirective.QualityWeights
-					ai1Event["style_direction"] = strings.TrimSpace(resolvedDirective.StyleDirection)
-					ai1Event["directive_text"] = strings.TrimSpace(resolvedDirective.DirectiveText)
-					ai1Event["loop_preference"] = roundTo(resolvedDirective.LoopPreference, 4)
-					ai1Event["ai_reply"] = strings.TrimSpace(buildAIDirectorNaturalReply(resolvedDirective))
-				}
-				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai director prompt pack generated", ai1Event)
-				p.persistAI1Plan(job, requestedFormats, flowMode, ai1Confirmed, meta, gifSubStageBriefing, ai1Event, directorSnapshot)
-				if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) {
-					if p.pauseForAI1Confirmation(job.ID, metrics, optionsPayload, map[string]interface{}{
-						"flow_mode": flowMode,
-						"stage":     gifSubStageBriefing,
-					}) {
-						return nil
-					}
-				}
 			}
-		} else {
-			markGIFSubStageSkipped(gifSubStageBriefing, "pipeline_mode_"+pipelineMode+"_director_skipped")
-			metrics["highlight_ai_director_v1"] = map[string]interface{}{
-				"enabled": false,
-				"applied": false,
-				"mode":    pipelineMode,
-				"reason":  "pipeline_mode_director_skipped",
-			}
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage briefing skipped by pipeline mode", map[string]interface{}{
-				"sub_stage": gifSubStageBriefing,
-				"mode":      pipelineMode,
-			})
-		}
+			return nil
+		})
 
-		if pipelineModeDecision.EnableAI2 {
-			planningStarted := markGIFSubStageRunning(gifSubStagePlanning, map[string]interface{}{
-				"entry_stage": models.VideoJobStageAnalyzing,
-			})
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage planning started", map[string]interface{}{
-				"sub_stage": gifSubStagePlanning,
-				"status":    "running",
-				"mode":      pipelineMode,
-			})
-			plannerSuggestion, plannerSnapshot, plannerErr := p.requestAIGIFPlannerSuggestion(ctx, job, sourcePath, meta, suggestion, directorDirective, qualitySettings)
-			if plannerErr != nil {
-				metrics["highlight_ai_planner_v1"] = map[string]interface{}{
-					"enabled":        plannerSnapshot["enabled"],
-					"provider":       plannerSnapshot["provider"],
-					"model":          plannerSnapshot["model"],
-					"prompt_version": plannerSnapshot["prompt_version"],
-					"applied":        false,
-					"error":          plannerErr.Error(),
-					"mode":           pipelineMode,
-				}
-				markGIFSubStageDone(gifSubStagePlanning, planningStarted, "degraded", map[string]interface{}{
-					"error": plannerErr.Error(),
-					"mode":  pipelineMode,
+		stageRegistry.Register(gifSubStagePlanning, func() error {
+			if pipelineModeDecision.EnableAI2 {
+				planningStarted := gifSubStageTracker.Start(gifSubStagePlanning, map[string]interface{}{
+					"entry_stage": models.VideoJobStageAnalyzing,
 				})
-				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "ai planner unavailable; fallback to local highlight", map[string]interface{}{
-					"error":     plannerErr.Error(),
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage planning started", map[string]interface{}{
 					"sub_stage": gifSubStagePlanning,
+					"status":    "running",
 					"mode":      pipelineMode,
 				})
-				applyLocalHighlightFallback("ai_planner_error")
-			} else {
-				suggestion = plannerSuggestion
-				metrics["highlight_ai_planner_v1"] = plannerSnapshot
-				markGIFSubStageDone(gifSubStagePlanning, planningStarted, "done", map[string]interface{}{
-					"applied": true,
-					"mode":    pipelineMode,
-				})
-				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai planner suggestion applied", map[string]interface{}{
-					"selected_start_sec": suggestion.Selected.StartSec,
-					"selected_end_sec":   suggestion.Selected.EndSec,
-					"selected_score":     suggestion.Selected.Score,
-					"selected_count":     len(suggestion.Candidates),
-					"score_formula":      stringFromAny(plannerSnapshot["planner_score_formula"]),
-					"scoring_summary_v1": mapFromAny(plannerSnapshot["scoring_summary_v1"]),
-					"sub_stage":          gifSubStagePlanning,
-					"mode":               pipelineMode,
-				})
-			}
-		} else {
-			markGIFSubStageSkipped(gifSubStagePlanning, "pipeline_mode_"+pipelineMode+"_planner_skipped")
-			metrics["highlight_ai_planner_v1"] = map[string]interface{}{
-				"enabled": false,
-				"applied": false,
-				"mode":    pipelineMode,
-				"reason":  "pipeline_mode_planner_skipped",
-			}
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage planning skipped by pipeline mode", map[string]interface{}{
-				"sub_stage": gifSubStagePlanning,
-				"mode":      pipelineMode,
-			})
-			applyLocalHighlightFallback("pipeline_mode_planner_skipped")
-		}
-
-		if suggestion.Selected == nil {
-			applyLocalHighlightFallback("planner_empty")
-		}
-		plannerPrimary := strings.EqualFold(strings.TrimSpace(suggestion.Strategy), "ai_semantic_planner")
-
-		feedbackMetrics := map[string]interface{}{
-			"enabled": qualitySettings.HighlightFeedbackEnabled,
-			"group":   "off",
-		}
-		if suggestion.Selected != nil && qualitySettings.HighlightFeedbackEnabled {
-			feedbackMetrics["rollout_percent"] = qualitySettings.HighlightFeedbackRollout
-			feedbackMetrics["negative_guard_enabled"] = qualitySettings.HighlightNegativeGuardEnabled
-			feedbackMetrics["negative_guard_threshold"] = roundTo(qualitySettings.HighlightNegativeGuardThreshold, 4)
-			feedbackMetrics["negative_guard_min_weight"] = roundTo(qualitySettings.HighlightNegativeGuardMinWeight, 4)
-			feedbackMetrics["negative_guard_penalty_scale"] = roundTo(qualitySettings.HighlightNegativePenaltyScale, 4)
-			feedbackMetrics["negative_guard_penalty_weight"] = roundTo(qualitySettings.HighlightNegativePenaltyWeight, 4)
-			if inTreatment := shouldApplyFeedbackRerank(job.ID, qualitySettings); !inTreatment {
-				feedbackMetrics["group"] = "control"
-			} else {
-				feedbackMetrics["group"] = "treatment"
-				profile, profileErr := p.loadUserHighlightFeedbackProfile(job.UserID, 80, qualitySettings)
-				if profileErr != nil {
-					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "load highlight feedback profile failed", map[string]interface{}{
-						"error": profileErr.Error(),
+				plannerSuggestion, plannerSnapshot, plannerErr := p.requestAIGIFPlannerSuggestion(ctx, job, sourcePath, meta, suggestion, directorDirective, qualitySettings)
+				if plannerErr != nil {
+					metrics["highlight_ai_planner_v1"] = map[string]interface{}{
+						"enabled":        plannerSnapshot["enabled"],
+						"provider":       plannerSnapshot["provider"],
+						"model":          plannerSnapshot["model"],
+						"prompt_version": plannerSnapshot["prompt_version"],
+						"applied":        false,
+						"error":          plannerErr.Error(),
+						"mode":           pipelineMode,
+					}
+					gifSubStageTracker.Done(gifSubStagePlanning, planningStarted, "degraded", map[string]interface{}{
+						"error": plannerErr.Error(),
+						"mode":  pipelineMode,
 					})
-					feedbackMetrics["error"] = profileErr.Error()
-				} else if plannerPrimary {
-					feedbackMetrics["advisory_only"] = true
-					feedbackMetrics["applied"] = false
-					feedbackMetrics["reason"] = "ai2_primary_preserved"
-					feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
-					feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
-					feedbackMetrics["avg_signal_weight"] = roundTo(profile.AverageSignalWeight, 2)
-					feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
-					feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
-					feedbackMetrics["preferred_center"] = roundTo(profile.PreferredCenter, 4)
-					feedbackMetrics["preferred_duration"] = roundTo(profile.PreferredDuration, 4)
-					feedbackMetrics["reason_preference"] = profile.ReasonPreference
-					feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
-					feedbackMetrics["scene_preference"] = profile.ScenePreference
-				} else if reranked, applied := applyHighlightFeedbackProfile(suggestion, meta.DurationSec, profile, qualitySettings); applied {
-					beforeSelected := suggestion.Selected
-					beforeCandidates := append([]highlightCandidate{}, suggestion.Candidates...)
-					suggestion = reranked
-					p.persistGIFRerankLogs(job.ID, job.UserID, beforeCandidates, suggestion.Candidates, profile)
-					feedbackMetrics["applied"] = true
-					feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
-					feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
-					feedbackMetrics["avg_signal_weight"] = roundTo(profile.AverageSignalWeight, 2)
-					feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
-					feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
-					feedbackMetrics["preferred_center"] = roundTo(profile.PreferredCenter, 4)
-					feedbackMetrics["preferred_duration"] = roundTo(profile.PreferredDuration, 4)
-					feedbackMetrics["reason_preference"] = profile.ReasonPreference
-					feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
-					feedbackMetrics["scene_preference"] = profile.ScenePreference
-					feedbackMetrics["selected_before"] = beforeSelected
-					feedbackMetrics["selected_after"] = suggestion.Selected
-					feedbackMetrics["candidate_count_after"] = len(suggestion.Candidates)
-					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "highlight candidates reranked by feedback profile", map[string]interface{}{
-						"engaged_jobs":       profile.EngagedJobs,
-						"weighted_signals":   roundTo(profile.WeightedSignals, 2),
+					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "ai planner unavailable; fallback to local highlight", map[string]interface{}{
+						"error":     plannerErr.Error(),
+						"sub_stage": gifSubStagePlanning,
+						"mode":      pipelineMode,
+					})
+					applyLocalHighlightFallback("ai_planner_error")
+				} else {
+					suggestion = plannerSuggestion
+					metrics["highlight_ai_planner_v1"] = plannerSnapshot
+					gifSubStageTracker.Done(gifSubStagePlanning, planningStarted, "done", map[string]interface{}{
+						"applied": true,
+						"mode":    pipelineMode,
+					})
+					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai planner suggestion applied", map[string]interface{}{
 						"selected_start_sec": suggestion.Selected.StartSec,
 						"selected_end_sec":   suggestion.Selected.EndSec,
 						"selected_score":     suggestion.Selected.Score,
+						"selected_count":     len(suggestion.Candidates),
+						"score_formula":      stringFromAny(plannerSnapshot["planner_score_formula"]),
+						"scoring_summary_v1": mapFromAny(plannerSnapshot["scoring_summary_v1"]),
+						"sub_stage":          gifSubStagePlanning,
+						"mode":               pipelineMode,
 					})
-				} else {
-					feedbackMetrics["applied"] = false
-					feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
-					feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
-					feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
-					feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
-					feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
 				}
-			}
-		}
-		metrics["highlight_feedback_v1"] = feedbackMetrics
-
-		if suggestion.Selected != nil {
-			highlightPlan = &suggestion
-			metrics["highlight_v1"] = suggestion
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "highlight scorer selected clip window", map[string]interface{}{
-				"start_sec": suggestion.Selected.StartSec,
-				"end_sec":   suggestion.Selected.EndSec,
-				"score":     suggestion.Selected.Score,
-			})
-
-			options.StartSec = highlightPlan.Selected.StartSec
-			options.EndSec = highlightPlan.Selected.EndSec
-			optionsPayload["start_sec"] = options.StartSec
-			optionsPayload["end_sec"] = options.EndSec
-			optionsPayload["highlight_selected"] = highlightPlan.Selected
-			p.updateVideoJob(job.ID, map[string]interface{}{
-				"options": mustJSON(optionsPayload),
-			})
-
-			if plannerPrimary {
-				metrics["highlight_cloud_fallback"] = map[string]interface{}{
+			} else {
+				gifSubStageTracker.Skip(gifSubStagePlanning, "pipeline_mode_"+pipelineMode+"_planner_skipped")
+				metrics["highlight_ai_planner_v1"] = map[string]interface{}{
 					"enabled": false,
-					"used":    false,
-					"reason":  "ai2_primary_preserved",
+					"applied": false,
+					"mode":    pipelineMode,
+					"reason":  "pipeline_mode_planner_skipped",
 				}
-			} else if p.shouldUseCloudHighlightFallback(suggestion) {
-				cloudSuggestion, cloudErr := p.requestCloudHighlightFallback(ctx, job.ID, job.UserID, sourcePath, meta, suggestion, qualitySettings)
-				if cloudErr != nil {
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage planning skipped by pipeline mode", map[string]interface{}{
+					"sub_stage": gifSubStagePlanning,
+					"mode":      pipelineMode,
+				})
+				applyLocalHighlightFallback("pipeline_mode_planner_skipped")
+			}
+
+			if suggestion.Selected == nil {
+				applyLocalHighlightFallback("planner_empty")
+			}
+			plannerPrimary := strings.EqualFold(strings.TrimSpace(suggestion.Strategy), "ai_semantic_planner")
+
+			feedbackMetrics := map[string]interface{}{
+				"enabled": qualitySettings.HighlightFeedbackEnabled,
+				"group":   "off",
+			}
+			if suggestion.Selected != nil && qualitySettings.HighlightFeedbackEnabled {
+				feedbackMetrics["rollout_percent"] = qualitySettings.HighlightFeedbackRollout
+				feedbackMetrics["negative_guard_enabled"] = qualitySettings.HighlightNegativeGuardEnabled
+				feedbackMetrics["negative_guard_threshold"] = roundTo(qualitySettings.HighlightNegativeGuardThreshold, 4)
+				feedbackMetrics["negative_guard_min_weight"] = roundTo(qualitySettings.HighlightNegativeGuardMinWeight, 4)
+				feedbackMetrics["negative_guard_penalty_scale"] = roundTo(qualitySettings.HighlightNegativePenaltyScale, 4)
+				feedbackMetrics["negative_guard_penalty_weight"] = roundTo(qualitySettings.HighlightNegativePenaltyWeight, 4)
+				if inTreatment := shouldApplyFeedbackRerank(job.ID, qualitySettings); !inTreatment {
+					feedbackMetrics["group"] = "control"
+				} else {
+					feedbackMetrics["group"] = "treatment"
+					profile, profileErr := p.loadUserHighlightFeedbackProfile(job.UserID, 80, qualitySettings)
+					if profileErr != nil {
+						p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "load highlight feedback profile failed", map[string]interface{}{
+							"error": profileErr.Error(),
+						})
+						feedbackMetrics["error"] = profileErr.Error()
+					} else if plannerPrimary {
+						feedbackMetrics["advisory_only"] = true
+						feedbackMetrics["applied"] = false
+						feedbackMetrics["reason"] = "ai2_primary_preserved"
+						feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
+						feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
+						feedbackMetrics["avg_signal_weight"] = roundTo(profile.AverageSignalWeight, 2)
+						feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
+						feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
+						feedbackMetrics["preferred_center"] = roundTo(profile.PreferredCenter, 4)
+						feedbackMetrics["preferred_duration"] = roundTo(profile.PreferredDuration, 4)
+						feedbackMetrics["reason_preference"] = profile.ReasonPreference
+						feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
+						feedbackMetrics["scene_preference"] = profile.ScenePreference
+					} else if reranked, applied := applyHighlightFeedbackProfile(suggestion, meta.DurationSec, profile, qualitySettings); applied {
+						beforeSelected := suggestion.Selected
+						beforeCandidates := append([]highlightCandidate{}, suggestion.Candidates...)
+						suggestion = reranked
+						p.persistGIFRerankLogs(job.ID, job.UserID, beforeCandidates, suggestion.Candidates, profile)
+						feedbackMetrics["applied"] = true
+						feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
+						feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
+						feedbackMetrics["avg_signal_weight"] = roundTo(profile.AverageSignalWeight, 2)
+						feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
+						feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
+						feedbackMetrics["preferred_center"] = roundTo(profile.PreferredCenter, 4)
+						feedbackMetrics["preferred_duration"] = roundTo(profile.PreferredDuration, 4)
+						feedbackMetrics["reason_preference"] = profile.ReasonPreference
+						feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
+						feedbackMetrics["scene_preference"] = profile.ScenePreference
+						feedbackMetrics["selected_before"] = beforeSelected
+						feedbackMetrics["selected_after"] = suggestion.Selected
+						feedbackMetrics["candidate_count_after"] = len(suggestion.Candidates)
+						p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "highlight candidates reranked by feedback profile", map[string]interface{}{
+							"engaged_jobs":       profile.EngagedJobs,
+							"weighted_signals":   roundTo(profile.WeightedSignals, 2),
+							"selected_start_sec": suggestion.Selected.StartSec,
+							"selected_end_sec":   suggestion.Selected.EndSec,
+							"selected_score":     suggestion.Selected.Score,
+						})
+					} else {
+						feedbackMetrics["applied"] = false
+						feedbackMetrics["engaged_jobs"] = profile.EngagedJobs
+						feedbackMetrics["weighted_signals"] = roundTo(profile.WeightedSignals, 2)
+						feedbackMetrics["public_positive_signals"] = roundTo(profile.PublicPositiveSignals, 2)
+						feedbackMetrics["public_negative_signals"] = roundTo(profile.PublicNegativeSignals, 2)
+						feedbackMetrics["reason_negative_guard"] = profile.ReasonNegativeGuard
+					}
+				}
+			}
+			metrics["highlight_feedback_v1"] = feedbackMetrics
+
+			if suggestion.Selected != nil {
+				highlightPlan = &suggestion
+				metrics["highlight_v1"] = suggestion
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "highlight scorer selected clip window", map[string]interface{}{
+					"start_sec": suggestion.Selected.StartSec,
+					"end_sec":   suggestion.Selected.EndSec,
+					"score":     suggestion.Selected.Score,
+				})
+
+				options.StartSec = highlightPlan.Selected.StartSec
+				options.EndSec = highlightPlan.Selected.EndSec
+				optionsPayload["start_sec"] = options.StartSec
+				optionsPayload["end_sec"] = options.EndSec
+				optionsPayload["highlight_selected"] = highlightPlan.Selected
+				p.updateVideoJob(job.ID, map[string]interface{}{
+					"options": mustJSON(optionsPayload),
+				})
+
+				if plannerPrimary {
 					metrics["highlight_cloud_fallback"] = map[string]interface{}{
-						"enabled": true,
+						"enabled": false,
 						"used":    false,
-						"error":   cloudErr.Error(),
+						"reason":  "ai2_primary_preserved",
 					}
-					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "cloud highlight fallback failed", map[string]interface{}{
-						"error": cloudErr.Error(),
-					})
-				} else if cloudSuggestion.Selected != nil {
-					highlightPlan = &cloudSuggestion
-					options.StartSec = cloudSuggestion.Selected.StartSec
-					options.EndSec = cloudSuggestion.Selected.EndSec
-					optionsPayload["start_sec"] = options.StartSec
-					optionsPayload["end_sec"] = options.EndSec
-					optionsPayload["highlight_selected"] = cloudSuggestion.Selected
-					optionsPayload["highlight_source"] = "cloud_fallback"
-					p.updateVideoJob(job.ID, map[string]interface{}{
-						"options": mustJSON(optionsPayload),
-					})
-					metrics["highlight_cloud_fallback"] = map[string]interface{}{
-						"enabled":        true,
-						"used":           true,
-						"start_sec":      cloudSuggestion.Selected.StartSec,
-						"end_sec":        cloudSuggestion.Selected.EndSec,
-						"score":          cloudSuggestion.Selected.Score,
-						"candidate_size": len(cloudSuggestion.Candidates),
+				} else if p.shouldUseCloudHighlightFallback(suggestion) {
+					cloudSuggestion, cloudErr := p.requestCloudHighlightFallback(ctx, job.ID, job.UserID, sourcePath, meta, suggestion, qualitySettings)
+					if cloudErr != nil {
+						metrics["highlight_cloud_fallback"] = map[string]interface{}{
+							"enabled": true,
+							"used":    false,
+							"error":   cloudErr.Error(),
+						}
+						p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "cloud highlight fallback failed", map[string]interface{}{
+							"error": cloudErr.Error(),
+						})
+					} else if cloudSuggestion.Selected != nil {
+						highlightPlan = &cloudSuggestion
+						options.StartSec = cloudSuggestion.Selected.StartSec
+						options.EndSec = cloudSuggestion.Selected.EndSec
+						optionsPayload["start_sec"] = options.StartSec
+						optionsPayload["end_sec"] = options.EndSec
+						optionsPayload["highlight_selected"] = cloudSuggestion.Selected
+						optionsPayload["highlight_source"] = "cloud_fallback"
+						p.updateVideoJob(job.ID, map[string]interface{}{
+							"options": mustJSON(optionsPayload),
+						})
+						metrics["highlight_cloud_fallback"] = map[string]interface{}{
+							"enabled":        true,
+							"used":           true,
+							"start_sec":      cloudSuggestion.Selected.StartSec,
+							"end_sec":        cloudSuggestion.Selected.EndSec,
+							"score":          cloudSuggestion.Selected.Score,
+							"candidate_size": len(cloudSuggestion.Candidates),
+						}
+						p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "cloud highlight fallback applied", map[string]interface{}{
+							"start_sec": options.StartSec,
+							"end_sec":   options.EndSec,
+							"score":     cloudSuggestion.Selected.Score,
+						})
 					}
-					p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "cloud highlight fallback applied", map[string]interface{}{
-						"start_sec": options.StartSec,
-						"end_sec":   options.EndSec,
-						"score":     cloudSuggestion.Selected.Score,
-					})
 				}
+			} else {
+				metrics["highlight_v1"] = map[string]interface{}{
+					"version": "v1",
+					"enabled": true,
+					"applied": false,
+					"error":   "no_highlight_window_selected",
+				}
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "highlight planning produced no selected window", nil)
 			}
-		} else {
-			metrics["highlight_v1"] = map[string]interface{}{
-				"version": "v1",
-				"enabled": true,
-				"applied": false,
-				"error":   "no_highlight_window_selected",
+			return nil
+		})
+
+		if err := stageRegistry.Execute(); err != nil {
+			if errors.Is(err, errGIFPipelineHalt) {
+				return nil
 			}
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "highlight planning produced no selected window", nil)
+			return err
+		}
+		if cloudFallback := mapFromAny(metrics["highlight_cloud_fallback"]); len(cloudFallback) > 0 {
+			taskFramework.recordFallback(
+				"gif_cloud_highlight",
+				boolFromAny(cloudFallback["used"]),
+				strings.TrimSpace(stringFromAny(cloudFallback["reason"])),
+			)
 		}
 	}
-	if !hasGIFSubStageFinalStatus(gifSubStageBriefing) {
+	if !gifSubStageTracker.HasFinalStatus(gifSubStageBriefing) {
 		reason := "auto_highlight_disabled_or_no_selected_window"
 		if !containsString(normalizeOutputFormats(job.OutputFormats), "gif") {
 			reason = "non_gif_job"
 		}
-		markGIFSubStageSkipped(gifSubStageBriefing, reason)
+		gifSubStageTracker.Skip(gifSubStageBriefing, reason)
 	}
-	if !hasGIFSubStageFinalStatus(gifSubStagePlanning) {
+	if !gifSubStageTracker.HasFinalStatus(gifSubStagePlanning) {
 		reason := "auto_highlight_disabled_or_no_selected_window"
 		if !containsString(normalizeOutputFormats(job.OutputFormats), "gif") {
 			reason = "non_gif_job"
 		}
-		markGIFSubStageSkipped(gifSubStagePlanning, reason)
+		gifSubStageTracker.Skip(gifSubStagePlanning, reason)
 	}
 
 	highlightCandidates := make([]highlightCandidate, 0)
 	highlightCandidatePool := make([]highlightCandidate, 0)
-	if highlightPlan != nil {
-		scoringStarted := markGIFSubStageRunning(gifSubStageScoring, map[string]interface{}{
-			"entry_stage": models.VideoJobStageAnalyzing,
-		})
-		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage scoring started", map[string]interface{}{
-			"sub_stage": gifSubStageScoring,
-			"status":    "running",
-		})
-		if err := p.persistGIFHighlightCandidates(ctx, sourcePath, meta, options, job.ID, *highlightPlan, qualitySettings); err != nil {
-			highlightCandidates = append(highlightCandidates, highlightPlan.Candidates...)
-			if len(highlightPlan.All) > 0 {
-				highlightCandidatePool = append(highlightCandidatePool, highlightPlan.All...)
-			} else {
-				highlightCandidatePool = append(highlightCandidatePool, highlightPlan.Candidates...)
-			}
-			metrics["gif_candidates_v1"] = map[string]interface{}{
-				"persisted":            false,
-				"error":                err.Error(),
-				"max_outputs":          qualitySettings.GIFCandidateMaxOutputs,
-				"confidence_threshold": qualitySettings.GIFCandidateConfidenceThreshold,
-				"dedup_iou_threshold":  qualitySettings.GIFCandidateDedupIOUThreshold,
-			}
-			markGIFSubStageDone(gifSubStageScoring, scoringStarted, "degraded", map[string]interface{}{
-				"error": err.Error(),
+	scoringStageRegistry := newGIFPipelineStageRegistry()
+	scoringStageRegistry.Register(gifSubStageScoring, func() error {
+		if highlightPlan != nil {
+			scoringStarted := gifSubStageTracker.Start(gifSubStageScoring, map[string]interface{}{
+				"entry_stage": models.VideoJobStageAnalyzing,
 			})
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "persist gif highlight candidates failed", map[string]interface{}{
-				"error":     err.Error(),
+			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "gif sub-stage scoring started", map[string]interface{}{
 				"sub_stage": gifSubStageScoring,
+				"status":    "running",
 			})
-		} else {
-			highlightPlan.Candidates = p.attachGIFCandidateBindings(job.ID, highlightPlan.Candidates)
-			highlightPlan.All = p.attachGIFCandidateBindings(job.ID, highlightPlan.All)
-			highlightCandidates = append(highlightCandidates, highlightPlan.Candidates...)
-			if len(highlightPlan.All) > 0 {
-				highlightCandidatePool = append(highlightCandidatePool, highlightPlan.All...)
+			if err := p.persistGIFHighlightCandidates(ctx, sourcePath, meta, options, job.ID, *highlightPlan, qualitySettings); err != nil {
+				highlightCandidates = append(highlightCandidates, highlightPlan.Candidates...)
+				if len(highlightPlan.All) > 0 {
+					highlightCandidatePool = append(highlightCandidatePool, highlightPlan.All...)
+				} else {
+					highlightCandidatePool = append(highlightCandidatePool, highlightPlan.Candidates...)
+				}
+				metrics["gif_candidates_v1"] = map[string]interface{}{
+					"persisted":            false,
+					"error":                err.Error(),
+					"max_outputs":          qualitySettings.GIFCandidateMaxOutputs,
+					"confidence_threshold": qualitySettings.GIFCandidateConfidenceThreshold,
+					"dedup_iou_threshold":  qualitySettings.GIFCandidateDedupIOUThreshold,
+				}
+				gifSubStageTracker.Done(gifSubStageScoring, scoringStarted, "degraded", map[string]interface{}{
+					"error": err.Error(),
+				})
+				p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "persist gif highlight candidates failed", map[string]interface{}{
+					"error":     err.Error(),
+					"sub_stage": gifSubStageScoring,
+				})
 			} else {
-				highlightCandidatePool = append(highlightCandidatePool, highlightPlan.Candidates...)
-			}
-			withCandidateID := 0
-			withProposalID := 0
-			for _, item := range highlightPlan.Candidates {
-				if item.CandidateID != nil && *item.CandidateID > 0 {
-					withCandidateID++
+				highlightPlan.Candidates = p.attachGIFCandidateBindings(job.ID, highlightPlan.Candidates)
+				highlightPlan.All = p.attachGIFCandidateBindings(job.ID, highlightPlan.All)
+				highlightCandidates = append(highlightCandidates, highlightPlan.Candidates...)
+				if len(highlightPlan.All) > 0 {
+					highlightCandidatePool = append(highlightCandidatePool, highlightPlan.All...)
+				} else {
+					highlightCandidatePool = append(highlightCandidatePool, highlightPlan.Candidates...)
 				}
-				if item.ProposalID != nil && *item.ProposalID > 0 {
-					withProposalID++
+				withCandidateID := 0
+				withProposalID := 0
+				for _, item := range highlightPlan.Candidates {
+					if item.CandidateID != nil && *item.CandidateID > 0 {
+						withCandidateID++
+					}
+					if item.ProposalID != nil && *item.ProposalID > 0 {
+						withProposalID++
+					}
 				}
+				metrics["gif_candidates_v1"] = map[string]interface{}{
+					"persisted":                  true,
+					"candidate_count":            len(highlightPlan.All),
+					"selected_count":             len(highlightPlan.Candidates),
+					"selected_with_candidate_id": withCandidateID,
+					"selected_with_proposal_id":  withProposalID,
+					"strategy":                   highlightPlan.Strategy,
+					"version":                    highlightPlan.Version,
+					"max_outputs":                qualitySettings.GIFCandidateMaxOutputs,
+					"confidence_threshold":       qualitySettings.GIFCandidateConfidenceThreshold,
+					"dedup_iou_threshold":        qualitySettings.GIFCandidateDedupIOUThreshold,
+				}
+				gifSubStageTracker.Done(gifSubStageScoring, scoringStarted, "done", map[string]interface{}{
+					"selected_count": len(highlightPlan.Candidates),
+				})
 			}
-			metrics["gif_candidates_v1"] = map[string]interface{}{
-				"persisted":                  true,
-				"candidate_count":            len(highlightPlan.All),
-				"selected_count":             len(highlightPlan.Candidates),
-				"selected_with_candidate_id": withCandidateID,
-				"selected_with_proposal_id":  withProposalID,
-				"strategy":                   highlightPlan.Strategy,
-				"version":                    highlightPlan.Version,
-				"max_outputs":                qualitySettings.GIFCandidateMaxOutputs,
-				"confidence_threshold":       qualitySettings.GIFCandidateConfidenceThreshold,
-				"dedup_iou_threshold":        qualitySettings.GIFCandidateDedupIOUThreshold,
-			}
-			markGIFSubStageDone(gifSubStageScoring, scoringStarted, "done", map[string]interface{}{
-				"selected_count": len(highlightPlan.Candidates),
-			})
+		} else {
+			gifSubStageTracker.Skip(gifSubStageScoring, "no_highlight_plan")
 		}
-	} else {
-		markGIFSubStageSkipped(gifSubStageScoring, "no_highlight_plan")
+		return nil
+	})
+	if err := scoringStageRegistry.Execute(); err != nil {
+		if errors.Is(err, errGIFPipelineHalt) {
+			return nil
+		}
+		return err
+	}
+	if !gifSubStageTracker.HasFinalStatus(gifSubStageScoring) {
+		gifSubStageTracker.Skip(gifSubStageScoring, "no_highlight_plan")
 	}
 	extractOptions := applyStillProfileDefaults(options, requestedFormats, qualitySettings)
 
@@ -861,6 +828,7 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 		framePaths = optimizedFramePaths
 	}
 	metrics["frame_quality"] = qualityReport
+	taskFramework.recordFallback("gif_worker_quality_selector", qualityReport.FallbackApplied, "quality_selector_fallback")
 	metrics["quality_settings"] = map[string]interface{}{
 		"min_brightness":                          qualitySettings.MinBrightness,
 		"max_brightness":                          qualitySettings.MaxBrightness,
@@ -927,11 +895,8 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 		}
 	}
 
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageRendering,
-		"progress": 55,
-	})
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "frame extraction completed", map[string]interface{}{
+	taskFramework.updateStageProgress(models.VideoJobStageRendering, 55, nil)
+	taskFramework.appendEvent(models.VideoJobStageRendering, "info", "frame extraction completed", map[string]interface{}{
 		"frames":                    len(framePaths),
 		"quality_blur_reject":       qualityReport.RejectedBlur,
 		"quality_bright_reject":     qualityReport.RejectedBrightness,
@@ -943,205 +908,211 @@ func (p *Processor) processUnifiedWithLane(ctx context.Context, jobID uint64, la
 	})
 
 	if p.isJobCancelled(job.ID) {
-		p.appendJobEvent(job.ID, models.VideoJobStageCancelled, "info", "job cancelled after rendering", nil)
+		taskFramework.appendEvent(models.VideoJobStageCancelled, "info", "job cancelled after rendering", nil)
 		p.syncJobCost(job.ID)
 		p.syncJobPointSettlement(job.ID, models.VideoJobStatusCancelled)
 		p.cleanupSourceVideo(job.ID, "cancelled")
 		return nil
 	}
 
-	// 进入候选窗口渲染阶段，避免在实际仍在渲染时对外显示为 uploading/70。
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageRendering,
-		"progress": 70,
-	})
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "animated render pipeline started", map[string]interface{}{
-		"entry_progress": 70,
-	})
-
-	animatedWindows := make([]highlightCandidate, 0, 6)
-	gifRenderSelectionSnapshot := map[string]interface{}{
-		"version": gifRenderSelectionVersion,
-		"enabled": false,
-		"reason":  "non_gif_job",
-	}
-	if containsString(requestedFormats, "gif") {
-		renderCandidatePool := highlightCandidates
-		if len(highlightCandidatePool) > len(renderCandidatePool) {
-			renderCandidatePool = highlightCandidatePool
-		}
-		preferredMaxOutputs := len(renderCandidatePool)
-		animatedWindows, gifRenderSelectionSnapshot = resolveOutputClipWindows(meta, options, renderCandidatePool, qualitySettings, preferredMaxOutputs)
-		p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "gif render windows selected", map[string]interface{}{
-			"version":                 gifRenderSelectionVersion,
-			"candidate_pool_count":    intFromAny(gifRenderSelectionSnapshot["candidate_pool_count"]),
-			"selected_window_count":   intFromAny(gifRenderSelectionSnapshot["selected_window_count"]),
-			"duration_tier":           stringFromAny(gifRenderSelectionSnapshot["duration_tier"]),
-			"confidence_threshold":    roundTo(floatFromAny(gifRenderSelectionSnapshot["confidence_threshold"]), 4),
-			"estimated_selected_kb":   roundTo(floatFromAny(gifRenderSelectionSnapshot["estimated_selected_kb"]), 2),
-			"estimated_budget_limit":  roundTo(floatFromAny(gifRenderSelectionSnapshot["estimated_budget_limit_kb"]), 2),
-			"dropped_low_confidence":  intFromAny(gifRenderSelectionSnapshot["dropped_low_confidence"]),
-			"dropped_size_budget":     intFromAny(gifRenderSelectionSnapshot["dropped_size_budget"]),
-			"dropped_by_output_limit": intFromAny(gifRenderSelectionSnapshot["dropped_output_limit"]),
-			"fallback_applied":        boolFromAny(gifRenderSelectionSnapshot["fallback_applied"]),
-			"fallback_reason":         stringFromAny(gifRenderSelectionSnapshot["fallback_reason"]),
+	deliveryStageRegistry := newGIFPipelineStageRegistry()
+	deliveryStageRegistry.Register("delivery_finalize", func() error {
+		// 进入候选窗口渲染阶段，避免在实际仍在渲染时对外显示为 uploading/70。
+		taskFramework.updateStageProgress(models.VideoJobStageRendering, 70, nil)
+		taskFramework.appendEvent(models.VideoJobStageRendering, "info", "animated render pipeline started", map[string]interface{}{
+			"entry_progress": 70,
 		})
-	}
-	metrics["gif_render_selection_v1"] = gifRenderSelectionSnapshot
 
-	resultCollectionID, totalFrames, uploadedKeys, generatedFormats, packageOutcome, err := p.persistJobResults(
-		ctx,
-		job,
-		framePaths,
-		sourcePath,
-		meta,
-		options,
-		highlightCandidates,
-		animatedWindows,
-		qualitySettings,
-	)
-	if err != nil {
-		deleteQiniuKeysByPrefix(p.qiniu, uploadedKeys)
+		animatedWindows := make([]highlightCandidate, 0, 6)
+		gifRenderSelectionSnapshot := map[string]interface{}{
+			"version": gifRenderSelectionVersion,
+			"enabled": false,
+			"reason":  "non_gif_job",
+		}
+		if containsString(requestedFormats, "gif") {
+			renderCandidatePool := highlightCandidates
+			if len(highlightCandidatePool) > len(renderCandidatePool) {
+				renderCandidatePool = highlightCandidatePool
+			}
+			preferredMaxOutputs := len(renderCandidatePool)
+			animatedWindows, gifRenderSelectionSnapshot = resolveOutputClipWindows(meta, options, renderCandidatePool, qualitySettings, preferredMaxOutputs)
+			p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "gif render windows selected", map[string]interface{}{
+				"version":                 gifRenderSelectionVersion,
+				"candidate_pool_count":    intFromAny(gifRenderSelectionSnapshot["candidate_pool_count"]),
+				"selected_window_count":   intFromAny(gifRenderSelectionSnapshot["selected_window_count"]),
+				"duration_tier":           stringFromAny(gifRenderSelectionSnapshot["duration_tier"]),
+				"confidence_threshold":    roundTo(floatFromAny(gifRenderSelectionSnapshot["confidence_threshold"]), 4),
+				"estimated_selected_kb":   roundTo(floatFromAny(gifRenderSelectionSnapshot["estimated_selected_kb"]), 2),
+				"estimated_budget_limit":  roundTo(floatFromAny(gifRenderSelectionSnapshot["estimated_budget_limit_kb"]), 2),
+				"dropped_low_confidence":  intFromAny(gifRenderSelectionSnapshot["dropped_low_confidence"]),
+				"dropped_size_budget":     intFromAny(gifRenderSelectionSnapshot["dropped_size_budget"]),
+				"dropped_by_output_limit": intFromAny(gifRenderSelectionSnapshot["dropped_output_limit"]),
+				"fallback_applied":        boolFromAny(gifRenderSelectionSnapshot["fallback_applied"]),
+				"fallback_reason":         stringFromAny(gifRenderSelectionSnapshot["fallback_reason"]),
+			})
+		}
+		taskFramework.setMetric("gif_render_selection_v1", gifRenderSelectionSnapshot)
+
+		resultCollectionID, totalFrames, uploadedKeys, generatedFormats, packageOutcome, err := p.persistJobResults(
+			ctx,
+			job,
+			framePaths,
+			sourcePath,
+			meta,
+			options,
+			highlightCandidates,
+			animatedWindows,
+			qualitySettings,
+		)
+		if err != nil {
+			deleteQiniuKeysByPrefix(p.qiniu, uploadedKeys)
+			return err
+		}
+
+		// 渲染产物已落库，进入上传/收尾（含 zip 与 AI3 复审）阶段。
+		taskFramework.updateStageProgress(models.VideoJobStageUploading, 88, nil)
+
+		metrics["static_count"] = totalFrames
+		metrics["output_formats_requested"] = normalizeOutputFormats(job.OutputFormats)
+		metrics["output_formats"] = generatedFormats
+		metrics["result_collection_id"] = resultCollectionID
+		metrics["asset_domain"] = models.VideoJobAssetDomainVideo
+		metrics["edit_options"] = jobOptionsMetrics(options, interval)
+		metrics["effective_duration_sec"] = roundTo(effectiveDurationSec, 3)
+		metrics["package_zip_status"] = packageOutcome.Status
+		metrics["package_zip_attempts"] = packageOutcome.Attempts
+		metrics["package_zip_retry_count"] = packageOutcome.RetryCount
+		if packageOutcome.Key != "" {
+			metrics["package_zip_key"] = packageOutcome.Key
+		}
+		if packageOutcome.Name != "" {
+			metrics["package_zip_name"] = packageOutcome.Name
+		}
+		if packageOutcome.SizeBytes > 0 {
+			metrics["package_zip_size_bytes"] = packageOutcome.SizeBytes
+		}
+		if packageOutcome.Error != "" {
+			metrics["package_zip_error"] = packageOutcome.Error
+		}
+		judgeMetricSnapshot := aiGIFJudgeRunSnapshot{}
+		reviewingStageRegistry := newGIFPipelineStageRegistry()
+		reviewingStageRegistry.Register(gifSubStageReviewing, func() error {
+			if containsString(generatedFormats, "gif") && pipelineModeDecision.EnableAI3 {
+				reviewingStarted := gifSubStageTracker.Start(gifSubStageReviewing, map[string]interface{}{
+					"entry_stage": models.VideoJobStageUploading,
+				})
+				p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing started", normalizeVideoJobAIUsageMetadata(map[string]interface{}{
+					"sub_stage": gifSubStageReviewing,
+					"status":    "running",
+				}))
+				judgeSnapshot, judgeErr := p.runAIGIFJudgeReview(ctx, job, qualitySettings)
+				judgeMetricSnapshot = decodeAIGIFJudgeRunSnapshot(judgeSnapshot)
+				if judgeErr != nil {
+					judgeMetricSnapshot.Applied = false
+					judgeMetricSnapshot.Error = judgeErr.Error()
+					metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
+					gifSubStageTracker.Done(gifSubStageReviewing, reviewingStarted, "degraded", map[string]interface{}{
+						"error": judgeErr.Error(),
+					})
+					p.appendJobEvent(job.ID, models.VideoJobStageUploading, "warn", "gif ai judge failed", normalizeVideoJobAIUsageMetadata(aiGIFJudgeFailedEvent{
+						SubStage: gifSubStageReviewing,
+						Error:    judgeErr.Error(),
+						Judge:    judgeMetricSnapshot,
+					}))
+				} else {
+					metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
+					gifSubStageTracker.Done(gifSubStageReviewing, reviewingStarted, "done", map[string]interface{}{
+						"applied": true,
+					})
+					p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif ai judge completed", normalizeVideoJobAIUsageMetadata(aiGIFJudgeCompletedEvent{
+						SubStage: gifSubStageReviewing,
+						Judge:    judgeMetricSnapshot,
+					}))
+				}
+			} else if containsString(generatedFormats, "gif") {
+				gifSubStageTracker.Skip(gifSubStageReviewing, "pipeline_mode_"+pipelineMode+"_judge_skipped")
+				judgeMetricSnapshot = aiGIFJudgeRunSnapshot{
+					Enabled: false,
+					Applied: false,
+					Mode:    pipelineMode,
+					Reason:  "pipeline_mode_judge_skipped",
+				}
+				metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
+				p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing skipped by pipeline mode", normalizeVideoJobAIUsageMetadata(aiGIFJudgeSkippedEvent{
+					SubStage: gifSubStageReviewing,
+					Mode:     pipelineMode,
+				}))
+			} else {
+				gifSubStageTracker.Skip(gifSubStageReviewing, "gif_not_generated")
+			}
+			return nil
+		})
+		if err := reviewingStageRegistry.Execute(); err != nil {
+			if errors.Is(err, errGIFPipelineHalt) {
+				return errGIFPipelineHalt
+			}
+			return err
+		}
+		if containsString(generatedFormats, "gif") {
+			reason := "disabled_ai3_final_review_authoritative"
+			if !pipelineModeDecision.EnableAI3 {
+				reason = "disabled_pipeline_mode_" + pipelineMode
+			} else if !judgeMetricSnapshot.Applied {
+				reason = "disabled_ai3_unavailable"
+			}
+			deliverFallback := aiGIFDeliverFallbackResult{
+				Attempted:     false,
+				Applied:       false,
+				Reason:        reason,
+				TriggerReason: "not_applicable",
+				Policy:        "ai3_final_review_authoritative",
+			}
+			metrics["gif_deliver_fallback_v1"] = deliverFallback
+			judgeMetricSnapshot.DeliverFallbackApplied = false
+			judgeMetricSnapshot.DeliverFallbackReason = reason
+			judgeMetricSnapshot.DeliverFallbackTriggerReason = "not_applicable"
+			metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
+			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback disabled", normalizeVideoJobAIUsageMetadata(aiGIFDeliverFallbackDisabledEvent{
+				Reason: reason,
+				Policy: "ai3_final_review_authoritative",
+			}))
+		}
+		gifSubStageStatus := gifSubStageTracker.StatusSnapshot()
+		taskFramework.setMetric("gif_pipeline_sub_stage_status_v1", gifSubStageStatus)
+
+		finishedAt := time.Now()
+		taskFramework.updateStageProgress(models.VideoJobStageDone, 100, map[string]interface{}{
+			"status":               models.VideoJobStatusDone,
+			"asset_domain":         models.VideoJobAssetDomainVideo,
+			"result_collection_id": resultCollectionID,
+			"error_message":        "",
+			"finished_at":          finishedAt,
+		})
+		taskFramework.appendEvent(models.VideoJobStageDone, "info", "video job completed", map[string]interface{}{
+			"collection_id":       resultCollectionID,
+			"static_count":        totalFrames,
+			"package_zip_status":  packageOutcome.Status,
+			"package_zip_attempt": packageOutcome.Attempts,
+			"gif_pipeline_status": gifSubStageStatus,
+		})
+		if packageOutcome.Status == packageZipStatusFailed {
+			taskFramework.appendEvent(models.VideoJobStageDone, "warn", "video job completed without zip package", map[string]interface{}{
+				"attempts": packageOutcome.Attempts,
+				"error":    packageOutcome.Error,
+			})
+		}
+		p.syncJobCost(job.ID)
+		p.syncJobPointSettlement(job.ID, models.VideoJobStatusDone)
+		p.syncGIFBaseline(job.ID)
+		p.cleanupSourceVideo(job.ID, "done")
+		return nil
+	})
+	if err := deliveryStageRegistry.Execute(); err != nil {
+		if errors.Is(err, errGIFPipelineHalt) {
+			return nil
+		}
 		return err
 	}
-
-	// 渲染产物已落库，进入上传/收尾（含 zip 与 AI3 复审）阶段。
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageUploading,
-		"progress": 88,
-	})
-
-	metrics["static_count"] = totalFrames
-	metrics["output_formats_requested"] = normalizeOutputFormats(job.OutputFormats)
-	metrics["output_formats"] = generatedFormats
-	metrics["result_collection_id"] = resultCollectionID
-	metrics["asset_domain"] = models.VideoJobAssetDomainVideo
-	metrics["edit_options"] = jobOptionsMetrics(options, interval)
-	metrics["effective_duration_sec"] = roundTo(effectiveDurationSec, 3)
-	metrics["package_zip_status"] = packageOutcome.Status
-	metrics["package_zip_attempts"] = packageOutcome.Attempts
-	metrics["package_zip_retry_count"] = packageOutcome.RetryCount
-	if packageOutcome.Key != "" {
-		metrics["package_zip_key"] = packageOutcome.Key
-	}
-	if packageOutcome.Name != "" {
-		metrics["package_zip_name"] = packageOutcome.Name
-	}
-	if packageOutcome.SizeBytes > 0 {
-		metrics["package_zip_size_bytes"] = packageOutcome.SizeBytes
-	}
-	if packageOutcome.Error != "" {
-		metrics["package_zip_error"] = packageOutcome.Error
-	}
-	judgeMetricSnapshot := aiGIFJudgeRunSnapshot{}
-	if containsString(generatedFormats, "gif") && pipelineModeDecision.EnableAI3 {
-		reviewingStarted := markGIFSubStageRunning(gifSubStageReviewing, map[string]interface{}{
-			"entry_stage": models.VideoJobStageUploading,
-		})
-		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing started", normalizeVideoJobAIUsageMetadata(map[string]interface{}{
-			"sub_stage": gifSubStageReviewing,
-			"status":    "running",
-		}))
-		judgeSnapshot, judgeErr := p.runAIGIFJudgeReview(ctx, job, qualitySettings)
-		judgeMetricSnapshot = decodeAIGIFJudgeRunSnapshot(judgeSnapshot)
-		if judgeErr != nil {
-			judgeMetricSnapshot.Applied = false
-			judgeMetricSnapshot.Error = judgeErr.Error()
-			metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
-			markGIFSubStageDone(gifSubStageReviewing, reviewingStarted, "degraded", map[string]interface{}{
-				"error": judgeErr.Error(),
-			})
-			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "warn", "gif ai judge failed", normalizeVideoJobAIUsageMetadata(aiGIFJudgeFailedEvent{
-				SubStage: gifSubStageReviewing,
-				Error:    judgeErr.Error(),
-				Judge:    judgeMetricSnapshot,
-			}))
-		} else {
-			metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
-			markGIFSubStageDone(gifSubStageReviewing, reviewingStarted, "done", map[string]interface{}{
-				"applied": true,
-			})
-			p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif ai judge completed", normalizeVideoJobAIUsageMetadata(aiGIFJudgeCompletedEvent{
-				SubStage: gifSubStageReviewing,
-				Judge:    judgeMetricSnapshot,
-			}))
-		}
-	} else if containsString(generatedFormats, "gif") {
-		markGIFSubStageSkipped(gifSubStageReviewing, "pipeline_mode_"+pipelineMode+"_judge_skipped")
-		judgeMetricSnapshot = aiGIFJudgeRunSnapshot{
-			Enabled: false,
-			Applied: false,
-			Mode:    pipelineMode,
-			Reason:  "pipeline_mode_judge_skipped",
-		}
-		metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
-		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif sub-stage reviewing skipped by pipeline mode", normalizeVideoJobAIUsageMetadata(aiGIFJudgeSkippedEvent{
-			SubStage: gifSubStageReviewing,
-			Mode:     pipelineMode,
-		}))
-	} else {
-		markGIFSubStageSkipped(gifSubStageReviewing, "gif_not_generated")
-	}
-	if containsString(generatedFormats, "gif") {
-		reason := "disabled_ai3_final_review_authoritative"
-		if !pipelineModeDecision.EnableAI3 {
-			reason = "disabled_pipeline_mode_" + pipelineMode
-		} else if !judgeMetricSnapshot.Applied {
-			reason = "disabled_ai3_unavailable"
-		}
-		deliverFallback := aiGIFDeliverFallbackResult{
-			Attempted:     false,
-			Applied:       false,
-			Reason:        reason,
-			TriggerReason: "not_applicable",
-			Policy:        "ai3_final_review_authoritative",
-		}
-		metrics["gif_deliver_fallback_v1"] = deliverFallback
-		judgeMetricSnapshot.DeliverFallbackApplied = false
-		judgeMetricSnapshot.DeliverFallbackReason = reason
-		judgeMetricSnapshot.DeliverFallbackTriggerReason = "not_applicable"
-		metrics["gif_ai_judge_v1"] = judgeMetricSnapshot
-		p.appendJobEvent(job.ID, models.VideoJobStageUploading, "info", "gif deliver fallback disabled", normalizeVideoJobAIUsageMetadata(aiGIFDeliverFallbackDisabledEvent{
-			Reason: reason,
-			Policy: "ai3_final_review_authoritative",
-		}))
-	}
-	gifSubStageStatus := map[string]string{
-		gifSubStageBriefing:  strings.ToLower(strings.TrimSpace(stringFromAny(mapFromAny(gifSubStages[gifSubStageBriefing])["status"]))),
-		gifSubStagePlanning:  strings.ToLower(strings.TrimSpace(stringFromAny(mapFromAny(gifSubStages[gifSubStagePlanning])["status"]))),
-		gifSubStageScoring:   strings.ToLower(strings.TrimSpace(stringFromAny(mapFromAny(gifSubStages[gifSubStageScoring])["status"]))),
-		gifSubStageReviewing: strings.ToLower(strings.TrimSpace(stringFromAny(mapFromAny(gifSubStages[gifSubStageReviewing])["status"]))),
-	}
-	metrics["gif_pipeline_sub_stage_status_v1"] = gifSubStageStatus
-
-	finishedAt := time.Now()
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"status":               models.VideoJobStatusDone,
-		"stage":                models.VideoJobStageDone,
-		"progress":             100,
-		"asset_domain":         models.VideoJobAssetDomainVideo,
-		"result_collection_id": resultCollectionID,
-		"metrics":              mustJSON(metrics),
-		"error_message":        "",
-		"finished_at":          finishedAt,
-	})
-	p.appendJobEvent(job.ID, models.VideoJobStageDone, "info", "video job completed", map[string]interface{}{
-		"collection_id":       resultCollectionID,
-		"static_count":        totalFrames,
-		"package_zip_status":  packageOutcome.Status,
-		"package_zip_attempt": packageOutcome.Attempts,
-		"gif_pipeline_status": gifSubStageStatus,
-	})
-	if packageOutcome.Status == packageZipStatusFailed {
-		p.appendJobEvent(job.ID, models.VideoJobStageDone, "warn", "video job completed without zip package", map[string]interface{}{
-			"attempts": packageOutcome.Attempts,
-			"error":    packageOutcome.Error,
-		})
-	}
-	p.syncJobCost(job.ID)
-	p.syncJobPointSettlement(job.ID, models.VideoJobStatusDone)
-	p.syncGIFBaseline(job.ID)
-	p.cleanupSourceVideo(job.ID, "done")
 	return nil
 }
 

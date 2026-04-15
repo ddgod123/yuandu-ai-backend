@@ -79,7 +79,8 @@ type faceDetectionSummary struct {
 }
 
 func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PNG_ALIYUN_SUPERRES_MODE")))
+	featureFlags := loadVideoJobFeatureFlags()
+	mode := strings.ToLower(strings.TrimSpace(featureFlags.PNGAliyunSuperResMode))
 	switch mode {
 	case pngAliyunSuperResModeOff, pngAliyunSuperResModeShadow, pngAliyunSuperResModeOn:
 	default:
@@ -91,15 +92,15 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 		Mode:             mode,
 		RegionID:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
 		Endpoint:         strings.TrimSpace(os.Getenv("ALIYUN_VISION_IMAGEENHAN_ENDPOINT")),
-		MinShortSide:     envIntOrDefault("PNG_ALIYUN_SUPERRES_MIN_SHORT_SIDE", 960),
-		MaxFrames:        envIntOrDefault("PNG_ALIYUN_SUPERRES_MAX_FRAMES", 4),
-		UpscaleFactor:    envIntOrDefault("PNG_ALIYUN_SUPERRES_UPSCALE_FACTOR", 2),
-		OutputQuality:    envIntOrDefault("PNG_ALIYUN_SUPERRES_OUTPUT_QUALITY", 95),
-		CostPerImageCNY:  envFloatOrDefault("PNG_ALIYUN_SUPERRES_COST_PER_IMAGE_CNY", 0.02),
-		MaxCostPerJobCNY: envFloatOrDefault("PNG_ALIYUN_SUPERRES_MAX_COST_PER_JOB_CNY", 0.08),
-		TimeoutSec:       envIntOrDefault("PNG_ALIYUN_SUPERRES_TIMEOUT_SECONDS", 25),
-		QualityGuard:     parseEnvBool("PNG_ALIYUN_SUPERRES_QUALITY_GUARD_ENABLED", true),
-		ReplaceMinGain:   envFloatOrDefault("PNG_ALIYUN_SUPERRES_REPLACE_MIN_GAIN", 0.005),
+		MinShortSide:     featureFlags.PNGAliyunSuperResMinShortSide,
+		MaxFrames:        featureFlags.PNGAliyunSuperResMaxFrames,
+		UpscaleFactor:    featureFlags.PNGAliyunSuperResUpscaleFactor,
+		OutputQuality:    featureFlags.PNGAliyunSuperResOutputQuality,
+		CostPerImageCNY:  featureFlags.PNGAliyunSuperResCostPerImageCNY,
+		MaxCostPerJobCNY: featureFlags.PNGAliyunSuperResMaxCostPerJobCNY,
+		TimeoutSec:       featureFlags.PNGAliyunSuperResTimeoutSeconds,
+		QualityGuard:     featureFlags.PNGAliyunSuperResQualityGuard,
+		ReplaceMinGain:   featureFlags.PNGAliyunSuperResReplaceMinGain,
 	}
 	if cfg.RegionID == "" {
 		cfg.RegionID = "cn-shanghai"
@@ -142,7 +143,8 @@ func loadPNGAliyunSuperResConfig() pngAliyunSuperResConfig {
 }
 
 func loadPNGAliyunFaceEnhanceConfig() pngAliyunFaceEnhanceConfig {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PNG_ALIYUN_FACE_ENHANCE_MODE")))
+	featureFlags := loadVideoJobFeatureFlags()
+	mode := strings.ToLower(strings.TrimSpace(featureFlags.PNGAliyunFaceEnhanceMode))
 	switch mode {
 	case pngAliyunFaceEnhanceModeOff, pngAliyunFaceEnhanceModeAuto, pngAliyunFaceEnhanceModeOn:
 	default:
@@ -154,18 +156,18 @@ func loadPNGAliyunFaceEnhanceConfig() pngAliyunFaceEnhanceConfig {
 		Mode:                   mode,
 		RegionID:               strings.TrimSpace(os.Getenv("ALIYUN_VISION_REGION_ID")),
 		Endpoint:               strings.TrimSpace(os.Getenv("ALIYUN_VISION_FACEBODY_ENDPOINT")),
-		MinShortSide:           envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_SHORT_SIDE", 360),
-		MaxFrames:              envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_FRAMES", 2),
-		TimeoutSec:             envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_TIMEOUT_SECONDS", 25),
-		CostPerImageCNY:        envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_COST_PER_IMAGE_CNY", 0.01),
-		MaxCostPerJobCNY:       envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MAX_COST_PER_JOB_CNY", 0.02),
-		DetectFaceGate:         parseEnvBool("PNG_ALIYUN_FACE_ENHANCE_DETECT_FACE_GATE", true),
-		MinFaceAreaRatio:       envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_FACE_AREA_RATIO", 0.03),
-		MinFaceConfidence:      envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_MIN_FACE_CONFIDENCE", 0.62),
-		SkipHighBlurScore:      envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_SKIP_HIGH_BLUR_SCORE", 1200),
-		QualityGuard:           parseEnvBool("PNG_ALIYUN_FACE_ENHANCE_QUALITY_GUARD_ENABLED", true),
-		ReplaceMinGain:         envFloatOrDefault("PNG_ALIYUN_FACE_ENHANCE_REPLACE_MIN_GAIN", 0.005),
-		DetectFaceMaxFaceCount: envIntOrDefault("PNG_ALIYUN_FACE_ENHANCE_DETECT_FACE_MAX_FACE_COUNT", 3),
+		MinShortSide:           featureFlags.PNGAliyunFaceEnhanceMinShortSide,
+		MaxFrames:              featureFlags.PNGAliyunFaceEnhanceMaxFrames,
+		TimeoutSec:             featureFlags.PNGAliyunFaceEnhanceTimeoutSeconds,
+		CostPerImageCNY:        featureFlags.PNGAliyunFaceEnhanceCostPerImageCNY,
+		MaxCostPerJobCNY:       featureFlags.PNGAliyunFaceEnhanceMaxCostPerJobCNY,
+		DetectFaceGate:         featureFlags.PNGAliyunFaceEnhanceDetectFaceGate,
+		MinFaceAreaRatio:       featureFlags.PNGAliyunFaceEnhanceMinFaceAreaRatio,
+		MinFaceConfidence:      featureFlags.PNGAliyunFaceEnhanceMinFaceConfidence,
+		SkipHighBlurScore:      featureFlags.PNGAliyunFaceEnhanceSkipHighBlurScore,
+		QualityGuard:           featureFlags.PNGAliyunFaceEnhanceQualityGuard,
+		ReplaceMinGain:         featureFlags.PNGAliyunFaceEnhanceReplaceMinGain,
+		DetectFaceMaxFaceCount: featureFlags.PNGAliyunFaceEnhanceDetectFaceMaxCount,
 	}
 	if cfg.RegionID == "" {
 		cfg.RegionID = "cn-shanghai"

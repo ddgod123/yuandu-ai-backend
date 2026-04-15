@@ -85,14 +85,14 @@ type SiteFooterSettingResponse struct {
 func defaultSiteFooterSetting() models.SiteFooterSetting {
 	return models.SiteFooterSetting{
 		ID:                   1,
-		SiteName:             "表情包档案馆",
-		SiteDescription:      "致力于收集、整理和分享互联网表情包资源。本站提供合集浏览、下载与收藏功能，服务于个人非商业交流场景。",
-		ContactEmail:         "contact@emoji-archive.com",
-		ComplaintEmail:       "contact@emoji-archive.com",
+		SiteName:             "元都AI",
+		SiteDescription:      "面向创作者与团队的 AI 视觉资产生产平台，提供视频转图、视觉内容生成与资产管理能力，让每次创作更快、更稳、更可控。",
+		ContactEmail:         "3909356254@qq.com",
+		ComplaintEmail:       "3909356254@qq.com",
 		SelfMediaItems:       "[]",
 		ICPNumber:            "ICP备案号：待补充",
 		PublicSecurityNumber: "公安备案号：待补充",
-		CopyrightText:        "表情包档案馆. All rights reserved.",
+		CopyrightText:        "元都AI · AI视觉资产生产平台. All rights reserved.",
 	}
 }
 

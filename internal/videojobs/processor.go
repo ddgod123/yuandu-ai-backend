@@ -55,6 +55,13 @@ type Processor struct {
 	qiniu      *storage.QiniuClient
 	cfg        config.Config
 	httpClient *http.Client
+	runMu      sync.Mutex
+	running    map[uint64]runningJobSnapshot
+}
+
+type runningJobSnapshot struct {
+	StartedAt    time.Time
+	RegisteredAt time.Time
 }
 
 type scenePoint struct {
@@ -282,6 +289,7 @@ func NewProcessor(db *gorm.DB, qiniu *storage.QiniuClient, cfg config.Config) *P
 		httpClient: &http.Client{
 			Timeout: defaultVideoJobTimeout,
 		},
+		running: make(map[uint64]runningJobSnapshot),
 	}
 }
 
@@ -293,6 +301,7 @@ func (p *Processor) Register(mux *asynq.ServeMux) {
 	mux.HandleFunc(TaskTypeProcessVideoJobWEBP, p.HandleProcessVideoJobWEBP)
 	mux.HandleFunc(TaskTypeProcessVideoJobLIVE, p.HandleProcessVideoJobLIVE)
 	mux.HandleFunc(TaskTypeProcessVideoJobMP4, p.HandleProcessVideoJobMP4)
+	mux.HandleFunc(TaskTypeAnalyzeVideoText, p.HandleAnalyzeVideoText)
 }
 
 func (p *Processor) loadQualitySettings() QualitySettings {
@@ -486,6 +495,7 @@ func (p *Processor) handleProcessVideoJob(ctx context.Context, t *asynq.Task, ru
 	if payload.JobID == 0 {
 		return fmt.Errorf("%w: invalid job id", asynq.SkipRetry)
 	}
+	defer p.unregisterRunningJob(payload.JobID)
 	if p.db == nil {
 		return fmt.Errorf("%w: db not initialized", asynq.SkipRetry)
 	}
@@ -573,8 +583,112 @@ func (p *Processor) acquireVideoJobRun(jobID uint64, startedAt time.Time) (bool,
 	}
 	if result.RowsAffected > 0 {
 		_ = SyncPublicVideoImageJobUpdates(p.db, jobID, updates)
+		p.registerRunningJob(jobID, startedAt)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+func (p *Processor) registerRunningJob(jobID uint64, startedAt time.Time) {
+	if p == nil || jobID == 0 {
+		return
+	}
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	p.runMu.Lock()
+	if p.running == nil {
+		p.running = make(map[uint64]runningJobSnapshot)
+	}
+	p.running[jobID] = runningJobSnapshot{
+		StartedAt:    startedAt,
+		RegisteredAt: time.Now(),
+	}
+	p.runMu.Unlock()
+}
+
+func (p *Processor) unregisterRunningJob(jobID uint64) {
+	if p == nil || jobID == 0 {
+		return
+	}
+	p.runMu.Lock()
+	delete(p.running, jobID)
+	p.runMu.Unlock()
+}
+
+func (p *Processor) drainRunningJobs() map[uint64]runningJobSnapshot {
+	if p == nil {
+		return nil
+	}
+	p.runMu.Lock()
+	defer p.runMu.Unlock()
+	if len(p.running) == 0 {
+		return nil
+	}
+	snapshot := make(map[uint64]runningJobSnapshot, len(p.running))
+	for jobID, run := range p.running {
+		snapshot[jobID] = run
+	}
+	p.running = make(map[uint64]runningJobSnapshot)
+	return snapshot
+}
+
+type ShutdownRequeueReport struct {
+	Tracked  int
+	Requeued int
+	Skipped  int
+	Failed   int
+}
+
+func (p *Processor) RequeueRunningJobsOnShutdown(reason string) ShutdownRequeueReport {
+	report := ShutdownRequeueReport{}
+	if p == nil || p.db == nil {
+		return report
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "worker shutdown interrupted task; re-queue for retry"
+	}
+
+	runs := p.drainRunningJobs()
+	report.Tracked = len(runs)
+	if len(runs) == 0 {
+		return report
+	}
+
+	for jobID, run := range runs {
+		updates := map[string]interface{}{
+			"status":        models.VideoJobStatusQueued,
+			"stage":         models.VideoJobStageRetrying,
+			"error_message": reason,
+		}
+		result := p.db.Model(&models.VideoJob{}).
+			Where("id = ? AND status = ?", jobID, models.VideoJobStatusRunning).
+			Updates(updates)
+		if result.Error != nil {
+			report.Failed++
+			p.appendJobEvent(jobID, models.VideoJobStageRetrying, "warn", "shutdown requeue failed", map[string]interface{}{
+				"error":         result.Error.Error(),
+				"shutdown":      true,
+				"started_at":    run.StartedAt.Format(time.RFC3339),
+				"registered_at": run.RegisteredAt.Format(time.RFC3339),
+			})
+			continue
+		}
+		if result.RowsAffected == 0 {
+			report.Skipped++
+			continue
+		}
+
+		report.Requeued++
+		_ = SyncPublicVideoImageJobUpdates(p.db, jobID, updates)
+		p.appendJobEvent(jobID, models.VideoJobStageRetrying, "warn", reason, map[string]interface{}{
+			"shutdown":      true,
+			"started_at":    run.StartedAt.Format(time.RFC3339),
+			"registered_at": run.RegisteredAt.Format(time.RFC3339),
+		})
+	}
+
+	return report
 }
 
 func (p *Processor) recoverCompletedJobFromExistingResult(job *models.VideoJob) (bool, error) {

@@ -92,6 +92,11 @@ type Config struct {
 	QiniuSignTTL    int
 	// Allow degraded create path when source preflight probe fails (dev/staging helper).
 	VideoSourceProbeAllowDegraded bool
+	GPUServiceURL                 string
+	GPUServiceToken               string
+	GPUCallbackToken              string
+	GPURequestTimeoutSec          int
+	GPUCallbackBaseURL            string
 
 	AliyunAccessKeyId                     string
 	AliyunAccessKeySecret                 string
@@ -152,6 +157,18 @@ type Config struct {
 	TelegramDownloadDir string
 	TelegramProxy       string
 
+	FeishuAppID                    string
+	FeishuAppSecret                string
+	FeishuOpenBaseURL              string
+	FeishuBotVerificationToken     string
+	FeishuBotMessageMaxBytes       int64
+	FeishuBotDefaultOutputFormat   string
+	FeishuBotResultPageBaseURL     string
+	FeishuBindPortalURL            string
+	FeishuBindCodeTTLMinutes       int
+	FeishuNotifyPollingIntervalSec int
+	FeishuNotifyPollingMaxAttempts int
+
 	AuthAccessCookieName  string
 	AuthRefreshCookieName string
 	AuthCookieDomain      string
@@ -159,6 +176,9 @@ type Config struct {
 	AuthCookieSameSite    string
 
 	CORSAllowOrigins []string
+
+	GeoIPEnabled  bool
+	GeoIPMMDBPath string
 
 	// Aliyun OSS
 	OSSEndpoint        string
@@ -295,6 +315,11 @@ func Load() Config {
 	cfg.QiniuPrivate = getEnvAsBool("QINIU_PRIVATE", false)
 	cfg.QiniuSignTTL = getEnvAsInt("QINIU_SIGN_TTL", 3600)
 	cfg.VideoSourceProbeAllowDegraded = getEnvAsBool("VIDEO_SOURCE_PROBE_ALLOW_DEGRADED", strings.ToLower(strings.TrimSpace(cfg.Env)) != "prod")
+	cfg.GPUServiceURL = strings.TrimSpace(getEnv("GPU_SERVICE_URL", ""))
+	cfg.GPUServiceToken = strings.TrimSpace(getEnv("GPU_SERVICE_TOKEN", ""))
+	cfg.GPUCallbackToken = strings.TrimSpace(getEnv("GPU_CALLBACK_TOKEN", ""))
+	cfg.GPURequestTimeoutSec = getEnvAsInt("GPU_REQUEST_TIMEOUT_SECONDS", 20)
+	cfg.GPUCallbackBaseURL = strings.TrimSpace(getEnv("GPU_CALLBACK_BASE_URL", ""))
 
 	cfg.AliyunAccessKeyId = getEnv("ALIYUN_ACCESS_KEY_ID", "")
 	cfg.AliyunAccessKeySecret = getEnv("ALIYUN_ACCESS_KEY_SECRET", "")
@@ -355,6 +380,18 @@ func Load() Config {
 	cfg.TelegramDownloadDir = getEnv("TELEGRAM_DOWNLOAD_DIR", "/Users/mac/go/src/emoji/telegram_to_wechat")
 	cfg.TelegramProxy = getEnv("TELEGRAM_PROXY", "")
 
+	cfg.FeishuAppID = strings.TrimSpace(getEnv("FEISHU_APP_ID", ""))
+	cfg.FeishuAppSecret = strings.TrimSpace(getEnv("FEISHU_APP_SECRET", ""))
+	cfg.FeishuOpenBaseURL = strings.TrimSpace(getEnv("FEISHU_OPEN_BASE_URL", "https://open.feishu.cn"))
+	cfg.FeishuBotVerificationToken = strings.TrimSpace(getEnv("FEISHU_BOT_VERIFICATION_TOKEN", ""))
+	cfg.FeishuBotMessageMaxBytes = int64(getEnvAsInt("FEISHU_BOT_MESSAGE_MAX_BYTES", 100*1024*1024))
+	cfg.FeishuBotDefaultOutputFormat = strings.ToLower(strings.TrimSpace(getEnv("FEISHU_BOT_DEFAULT_OUTPUT_FORMAT", "gif")))
+	cfg.FeishuBotResultPageBaseURL = strings.TrimSpace(getEnv("FEISHU_BOT_RESULT_PAGE_BASE_URL", ""))
+	cfg.FeishuBindPortalURL = strings.TrimSpace(getEnv("FEISHU_BIND_PORTAL_URL", ""))
+	cfg.FeishuBindCodeTTLMinutes = getEnvAsInt("FEISHU_BIND_CODE_TTL_MINUTES", 15)
+	cfg.FeishuNotifyPollingIntervalSec = getEnvAsInt("FEISHU_NOTIFY_POLLING_INTERVAL_SECONDS", 20)
+	cfg.FeishuNotifyPollingMaxAttempts = getEnvAsInt("FEISHU_NOTIFY_POLLING_MAX_ATTEMPTS", 180)
+
 	cfg.AuthAccessCookieName = getEnv("AUTH_ACCESS_COOKIE_NAME", "emoji_access_token")
 	cfg.AuthRefreshCookieName = getEnv("AUTH_REFRESH_COOKIE_NAME", "emoji_refresh_token")
 	cfg.AuthCookieDomain = getEnv("AUTH_COOKIE_DOMAIN", "")
@@ -367,6 +404,8 @@ func Load() Config {
 		"http://localhost:5918",
 		"http://127.0.0.1:5918",
 	})
+	cfg.GeoIPEnabled = getEnvAsBool("GEOIP_ENABLED", true)
+	cfg.GeoIPMMDBPath = strings.TrimSpace(getEnv("GEOIP_MMDB_PATH", ""))
 
 	// Aliyun OSS
 	cfg.OSSEndpoint = getEnv("OSS_ENDPOINT", "")
@@ -390,7 +429,7 @@ func Load() Config {
 	cfg.AIPlannerEnabled = getEnvAsBool("AI_PLANNER_ENABLED", true)
 	cfg.AIPlannerProvider = getEnv("AI_PLANNER_PROVIDER", "qwen")
 	cfg.AIPlannerAPIKey = getEnv("AI_PLANNER_API_KEY", cfg.LLMAPIKey)
-	cfg.AIPlannerModel = getEnv("AI_PLANNER_MODEL", "qwen3-vl-flash")
+	cfg.AIPlannerModel = getEnv("AI_PLANNER_MODEL", "qwen3.5-omni-flash")
 	cfg.AIPlannerEndpoint = getEnv("AI_PLANNER_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode")
 	cfg.AIPlannerPromptVersion = getEnv("AI_PLANNER_PROMPT_VERSION", "gif_planner_v1")
 	cfg.AIPlannerTimeoutSec = getEnvAsInt("AI_PLANNER_TIMEOUT_SECONDS", 20)
@@ -399,7 +438,7 @@ func Load() Config {
 	cfg.AIDirectorEnabled = getEnvAsBool("AI_DIRECTOR_ENABLED", true)
 	cfg.AIDirectorProvider = getEnv("AI_DIRECTOR_PROVIDER", "qwen")
 	cfg.AIDirectorAPIKey = getEnv("AI_DIRECTOR_API_KEY", cfg.AIPlannerAPIKey)
-	cfg.AIDirectorModel = getEnv("AI_DIRECTOR_MODEL", "qwen3-vl-flash")
+	cfg.AIDirectorModel = getEnv("AI_DIRECTOR_MODEL", "qwen3.5-omni-flash")
 	cfg.AIDirectorEndpoint = getEnv("AI_DIRECTOR_ENDPOINT", cfg.AIPlannerEndpoint)
 	cfg.AIDirectorPromptVersion = getEnv("AI_DIRECTOR_PROMPT_VERSION", "gif_director_v1")
 	cfg.AIDirectorTimeoutSec = getEnvAsInt("AI_DIRECTOR_TIMEOUT_SECONDS", 16)

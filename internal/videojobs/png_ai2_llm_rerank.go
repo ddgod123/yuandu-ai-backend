@@ -280,7 +280,8 @@ func (p *Processor) maybeApplyPNGAI2LLMRerank(
 }
 
 func (p *Processor) loadPNGAI2LLMRerankConfig() pngAI2LLMRerankConfig {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PNG_AI2_LLM_RERANK_MODE")))
+	featureFlags := loadVideoJobFeatureFlags()
+	mode := strings.ToLower(strings.TrimSpace(featureFlags.PNGAI2LLMRerankMode))
 	switch mode {
 	case pngAI2LLMRerankModeOn, pngAI2LLMRerankModeShadow:
 	default:
@@ -301,35 +302,42 @@ func (p *Processor) loadPNGAI2LLMRerankConfig() pngAI2LLMRerankConfig {
 	if strings.TrimSpace(modelCfg.APIKey) == "" {
 		modelCfg.APIKey = strings.TrimSpace(p.cfg.LLMAPIKey)
 	}
-	modelCfg.Provider = strings.ToLower(strings.TrimSpace(firstNonEmptyString(os.Getenv("PNG_AI2_LLM_RERANK_PROVIDER"), modelCfg.Provider)))
-	modelCfg.Model = strings.TrimSpace(firstNonEmptyString(os.Getenv("PNG_AI2_LLM_RERANK_MODEL"), modelCfg.Model))
-	modelCfg.Endpoint = strings.TrimSpace(firstNonEmptyString(os.Getenv("PNG_AI2_LLM_RERANK_ENDPOINT"), modelCfg.Endpoint))
-	modelCfg.APIKey = strings.TrimSpace(firstNonEmptyString(os.Getenv("PNG_AI2_LLM_RERANK_API_KEY"), modelCfg.APIKey))
+	modelCfg.Provider = strings.ToLower(strings.TrimSpace(firstNonEmptyString(featureFlags.PNGAI2LLMRerankProvider, modelCfg.Provider)))
+	modelCfg.Model = strings.TrimSpace(firstNonEmptyString(featureFlags.PNGAI2LLMRerankModel, modelCfg.Model))
+	modelCfg.Endpoint = strings.TrimSpace(firstNonEmptyString(featureFlags.PNGAI2LLMRerankEndpoint, modelCfg.Endpoint))
+	modelCfg.APIKey = strings.TrimSpace(firstNonEmptyString(featureFlags.PNGAI2LLMRerankAPIKey, modelCfg.APIKey))
 
-	timeoutSec := envIntOrDefault("PNG_AI2_LLM_RERANK_TIMEOUT_SECONDS", int(modelCfg.Timeout/time.Second))
+	timeoutSec := featureFlags.PNGAI2LLMRerankTimeoutSeconds
+	if timeoutSec <= 0 {
+		timeoutSec = int(modelCfg.Timeout / time.Second)
+	}
 	if timeoutSec <= 0 {
 		timeoutSec = 25
 	}
 	modelCfg.Timeout = time.Duration(timeoutSec) * time.Second
-	modelCfg.MaxTokens = envIntOrDefault("PNG_AI2_LLM_RERANK_MAX_TOKENS", modelCfg.MaxTokens)
+	originMaxTokens := modelCfg.MaxTokens
+	modelCfg.MaxTokens = featureFlags.PNGAI2LLMRerankMaxTokens
+	if modelCfg.MaxTokens <= 0 {
+		modelCfg.MaxTokens = originMaxTokens
+	}
 	if modelCfg.MaxTokens <= 0 {
 		modelCfg.MaxTokens = 900
 	}
-	modelCfg.PromptVersion = strings.TrimSpace(firstNonEmptyString(os.Getenv("PNG_AI2_LLM_RERANK_PROMPT_VERSION"), modelCfg.PromptVersion, "png_ai2_rerank_v1"))
+	modelCfg.PromptVersion = strings.TrimSpace(firstNonEmptyString(featureFlags.PNGAI2LLMRerankPromptVersion, modelCfg.PromptVersion, "png_ai2_rerank_v1"))
 
-	maxCandidates := envIntOrDefault("PNG_AI2_LLM_RERANK_MAX_CANDIDATES", 18)
+	maxCandidates := featureFlags.PNGAI2LLMRerankMaxCandidates
 	maxCandidates = clampInt(maxCandidates, 6, 32)
-	minCandidates := envIntOrDefault("PNG_AI2_LLM_RERANK_MIN_CANDIDATES", 4)
+	minCandidates := featureFlags.PNGAI2LLMRerankMinCandidates
 	minCandidates = clampInt(minCandidates, 2, maxCandidates)
-	enablePostEnhance := parseEnvBool("PNG_AI2_LLM_RERANK_POST_ENHANCE", false)
-	includeImages := parseEnvBool("PNG_AI2_LLM_RERANK_INCLUDE_IMAGES", true)
-	maxImageCandidates := envIntOrDefault("PNG_AI2_LLM_RERANK_IMAGE_MAX_CANDIDATES", 10)
+	enablePostEnhance := featureFlags.PNGAI2LLMRerankPostEnhance
+	includeImages := featureFlags.PNGAI2LLMRerankIncludeImages
+	maxImageCandidates := featureFlags.PNGAI2LLMRerankImageMaxCandidates
 	maxImageCandidates = clampInt(maxImageCandidates, 0, maxCandidates)
-	imageMaxSide := envIntOrDefault("PNG_AI2_LLM_RERANK_IMAGE_MAX_SIDE", 640)
+	imageMaxSide := featureFlags.PNGAI2LLMRerankImageMaxSide
 	imageMaxSide = clampInt(imageMaxSide, 256, 1280)
-	imageJPEGQuality := envIntOrDefault("PNG_AI2_LLM_RERANK_IMAGE_JPEG_QUALITY", 72)
+	imageJPEGQuality := featureFlags.PNGAI2LLMRerankImageJPEGQuality
 	imageJPEGQuality = clampInt(imageJPEGQuality, 40, 95)
-	imageMaxBytes := envIntOrDefault("PNG_AI2_LLM_RERANK_IMAGE_MAX_BYTES", 900*1024)
+	imageMaxBytes := featureFlags.PNGAI2LLMRerankImageMaxBytes
 	imageMaxBytes = clampInt(imageMaxBytes, 80*1024, 4*1024*1024)
 
 	return pngAI2LLMRerankConfig{
@@ -707,21 +715,6 @@ func clampInt(value int, minValue int, maxValue int) int {
 		return maxValue
 	}
 	return value
-}
-
-func parseEnvBool(key string, def bool) bool {
-	raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
-	if raw == "" {
-		return def
-	}
-	switch raw {
-	case "1", "true", "yes", "y", "on":
-		return true
-	case "0", "false", "no", "n", "off":
-		return false
-	default:
-		return def
-	}
 }
 
 func (c *pngAI2LLMRerankCandidate) stableSortKey() string {

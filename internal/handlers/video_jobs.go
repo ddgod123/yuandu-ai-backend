@@ -44,19 +44,21 @@ var allowedVideoFileExt = map[string]struct{}{
 }
 
 type CreateVideoJobRequest struct {
-	Title            string                        `json:"title"`
-	Prompt           string                        `json:"prompt,omitempty"`
-	AIModel          string                        `json:"ai_model,omitempty"`
-	FlowMode         string                        `json:"flow_mode,omitempty"`
+	Title            string                        `json:"title" example:"我的视频转图任务"`
+	Prompt           string                        `json:"prompt,omitempty" example:"提取清晰主体，适合社媒封面"`
+	AIModel          string                        `json:"ai_model,omitempty" example:"gpt-5.4"`
+	FlowMode         string                        `json:"flow_mode,omitempty" example:"normal"`
+	PNGMode          string                        `json:"png_mode,omitempty" example:"smart_llm" enums:"smart_llm,fast_extract"`
+	FastExtractFPS   int                           `json:"fast_extract_fps,omitempty" example:"1" enums:"1,2"`
 	AdvancedOptions  *VideoJobAdvancedOptionsInput `json:"advanced_options,omitempty"`
 	CategoryID       *uint64                       `json:"category_id"`
-	SourceVideoKey   string                        `json:"source_video_key"`
+	SourceVideoKey   string                        `json:"source_video_key" example:"video/jobs/demo/source.mp4"`
 	OutputFormats    []string                      `json:"output_formats"`
-	GIFPipelineMode  string                        `json:"gif_pipeline_mode,omitempty"`
-	MaxStatic        int                           `json:"max_static"`
-	FrameIntervalSec float64                       `json:"frame_interval_sec"`
+	GIFPipelineMode  string                        `json:"gif_pipeline_mode,omitempty" example:"smart"`
+	MaxStatic        int                           `json:"max_static" example:"24"`
+	FrameIntervalSec float64                       `json:"frame_interval_sec" example:"1"`
 	AutoHighlight    *bool                         `json:"auto_highlight"`
-	Priority         string                        `json:"priority"`
+	Priority         string                        `json:"priority" example:"normal"`
 	EditOptions      *VideoJobEditOptionsInput     `json:"edit_options"`
 }
 
@@ -107,6 +109,17 @@ type VideoJobResponse struct {
 	UpdatedAt          time.Time              `json:"updated_at"`
 	Billing            *VideoJobBillingInfo   `json:"billing,omitempty"`
 	ResultSummary      *VideoJobResultSummary `json:"result_summary,omitempty"`
+	Analysis           *VideoJobAnalysisInfo  `json:"analysis,omitempty"`
+}
+
+type VideoJobAnalysisInfo struct {
+	Status      string                 `json:"status"`
+	SummaryText string                 `json:"summary_text,omitempty"`
+	Highlights  []string               `json:"highlights,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+	Model       map[string]interface{} `json:"model,omitempty"`
+	UpdatedAt   *time.Time             `json:"updated_at,omitempty"`
+	FinishedAt  *time.Time             `json:"finished_at,omitempty"`
 }
 
 type VideoJobBillingInfo struct {
@@ -429,6 +442,7 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	}
 
 	options := map[string]interface{}{}
+	options["entry_channel"] = "web"
 	if prompt != "" {
 		options["user_prompt"] = prompt
 	}
@@ -438,8 +452,10 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	flowMode := strings.ToLower(strings.TrimSpace(req.FlowMode))
 	switch flowMode {
 	case "", "direct":
+		flowMode = "direct"
 		options["flow_mode"] = "direct"
 	case "ai1_confirm":
+		flowMode = "ai1_confirm"
 		options["flow_mode"] = "ai1_confirm"
 		options["ai1_pending"] = false
 		options["ai1_confirmed"] = false
@@ -453,6 +469,27 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 	options["execution_task_type"] = initialTaskType
 	if primaryFormat != "" {
 		options["requested_format"] = primaryFormat
+	}
+	if mode := strings.TrimSpace(req.PNGMode); mode != "" && primaryFormat != "png" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "png_mode is only available when output format is png"})
+		return
+	}
+	pngMode := videojobs.NormalizePNGMode(req.PNGMode)
+	if primaryFormat == "png" {
+		options["png_mode"] = pngMode
+		if pngMode == videojobs.PNGModeFastExtract {
+			fastFPS := videojobs.NormalizePNGFastExtractFPS(req.FastExtractFPS)
+			options["fast_extract_fps"] = fastFPS
+			options["frame_interval_sec"] = 1.0 / float64(fastFPS)
+			options["flow_mode"] = "direct"
+			if flowMode == "ai1_confirm" {
+				options["ai1_confirm_forced_off_reason"] = "png_fast_extract_mode"
+			}
+			delete(options, "ai1_pending")
+			delete(options, "ai1_confirmed")
+			delete(options, "ai1_pause_consumed")
+			flowMode = "direct"
+		}
 	}
 	if req.AdvancedOptions != nil {
 		enableMatting := false
@@ -485,6 +522,10 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 		options["user_requested_max_static"] = req.MaxStatic
 	}
 	if req.FrameIntervalSec > 0 {
+		if primaryFormat == "png" && pngMode == videojobs.PNGModeFastExtract {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "frame_interval_sec is managed by fast_extract_fps when png_mode=fast_extract"})
+			return
+		}
 		options["frame_interval_sec"] = req.FrameIntervalSec
 	}
 	if mode := strings.ToLower(strings.TrimSpace(req.GIFPipelineMode)); mode != "" {
@@ -604,6 +645,30 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 		if err := videojobs.CreatePublicVideoImageEvent(tx, queuedEvent); err != nil {
 			return err
 		}
+		boundUserID := userID
+		videoJobID := job.ID
+		if err := tx.Create(&models.VideoIngressJob{
+			Provider:          models.VideoIngressProviderWeb,
+			Channel:           "web",
+			BoundUserID:       &boundUserID,
+			SourceMessageID:   fmt.Sprintf("video_job_%d", job.ID),
+			SourceResourceKey: sourceKey,
+			SourceVideoKey:    sourceKey,
+			SourceSizeBytes:   sourceSizeBytes,
+			VideoJobID:        &videoJobID,
+			Status:            models.VideoIngressStatusJobQueued,
+			RequestPayload: toJSON(map[string]interface{}{
+				"entry_channel":  "web",
+				"output_formats": formats,
+				"flow_mode":      flowMode,
+				"png_mode":       options["png_mode"],
+			}),
+			ResultPayload: toJSON(map[string]interface{}{
+				"video_job_id": job.ID,
+			}),
+		}).Error; err != nil {
+			return err
+		}
 		return videojobs.ReservePointsForJob(tx, userID, job.ID, estimatedPoints, "video job reserve", map[string]interface{}{
 			"source_video_key":  sourceKey,
 			"output_formats":    formats,
@@ -669,6 +734,7 @@ func (h *Handler) CreateVideoJob(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue job"})
 		return
 	}
+	h.enqueueVideoAIReadingBestEffort(job.ID, userID)
 
 	c.JSON(http.StatusOK, buildVideoJobResponse(job, h.qiniu))
 }
@@ -1008,6 +1074,7 @@ func (h *Handler) ProbeSourceVideoURLMock(c *gin.Context) {
 // @Summary List current user video jobs
 // @Tags user
 // @Produce json
+// @Success 200 {array} VideoJobResponse
 // @Router /api/video-jobs [get]
 func (h *Handler) ListMyVideoJobs(c *gin.Context) {
 	userID, ok := currentUserIDFromContext(c)
@@ -1109,6 +1176,8 @@ func (h *Handler) filterVisibleJobsForWorkbench(jobs []models.VideoJob) ([]model
 // @Summary Get current user video job detail
 // @Tags user
 // @Produce json
+// @Param id path int true "job id"
+// @Success 200 {object} VideoJobResponse
 // @Router /api/video-jobs/{id} [get]
 func (h *Handler) GetVideoJob(c *gin.Context) {
 	userID, ok := currentUserIDFromContext(c)
@@ -1135,7 +1204,9 @@ func (h *Handler) GetVideoJob(c *gin.Context) {
 
 	costMap := h.loadVideoJobCostMap([]models.VideoJob{job})
 	pointHoldMap := h.loadVideoJobPointHoldMap([]models.VideoJob{job})
-	c.JSON(http.StatusOK, buildVideoJobResponseWithBilling(job, h.qiniu, lookupVideoJobCost(costMap, job.ID), lookupVideoJobPointHold(pointHoldMap, job.ID)))
+	resp := buildVideoJobResponseWithBilling(job, h.qiniu, lookupVideoJobCost(costMap, job.ID), lookupVideoJobPointHold(pointHoldMap, job.ID))
+	resp.Analysis = h.loadVideoJobAnalysisInfo(job.ID)
+	c.JSON(http.StatusOK, resp)
 }
 
 // ListVideoJobEvents godoc
@@ -2340,6 +2411,27 @@ func (h *Handler) bestEffortCancelVideoJobTask(jobID uint64) {
 	_ = inspector.DeleteTask("media", taskID)
 	_ = inspector.ArchiveTask("media", taskID)
 	_ = inspector.CancelProcessing(taskID)
+	_ = inspector.DeleteTask(videojobs.QueueVideoJobAI, fmt.Sprintf("video-ai-reading-%d", jobID))
+	_ = inspector.ArchiveTask(videojobs.QueueVideoJobAI, fmt.Sprintf("video-ai-reading-%d", jobID))
+}
+
+func (h *Handler) enqueueVideoAIReadingBestEffort(jobID uint64, userID uint64) {
+	if h == nil || h.queue == nil || jobID == 0 || userID == 0 {
+		return
+	}
+	_ = videojobs.EnsureVideoJobAIReadingQueued(h.db, jobID, userID)
+	task, err := videojobs.NewAnalyzeVideoTextTask(jobID)
+	if err != nil {
+		return
+	}
+	_, _ = h.queue.Enqueue(
+		task,
+		asynq.Queue(videojobs.QueueVideoJobAI),
+		asynq.MaxRetry(3),
+		asynq.Timeout(20*time.Minute),
+		asynq.Retention(7*24*time.Hour),
+		asynq.TaskID(fmt.Sprintf("video-ai-reading-%d", jobID)),
+	)
 }
 
 // GetVideoJobResult godoc
@@ -3024,6 +3116,36 @@ func buildVideoJobResponseWithBilling(job models.VideoJob, qiniu *storage.QiniuC
 		}
 	}
 	return resp
+}
+
+func (h *Handler) loadVideoJobAnalysisInfo(jobID uint64) *VideoJobAnalysisInfo {
+	if h == nil || h.db == nil || jobID == 0 {
+		return nil
+	}
+	var row models.VideoJobAIReading
+	if err := h.db.Where("job_id = ?", jobID).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return nil
+	}
+	highlights := []string{}
+	_ = json.Unmarshal(row.HighlightsJSON, &highlights)
+	info := &VideoJobAnalysisInfo{
+		Status:      strings.TrimSpace(row.Status),
+		SummaryText: strings.TrimSpace(row.SummaryText),
+		Highlights:  highlights,
+		Error:       strings.TrimSpace(row.ErrorMessage),
+		UpdatedAt:   &row.UpdatedAt,
+		FinishedAt:  row.FinishedAt,
+		Model: map[string]interface{}{
+			"provider":       strings.TrimSpace(row.ModelProvider),
+			"name":           strings.TrimSpace(row.ModelName),
+			"prompt_version": strings.TrimSpace(row.PromptVersion),
+			"duration_ms":    row.RequestDurationMs,
+		},
+	}
+	return info
 }
 
 func lookupVideoJobCost(costMap map[uint64]models.VideoJobCost, jobID uint64) *models.VideoJobCost {

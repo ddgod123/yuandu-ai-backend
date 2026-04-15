@@ -300,6 +300,25 @@ func defaultAIPricingCatalog() map[string]aiUnitPricing {
 			Version:          defaultAIPricingVersion,
 			SourceURL:        "https://www.alibabacloud.com/help/zh/model-studio/model-pricing",
 		},
+		// 阿里 qwen3.5-omni-*：pricing 页面标记 preview，当前按免费估算（2026-04-03）
+		pricingKey("qwen", "qwen3.5-omni-flash"): {
+			InputPer1M:       0,
+			OutputPer1M:      0,
+			CachedInputPer1M: 0,
+			AudioPerMin:      0,
+			Currency:         "USD",
+			Version:          "v1_20260403_preview_free",
+			SourceURL:        "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+		},
+		pricingKey("qwen", "qwen3.5-omni-plus"): {
+			InputPer1M:       0,
+			OutputPer1M:      0,
+			CachedInputPer1M: 0,
+			AudioPerMin:      0,
+			Currency:         "USD",
+			Version:          "v1_20260403_preview_free",
+			SourceURL:        "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+		},
 		// DeepSeek reasoner/chat（2026-03-17）
 		pricingKey("deepseek", "deepseek-reasoner"): {
 			InputPer1M:       0.55,
@@ -323,8 +342,12 @@ func defaultAIPricingCatalog() map[string]aiUnitPricing {
 	// provider 兼容别名
 	base[pricingKey("dashscope", "qwen3-vl-flash")] = base[pricingKey("qwen", "qwen3-vl-flash")]
 	base[pricingKey("dashscope", "qwen3-vl-plus")] = base[pricingKey("qwen", "qwen3-vl-plus")]
+	base[pricingKey("dashscope", "qwen3.5-omni-flash")] = base[pricingKey("qwen", "qwen3.5-omni-flash")]
+	base[pricingKey("dashscope", "qwen3.5-omni-plus")] = base[pricingKey("qwen", "qwen3.5-omni-plus")]
 	base[pricingKey("tongyi", "qwen3-vl-flash")] = base[pricingKey("qwen", "qwen3-vl-flash")]
 	base[pricingKey("tongyi", "qwen3-vl-plus")] = base[pricingKey("qwen", "qwen3-vl-plus")]
+	base[pricingKey("tongyi", "qwen3.5-omni-flash")] = base[pricingKey("qwen", "qwen3.5-omni-flash")]
+	base[pricingKey("tongyi", "qwen3.5-omni-plus")] = base[pricingKey("qwen", "qwen3.5-omni-plus")]
 	return base
 }
 

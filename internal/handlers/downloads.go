@@ -119,6 +119,17 @@ func (h *Handler) requireActiveSubscriber(c *gin.Context) (*models.User, bool) {
 	return user, true
 }
 
+func ensureCollectionDownloadAllowed(c *gin.Context, collection models.Collection) bool {
+	if !collection.IsShowcase {
+		return true
+	}
+	if isAdminRole(c) {
+		return true
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": "collection_showcase_download_disabled"})
+	return false
+}
+
 // GetCollectionZipDownload returns a download URL for the latest zip of a collection.
 // @Summary Get collection zip download URL
 // @Description 权限：需登录且账号激活；合集 ZIP 支持「订阅会员」或「合集次卡权益（entitlement）」任一满足即可下载。
@@ -155,6 +166,9 @@ func (h *Handler) GetCollectionZipDownload(c *gin.Context) {
 		return
 	}
 	if !ensureCollectionVisibleForRequester(c, collection) {
+		return
+	}
+	if !ensureCollectionDownloadAllowed(c, collection) {
 		return
 	}
 	accessDecision := h.resolveCollectionDownloadAccess(user, collection.ID, time.Now())
@@ -287,6 +301,9 @@ func (h *Handler) GetCollectionZipList(c *gin.Context) {
 	if !ensureCollectionVisibleForRequester(c, collection) {
 		return
 	}
+	if !ensureCollectionDownloadAllowed(c, collection) {
+		return
+	}
 	accessDecision := h.resolveCollectionDownloadAccess(user, collection.ID, time.Now())
 	if !accessDecision.Allowed {
 		writeCollectionDownloadAccessDenied(c, accessDecision)
@@ -351,6 +368,9 @@ func (h *Handler) GetCollectionZipDownloadAll(c *gin.Context) {
 		return
 	}
 	if !ensureCollectionVisibleForRequester(c, collection) {
+		return
+	}
+	if !ensureCollectionDownloadAllowed(c, collection) {
 		return
 	}
 	accessDecision := h.resolveCollectionDownloadAccess(user, collection.ID, time.Now())
@@ -442,6 +462,9 @@ func (h *Handler) GetCollectionDownloadList(c *gin.Context) {
 	if !ensureCollectionVisibleForRequester(c, collection) {
 		return
 	}
+	if !ensureCollectionDownloadAllowed(c, collection) {
+		return
+	}
 
 	var total int64
 	h.db.Model(&models.Emoji{}).Where("collection_id = ? AND status = ?", id, "active").Count(&total)
@@ -513,11 +536,14 @@ func (h *Handler) GetEmojiDownload(c *gin.Context) {
 		return
 	}
 	var collection models.Collection
-	if err := h.db.Select("id", "status", "visibility").First(&collection, emoji.CollectionID).Error; err != nil {
+	if err := h.db.Select("id", "status", "visibility", "is_showcase").First(&collection, emoji.CollectionID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 		return
 	}
 	if !ensureCollectionVisibleForRequester(c, collection) {
+		return
+	}
+	if !ensureCollectionDownloadAllowed(c, collection) {
 		return
 	}
 
@@ -589,11 +615,14 @@ func (h *Handler) DownloadEmojiFile(c *gin.Context) {
 	}
 
 	var collection models.Collection
-	if err := h.db.Select("id", "status", "visibility").First(&collection, emoji.CollectionID).Error; err != nil {
+	if err := h.db.Select("id", "status", "visibility", "is_showcase").First(&collection, emoji.CollectionID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 		return
 	}
 	if !ensureCollectionVisibleForRequester(c, collection) {
+		return
+	}
+	if !ensureCollectionDownloadAllowed(c, collection) {
 		return
 	}
 

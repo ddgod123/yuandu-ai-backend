@@ -16,23 +16,28 @@ import (
 
 	"github.com/gin-gonic/gin"
 	qiniustorage "github.com/qiniu/go-sdk/v7/storage"
+	"gorm.io/gorm"
 )
 
 type EmojiListItem struct {
-	ID           uint64    `json:"id"`
-	CollectionID uint64    `json:"collection_id"`
-	Title        string    `json:"title"`
-	FileURL      string    `json:"file_url,omitempty"`
-	PreviewURL   string    `json:"preview_url,omitempty"`
-	ThumbURL     string    `json:"thumb_url,omitempty"`
-	Format       string    `json:"format"`
-	Favorited    bool      `json:"favorited"`
-	Width        int       `json:"width,omitempty"`
-	Height       int       `json:"height,omitempty"`
-	SizeBytes    int64     `json:"size_bytes"`
-	Status       string    `json:"status,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID            uint64    `json:"id"`
+	CollectionID  uint64    `json:"collection_id"`
+	Title         string    `json:"title"`
+	FileURL       string    `json:"file_url,omitempty"`
+	PreviewURL    string    `json:"preview_url,omitempty"`
+	ThumbURL      string    `json:"thumb_url,omitempty"`
+	Format        string    `json:"format"`
+	LikeCount     int64     `json:"like_count"`
+	FavoriteCount int64     `json:"favorite_count"`
+	DownloadCount int64     `json:"download_count"`
+	Liked         bool      `json:"liked"`
+	Favorited     bool      `json:"favorited"`
+	Width         int       `json:"width,omitempty"`
+	Height        int       `json:"height,omitempty"`
+	SizeBytes     int64     `json:"size_bytes"`
+	Status        string    `json:"status,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type EmojiListResponse struct {
@@ -109,27 +114,11 @@ func (h *Handler) ListEmojis(c *gin.Context) {
 	db.Offset((page - 1) * limit).Limit(limit).Order("id DESC").Find(&items)
 
 	respItems := mapEmojiItems(items, h.qiniu, adminView)
-	if userID, ok := currentUserIDFromContext(c); ok && len(respItems) > 0 {
-		emojiIDs := make([]uint64, 0, len(respItems))
-		for _, item := range respItems {
-			emojiIDs = append(emojiIDs, item.ID)
-		}
-		type favoriteRow struct {
-			EmojiID uint64
-		}
-		var favoriteRows []favoriteRow
-		h.db.Table("action.favorites").
-			Select("emoji_id").
-			Where("user_id = ? AND emoji_id IN ?", userID, emojiIDs).
-			Scan(&favoriteRows)
-		favoriteMap := make(map[uint64]bool, len(favoriteRows))
-		for _, row := range favoriteRows {
-			favoriteMap[row.EmojiID] = true
-		}
-		for i := range respItems {
-			respItems[i].Favorited = favoriteMap[respItems[i].ID]
-		}
+	userID := uint64(0)
+	if uid, ok := currentUserIDFromContext(c); ok {
+		userID = uid
 	}
+	respItems = enrichEmojiListItemsWithEngagement(h.db, respItems, userID)
 
 	c.JSON(http.StatusOK, EmojiListResponse{
 		Items: respItems,
@@ -283,6 +272,144 @@ func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient, admin
 		})
 	}
 	return out
+}
+
+type emojiStats struct {
+	LikeCount     int64
+	FavoriteCount int64
+	DownloadCount int64
+}
+
+func uniqueUint64(values []uint64) []uint64 {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[uint64]struct{}, len(values))
+	out := make([]uint64, 0, len(values))
+	for _, value := range values {
+		if value == 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func loadEmojiStats(db *gorm.DB, emojiIDs []uint64) map[uint64]emojiStats {
+	stats := map[uint64]emojiStats{}
+	ids := uniqueUint64(emojiIDs)
+	if db == nil || len(ids) == 0 {
+		return stats
+	}
+
+	type countRow struct {
+		EmojiID uint64
+		Count   int64
+	}
+
+	var likeRows []countRow
+	db.Table("action.likes").
+		Select("emoji_id, COUNT(*) AS count").
+		Where("emoji_id IN ?", ids).
+		Group("emoji_id").
+		Scan(&likeRows)
+	for _, row := range likeRows {
+		next := stats[row.EmojiID]
+		next.LikeCount = row.Count
+		stats[row.EmojiID] = next
+	}
+
+	var favoriteRows []countRow
+	db.Table("action.favorites").
+		Select("emoji_id, COUNT(*) AS count").
+		Where("emoji_id IN ?", ids).
+		Group("emoji_id").
+		Scan(&favoriteRows)
+	for _, row := range favoriteRows {
+		next := stats[row.EmojiID]
+		next.FavoriteCount = row.Count
+		stats[row.EmojiID] = next
+	}
+
+	var downloadRows []countRow
+	db.Table("action.downloads").
+		Select("emoji_id, COUNT(*) AS count").
+		Where("emoji_id IN ?", ids).
+		Group("emoji_id").
+		Scan(&downloadRows)
+	for _, row := range downloadRows {
+		next := stats[row.EmojiID]
+		next.DownloadCount = row.Count
+		stats[row.EmojiID] = next
+	}
+
+	return stats
+}
+
+func loadEmojiActionState(db *gorm.DB, emojiIDs []uint64, userID uint64) (map[uint64]bool, map[uint64]bool) {
+	likedMap := map[uint64]bool{}
+	favoritedMap := map[uint64]bool{}
+	ids := uniqueUint64(emojiIDs)
+	if db == nil || userID == 0 || len(ids) == 0 {
+		return likedMap, favoritedMap
+	}
+
+	type actionRow struct {
+		EmojiID uint64
+	}
+
+	var likeRows []actionRow
+	db.Table("action.likes").
+		Select("emoji_id").
+		Where("user_id = ? AND emoji_id IN ?", userID, ids).
+		Scan(&likeRows)
+	for _, row := range likeRows {
+		likedMap[row.EmojiID] = true
+	}
+
+	var favoriteRows []actionRow
+	db.Table("action.favorites").
+		Select("emoji_id").
+		Where("user_id = ? AND emoji_id IN ?", userID, ids).
+		Scan(&favoriteRows)
+	for _, row := range favoriteRows {
+		favoritedMap[row.EmojiID] = true
+	}
+
+	return likedMap, favoritedMap
+}
+
+func enrichEmojiListItemsWithEngagement(db *gorm.DB, items []EmojiListItem, userID uint64) []EmojiListItem {
+	if len(items) == 0 {
+		return items
+	}
+	ids := make([]uint64, 0, len(items))
+	for _, item := range items {
+		if item.ID == 0 {
+			continue
+		}
+		ids = append(ids, item.ID)
+	}
+	if len(ids) == 0 {
+		return items
+	}
+
+	statsMap := loadEmojiStats(db, ids)
+	likedMap, favoritedMap := loadEmojiActionState(db, ids, userID)
+
+	for i := range items {
+		stats := statsMap[items[i].ID]
+		items[i].LikeCount = stats.LikeCount
+		items[i].FavoriteCount = stats.FavoriteCount
+		items[i].DownloadCount = stats.DownloadCount
+		items[i].Liked = likedMap[items[i].ID]
+		items[i].Favorited = favoritedMap[items[i].ID]
+	}
+	return items
 }
 
 func resolvePreviewURL(fileURL string, qiniuClient *storage.QiniuClient) string {

@@ -30,7 +30,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/handlers.CategoryResponse"
+                                "$ref": "#/definitions/internal_handlers.CategoryResponse"
                             }
                         }
                     }
@@ -54,7 +54,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.CategoryRequest"
+                            "$ref": "#/definitions/internal_handlers.CategoryRequest"
                         }
                     }
                 ],
@@ -62,7 +62,29 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.CategoryResponse"
+                            "$ref": "#/definitions/internal_handlers.CategoryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/categories/stats": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List category stats (collection counts)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.CategoryStatsResponse"
+                            }
                         }
                     }
                 }
@@ -94,7 +116,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.CategoryRequest"
+                            "$ref": "#/definitions/internal_handlers.CategoryRequest"
                         }
                     }
                 ],
@@ -102,7 +124,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.CategoryResponse"
+                            "$ref": "#/definitions/internal_handlers.CategoryResponse"
                         }
                     }
                 }
@@ -134,7 +156,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.DeleteCategoryResponse"
+                            "$ref": "#/definitions/internal_handlers.DeleteCategoryResponse"
                         }
                     }
                 }
@@ -199,7 +221,208 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ListCategoryObjectsResponse"
+                            "$ref": "#/definitions/internal_handlers.ListCategoryObjectsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collection-download-codes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List collection download code cards",
+                "responses": {}
+            }
+        },
+        "/api/admin/collection-download-codes/generate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Generate collection download code cards",
+                "parameters": [
+                    {
+                        "description": "generate request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GenerateCollectionDownloadCodesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GenerateCollectionDownloadCodesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collection-download-codes/{id}/redemptions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List collection download code redemptions by code",
+                "responses": {}
+            }
+        },
+        "/api/admin/collection-download-codes/{id}/status": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update collection download code card status",
+                "responses": {}
+            }
+        },
+        "/api/admin/collection-download-entitlements": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List collection download entitlements for admin",
+                "responses": {}
+            }
+        },
+        "/api/admin/collection-download-entitlements/{id}": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Adjust collection download entitlement",
+                "responses": {}
+            }
+        },
+        "/api/admin/collections/batch-assign-ip": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Batch assign collection ip_id (admin)",
+                "parameters": [
+                    {
+                        "description": "batch assign ip",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminBatchAssignCollectionIPRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collections/batch-sample": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Batch update collection sample flag (admin)",
+                "parameters": [
+                    {
+                        "description": "batch update sample flag",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminBatchUpdateCollectionSampleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collections/batch-visibility": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Batch update collection visibility (admin)",
+                "parameters": [
+                    {
+                        "description": "batch update visibility",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminBatchUpdateCollectionVisibilityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -256,7 +479,124 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ImportZipResponse"
+                            "$ref": "#/definitions/internal_handlers.ImportZipResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collections/ip-audit-logs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get collection ip audit logs (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "limit, default 20, max 200",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "collection id",
+                        "name": "collection_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminCollectionIPAuditLogsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collections/ip-stats": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get collection IP stats (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "category id",
+                        "name": "category_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "category ids comma separated",
+                        "name": "category_ids",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1|0|all",
+                        "name": "is_featured",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "1|0|all",
+                        "name": "is_sample",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "visibility",
+                        "name": "visibility",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminCollectionIPStatsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/collections/samples/export.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export sample collections as CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|1|0 (default 1)",
+                        "name": "is_sample",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -288,7 +628,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.AdminUpdateCollectionRequest"
+                            "$ref": "#/definitions/internal_handlers.AdminUpdateCollectionRequest"
                         }
                     }
                 ],
@@ -296,7 +636,34 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.CollectionListItem"
+                            "$ref": "#/definitions/internal_handlers.CollectionListItem"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Hard delete collection (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "collection id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -340,7 +707,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.EmojiUploadResponse"
+                            "$ref": "#/definitions/internal_handlers.EmojiUploadResponse"
                         }
                     }
                 }
@@ -384,7 +751,746 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.AppendZipResponse"
+                            "$ref": "#/definitions/internal_handlers.AppendZipResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute-redeem-codes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List compute redeem codes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "keyword",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "batch",
+                        "name": "batch_no",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute-redeem-codes/generate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Generate compute redeem codes",
+                "parameters": [
+                    {
+                        "description": "generate request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GenerateComputeRedeemCodesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GenerateComputeRedeemCodesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute-redeem-codes/{id}/redemptions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List redemption records by compute redeem code",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "code id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemRedemptionRecordListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute-redeem-codes/{id}/status": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update compute redeem code status",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "code id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "status",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateComputeRedeemCodeStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeAdminItem"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute/accounts": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List compute accounts (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (max 100)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "account status: all|active|disabled",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "user fuzzy query: uid/phone/display_name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "exact user id",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "filter by debt users",
+                        "name": "with_debt",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "available_points \u003e= value",
+                        "name": "min_available",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "available_points \u003c= value",
+                        "name": "max_available",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "frozen_points \u003e= value",
+                        "name": "min_frozen",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "debt_points \u003e= value",
+                        "name": "min_debt",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminComputeAccountListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute/accounts/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get compute account detail by user id (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "ledger limit (max 300)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminComputeAccountDetailResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/compute/accounts/{id}/adjust": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Adjust compute points for user (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "delta points and reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminAdjustComputeAccountRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeAccountResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/ips": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List IPs (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "keyword",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.IPResponse"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Create IP",
+                "parameters": [
+                    {
+                        "description": "ip request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/ips/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get IP (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ip id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update IP",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ip id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "ip request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Delete IP",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ip id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/join-applications": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List join applications (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "keyword",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.JoinApplicationListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/redeem-codes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List redeem codes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "keyword",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "plan",
+                        "name": "plan",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "batch",
+                        "name": "batch_no",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedeemCodeListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/redeem-codes/generate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Generate redeem codes",
+                "parameters": [
+                    {
+                        "description": "generate request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GenerateRedeemCodesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GenerateRedeemCodesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/redeem-codes/{id}/redemptions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List redemption records by code",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "code id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedemptionRecordListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/redeem-codes/{id}/status": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update redeem code status",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "code id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "status",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateRedeemCodeStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedeemCodeAdminItem"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/site-settings/footer": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get footer setting for admin edit",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SiteFooterSettingResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update footer setting",
+                "parameters": [
+                    {
+                        "description": "footer setting",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SiteFooterSettingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SiteFooterSettingResponse"
                         }
                     }
                 }
@@ -409,7 +1515,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.BatchDeleteRequest"
+                            "$ref": "#/definitions/internal_handlers.BatchDeleteRequest"
                         }
                     }
                 ],
@@ -417,7 +1523,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.BatchDeleteResponse"
+                            "$ref": "#/definitions/internal_handlers.BatchDeleteResponse"
                         }
                     }
                 }
@@ -452,7 +1558,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
                         }
                     }
                 }
@@ -470,7 +1576,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "default": "emoji/",
+                        "default": "configured root prefix",
                         "description": "prefix",
                         "name": "prefix",
                         "in": "query"
@@ -517,7 +1623,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.SearchObjectsResponse"
+                            "$ref": "#/definitions/internal_handlers.SearchObjectsResponse"
                         }
                     }
                 }
@@ -535,7 +1641,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "default": "emoji/_trash/",
+                        "default": "configured trash prefix",
                         "description": "prefix",
                         "name": "prefix",
                         "in": "query"
@@ -558,7 +1664,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TrashListResponse"
+                            "$ref": "#/definitions/internal_handlers.TrashListResponse"
                         }
                     }
                 }
@@ -574,7 +1680,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "default": "emoji/_trash/",
+                        "default": "configured trash prefix",
                         "description": "prefix",
                         "name": "prefix",
                         "in": "query"
@@ -584,7 +1690,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TrashEmptyResponse"
+                            "$ref": "#/definitions/internal_handlers.TrashEmptyResponse"
                         }
                     }
                 }
@@ -609,7 +1715,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.BatchRestoreRequest"
+                            "$ref": "#/definitions/internal_handlers.BatchRestoreRequest"
                         }
                     }
                 ],
@@ -617,7 +1723,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.BatchRestoreResponse"
+                            "$ref": "#/definitions/internal_handlers.BatchRestoreResponse"
                         }
                     }
                 }
@@ -642,7 +1748,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.TrashRestoreRequest"
+                            "$ref": "#/definitions/internal_handlers.TrashRestoreRequest"
                         }
                     }
                 ],
@@ -650,7 +1756,189 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TrashRestoreResponse"
+                            "$ref": "#/definitions/internal_handlers.TrashRestoreResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/system/data-audit/overview": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get data-audit runs overview (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "limit, default 30, max 200",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "trend window days, default 7, max 30",
+                        "name": "window_days",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "status filter: all|healthy|warn|failed",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminDataAuditOverviewResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/system/doctor": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Run one-shot doctor diagnosis (admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminSystemDoctorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/system/worker-guard/run": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Run worker guard check/remediation once (admin)",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "apply remediation actions (default true)",
+                        "name": "apply",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/system/worker-health": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get worker health overview (admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminWorkerHealthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/system/worker-start": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Start worker process via configured command (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|gif|image|png|jpg|webp|live|mp4|media",
+                        "name": "role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "force execute command even when worker is already online",
+                        "name": "force",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/system/worker-stop": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Stop or pause worker by role (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|gif|image|png|jpg|webp|live|mp4|media",
+                        "name": "role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "force execute stop command even when worker is already offline",
+                        "name": "force",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -671,7 +1959,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/handlers.TagGroupResponse"
+                                "$ref": "#/definitions/internal_handlers.TagGroupResponse"
                             }
                         }
                     }
@@ -695,7 +1983,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagGroupRequest"
+                            "$ref": "#/definitions/internal_handlers.TagGroupRequest"
                         }
                     }
                 ],
@@ -703,7 +1991,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagGroupResponse"
+                            "$ref": "#/definitions/internal_handlers.TagGroupResponse"
                         }
                     }
                 }
@@ -735,7 +2023,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagGroupRequest"
+                            "$ref": "#/definitions/internal_handlers.TagGroupRequest"
                         }
                     }
                 ],
@@ -743,7 +2031,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagGroupResponse"
+                            "$ref": "#/definitions/internal_handlers.TagGroupResponse"
                         }
                     }
                 }
@@ -769,7 +2057,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
                         }
                     }
                 }
@@ -810,7 +2098,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/handlers.TagResponse"
+                                "$ref": "#/definitions/internal_handlers.TagResponse"
                             }
                         }
                     }
@@ -834,7 +2122,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagRequest"
+                            "$ref": "#/definitions/internal_handlers.TagRequest"
                         }
                     }
                 ],
@@ -842,7 +2130,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagResponse"
+                            "$ref": "#/definitions/internal_handlers.TagResponse"
                         }
                     }
                 }
@@ -874,7 +2162,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagRequest"
+                            "$ref": "#/definitions/internal_handlers.TagRequest"
                         }
                     }
                 ],
@@ -882,7 +2170,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TagResponse"
+                            "$ref": "#/definitions/internal_handlers.TagResponse"
                         }
                     }
                 }
@@ -908,7 +2196,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
                         }
                     }
                 }
@@ -933,7 +2221,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.TelegramDownloadRequest"
+                            "$ref": "#/definitions/internal_handlers.TelegramDownloadRequest"
                         }
                     }
                 ],
@@ -941,7 +2229,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TelegramDownloadResponse"
+                            "$ref": "#/definitions/internal_handlers.TelegramDownloadResponse"
                         }
                     }
                 }
@@ -970,7 +2258,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/handlers.ThemeResponse"
+                                "$ref": "#/definitions/internal_handlers.ThemeResponse"
                             }
                         }
                     }
@@ -994,7 +2282,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.ThemeRequest"
+                            "$ref": "#/definitions/internal_handlers.ThemeRequest"
                         }
                     }
                 ],
@@ -1002,7 +2290,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ThemeResponse"
+                            "$ref": "#/definitions/internal_handlers.ThemeResponse"
                         }
                     }
                 }
@@ -1034,7 +2322,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.ThemeRequest"
+                            "$ref": "#/definitions/internal_handlers.ThemeRequest"
                         }
                     }
                 ],
@@ -1042,7 +2330,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ThemeResponse"
+                            "$ref": "#/definitions/internal_handlers.ThemeResponse"
                         }
                     }
                 }
@@ -1068,7 +2356,52 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/upload-tasks": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List upload tasks (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size (max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "task kind: import/append",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "task status: running/success/failed",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UploadTaskListResponse"
                         }
                     }
                 }
@@ -1109,7 +2442,35 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UsersListResponse"
+                            "$ref": "#/definitions/internal_handlers.UsersListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/users/{id}/detail": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get user detail with redemption records",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminUserDetailResponse"
                         }
                     }
                 }
@@ -1141,7 +2502,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.UpdateRoleRequest"
+                            "$ref": "#/definitions/internal_handlers.UpdateRoleRequest"
                         }
                     }
                 ],
@@ -1149,7 +2510,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserResponse"
+                            "$ref": "#/definitions/internal_handlers.UserResponse"
                         }
                     }
                 }
@@ -1181,7 +2542,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.UpdateStatusRequest"
+                            "$ref": "#/definitions/internal_handlers.UpdateStatusRequest"
                         }
                     }
                 ],
@@ -1189,7 +2550,1640 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserResponse"
+                            "$ref": "#/definitions/internal_handlers.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List video jobs (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page_size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "job status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asset domain: all|video|archive|admin|ugc",
+                        "name": "asset_domain",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "source readability reason_code filter",
+                        "name": "source_read_reason",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "alias of source_read_reason",
+                        "name": "reason_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "job stage",
+                        "name": "stage",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "audit signal filter: proposal | deliver | feedback | rerender",
+                        "name": "audit_signal",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "quick filter: retrying | failed_24h | guard_hit | guard_blocked | feedback_anomaly | top_pick_conflict | sub_stage_anomaly | sub_stage_briefing_anomaly | sub_stage_planning_anomaly | sub_stage_scoring_anomaly | sub_stage_reviewing_anomaly",
+                        "name": "quick",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sample filter: all | 1 | 0",
+                        "name": "is_sample",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "title/source search",
+                        "name": "q",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ai-prompt-templates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get AI prompt templates by format (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|gif|webp|jpg|png|live",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GetAdminVideoAIPromptTemplatesResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Patch AI prompt templates by format (admin)",
+                "parameters": [
+                    {
+                        "description": "patch ai prompt templates",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.PatchAdminVideoAIPromptTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GetAdminVideoAIPromptTemplatesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ai-prompt-templates/activate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Activate AI prompt template version (admin)",
+                "parameters": [
+                    {
+                        "description": "activate template version",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ActivateAdminVideoAIPromptTemplateVersionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListAdminVideoAIPromptTemplateVersionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ai-prompt-templates/audits": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List AI prompt template audits (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|gif|webp|jpg|png|live",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ai1|ai2|scoring|ai3",
+                        "name": "stage",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "editable|fixed",
+                        "name": "layer",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..200",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListAdminVideoAIPromptTemplateAuditsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ai-prompt-templates/fixed": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List fixed-layer AI prompt templates (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|gif|webp|jpg|png|live",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ai1|ai2|scoring|ai3",
+                        "name": "stage",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "true|false|1|0",
+                        "name": "active_only",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..2000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListAdminVideoAIPromptFixedTemplatesResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Create fixed-layer AI prompt template version (admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GetAdminVideoAIPromptFixedTemplateResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ai-prompt-templates/fixed/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get one fixed-layer AI prompt template detail (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "template id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GetAdminVideoAIPromptFixedTemplateResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update fixed-layer AI prompt template version (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "template id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GetAdminVideoAIPromptFixedTemplateResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Delete fixed-layer AI prompt template version (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "template id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.DeleteAdminVideoAIPromptFixedTemplateResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ai-prompt-templates/versions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List AI prompt template versions (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "all|gif|webp|jpg|png|live",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ai1|ai2|scoring|ai3",
+                        "name": "stage",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "editable|fixed",
+                        "name": "layer",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListAdminVideoAIPromptTemplateVersionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/feedback-integrity-anomalies.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export video-jobs feedback integrity anomalies CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id filter",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format filter",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "max rows per section, default 300, max 2000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/feedback-integrity-trend.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export video-jobs feedback integrity trend CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id filter",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format filter",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/feedback-integrity.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export video-jobs feedback integrity CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id filter",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format filter",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/feedback-integrity/drilldown": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get feedback-integrity drilldown rows (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id filter",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format filter",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "rows per section, default 20, max 100",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityDrilldownResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/feedback-integrity/overview": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get video-jobs feedback integrity overview (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id filter",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format filter",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityOverviewResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/feedback-report.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export video-jobs feedback report CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "user id filter",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "requested format filter",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "negative guard reason filter",
+                        "name": "guard_reason",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "only export blocked_reason rows",
+                        "name": "blocked_only",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-baselines.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export gif baselines CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "rows limit, default 90, max 365",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-evaluations.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export gif evaluations CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "rows limit, default 2000, max 20000",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "overall score order: desc | asc",
+                        "name": "order",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-health": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get GIF SQL health report (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "lookback hours, default 24, range 1..168",
+                        "name": "window_hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminGIFHealthReportResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-health/trend": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get GIF SQL health trend (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "lookback hours, default 24, range 1..168",
+                        "name": "window_hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminGIFHealthTrendResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-health/trend.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export GIF SQL health trend CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "lookback hours, default 24, range 1..168",
+                        "name": "window_hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-manual-compare.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export gif manual-vs-auto compare CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "rows limit, default 2000, max 20000",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-quality-report.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export gif quality report CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/gif-rerank-logs.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export gif rerank logs CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "rows limit, default 3000, max 20000",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "number",
+                        "description": "minimum absolute score_delta filter, default 0",
+                        "name": "min_abs_delta",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/ingress-jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List video ingress jobs (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "provider: web|feishu|qq|wecom",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "status: queued|processing|waiting_bind|job_queued|done|failed",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "bound user id",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "window: 24h|7d|30d|all",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "limit (default 50, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "offset (default 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoIngressJobListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/overview": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get video jobs overview (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobOverviewResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/quality-settings": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get video quality tuning setting (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "format scope: all|gif|png|jpg|webp|live|mp4",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoQualitySettingResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Update video quality tuning setting (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "format scope: all|gif|png|jpg|webp|live|mp4",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "description": "video quality setting",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoQualitySettingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoQualitySettingResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Patch video quality tuning setting (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "format scope: all|gif|png|jpg|webp|live|mp4",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "description": "video quality setting patch",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoQualitySettingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/quality-settings/apply-rollout-suggestion": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Apply rollout suggestion to quality setting (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "window: 24h | 7d | 30d",
+                        "name": "window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "required consecutive windows, default 3",
+                        "name": "confirm_windows",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ApplyVideoQualityRolloutSuggestionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/quality-settings/audits": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List video quality setting field-level audits (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "format scope: all|gif|png|jpg|webp|live|mp4",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "max rows, default 20, max 100",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListVideoQualitySettingAuditsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/quality-settings/rollout-effects": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List recent rollout effects (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "max cards, default 6, max 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ListVideoQualityRolloutEffectsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/read-route": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "查看视频图片读侧路由（按格式命中分表）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "format: gif|png|jpg|webp|live|mp4|all",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.adminVideoImageReadRouteResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/read-route/debug": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "设置视频图片读侧路由日志开关",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "1|0|true|false",
+                        "name": "enabled",
+                        "in": "query"
+                    },
+                    {
+                        "description": "debug switch",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.setVideoImageReadRouteDebugRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/samples/baseline-diff": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get sample video-jobs baseline diff (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "reference window: 24h | 7d | 30d (default: 7d)",
+                        "name": "base_window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "target window: 24h | 7d | 30d (default: 24h)",
+                        "name": "target_window",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminSampleVideoJobsBaselineDiffResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/samples/baseline-diff.csv": {
+            "get": {
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Export sample video-jobs baseline diff CSV (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "reference window: 24h | 7d | 30d (default: 7d)",
+                        "name": "base_window",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "target window: 24h | 7d | 30d (default: 24h)",
+                        "name": "target_window",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/split-backfill": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "查看视频任务分表回填执行状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/split-backfill/start": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "启动视频任务分表回填",
+                "parameters": [
+                    {
+                        "description": "start request",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillStartRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/split-backfill/stop": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "停止正在执行的视频任务分表回填",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get video job detail (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "comma-separated review statuses: deliver,keep_internal,reject,need_manual_review",
+                        "name": "review_status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobDetailResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/{id}/gif-audit-chain": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get gif audit chain by job (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "comma-separated review statuses: deliver,keep_internal,reject,need_manual_review",
+                        "name": "review_status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFAuditChainResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/{id}/gif-review-decisions": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Submit manual review decisions for gif outputs (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "manual review decisions",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFReviewDecisionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFReviewDecisionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/{id}/health": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Inspect video job health (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "whether verify qiniu object existence",
+                        "name": "check_storage",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminVideoJobHealthResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/video-jobs/{id}/rerender-gif/batch": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Batch rerender gif by proposals (admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "batch rerender request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminBatchRerenderVideoJobGIFRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.AdminBatchRerenderVideoJobGIFResponse"
                         }
                     }
                 }
@@ -1214,7 +4208,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.LoginRequest"
+                            "$ref": "#/definitions/internal_handlers.LoginRequest"
                         }
                     }
                 ],
@@ -1222,7 +4216,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.AuthResponse"
+                            "$ref": "#/definitions/internal_handlers.AuthResponse"
                         }
                     }
                 }
@@ -1239,7 +4233,7 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Login by phone (mock code)",
+                "summary": "Login by phone",
                 "parameters": [
                     {
                         "description": "login phone",
@@ -1247,7 +4241,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.LoginPhoneRequest"
+                            "$ref": "#/definitions/internal_handlers.LoginPhoneRequest"
                         }
                     }
                 ],
@@ -1255,7 +4249,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.AuthResponse"
+                            "$ref": "#/definitions/internal_handlers.AuthResponse"
                         }
                     }
                 }
@@ -1280,7 +4274,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.LogoutRequest"
+                            "$ref": "#/definitions/internal_handlers.LogoutRequest"
                         }
                     }
                 ],
@@ -1288,7 +4282,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
                         }
                     }
                 }
@@ -1313,7 +4307,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.RefreshRequest"
+                            "$ref": "#/definitions/internal_handlers.RefreshRequest"
                         }
                     }
                 ],
@@ -1321,7 +4315,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.TokenResponse"
+                            "$ref": "#/definitions/internal_handlers.TokenResponse"
                         }
                     }
                 }
@@ -1346,7 +4340,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.RegisterRequest"
+                            "$ref": "#/definitions/internal_handlers.RegisterRequest"
                         }
                     }
                 ],
@@ -1354,7 +4348,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/handlers.AuthResponse"
+                            "$ref": "#/definitions/internal_handlers.AuthResponse"
                         }
                     }
                 }
@@ -1371,7 +4365,7 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Register by phone (mock code)",
+                "summary": "Register by phone",
                 "parameters": [
                     {
                         "description": "register phone",
@@ -1379,7 +4373,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.RegisterPhoneRequest"
+                            "$ref": "#/definitions/internal_handlers.RegisterPhoneRequest"
                         }
                     }
                 ],
@@ -1387,7 +4381,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/handlers.AuthResponse"
+                            "$ref": "#/definitions/internal_handlers.AuthResponse"
                         }
                     }
                 }
@@ -1404,7 +4398,7 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Send phone code (mock)",
+                "summary": "Send phone verification code",
                 "parameters": [
                     {
                         "description": "send code",
@@ -1412,7 +4406,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.SendCodeRequest"
+                            "$ref": "#/definitions/internal_handlers.SendCodeRequest"
                         }
                     }
                 ],
@@ -1420,7 +4414,57 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.SendCodeResponse"
+                            "$ref": "#/definitions/internal_handlers.SendCodeResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/categories": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "List categories (public)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.PublicCategoryResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/collections/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "collections"
+                ],
+                "summary": "Get collection detail",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "collection id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CollectionListItem"
                         }
                     }
                 }
@@ -1428,6 +4472,7 @@ const docTemplate = `{
         },
         "/api/collections/{id}/download-list": {
             "get": {
+                "description": "权限：需登录且账号激活；当前接口仅订阅会员可调用（次卡用户请走 ZIP 下载接口）。",
                 "produces": [
                     "application/json"
                 ],
@@ -1454,7 +4499,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.DownloadListResponse"
+                            "$ref": "#/definitions/internal_handlers.DownloadListResponse"
                         }
                     }
                 }
@@ -1462,6 +4507,7 @@ const docTemplate = `{
         },
         "/api/collections/{id}/download-zip": {
             "get": {
+                "description": "权限：需登录且账号激活；合集 ZIP 支持「订阅会员」或「合集次卡权益（entitlement）」任一满足即可下载。",
                 "produces": [
                     "application/json"
                 ],
@@ -1488,7 +4534,64 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.DownloadURLResponse"
+                            "$ref": "#/definitions/internal_handlers.DownloadURLResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/collections/{id}/download-zip-all": {
+            "get": {
+                "description": "权限：需登录且账号激活；合集 ZIP（全分片聚合）支持「订阅会员」或「合集次卡权益（entitlement）」任一满足即可下载。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "collections"
+                ],
+                "summary": "Get collection aggregated zip download URL",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "collection id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.DownloadURLResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/collections/{id}/zips": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "collections"
+                ],
+                "summary": "Get collection zip list",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "collection id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CollectionZipListResponse"
                         }
                     }
                 }
@@ -1496,6 +4599,7 @@ const docTemplate = `{
         },
         "/api/emojis/{id}/download": {
             "get": {
+                "description": "权限：需登录且账号激活；不要求订阅状态（仍受限频与风控策略约束）。",
                 "produces": [
                     "application/json"
                 ],
@@ -1522,7 +4626,390 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.DownloadURLResponse"
+                            "$ref": "#/definitions/internal_handlers.DownloadURLResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/emojis/{id}/download-file": {
+            "get": {
+                "description": "权限：需登录且账号激活；不要求订阅状态（仍受限频与风控策略约束）。",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "emojis"
+                ],
+                "summary": "Download emoji file directly",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "emoji id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "ttl (seconds)",
+                        "name": "ttl",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/favorites": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "favorites"
+                ],
+                "summary": "获取收藏列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.FavoriteEmojiListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "favorites"
+                ],
+                "summary": "添加收藏",
+                "parameters": [
+                    {
+                        "description": "Emoji ID",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "emoji_id": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/emoji_internal_models.Favorite"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/favorites/collections": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "favorites"
+                ],
+                "summary": "获取收藏合集列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.FavoriteCollectionListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/favorites/{emoji_id}": {
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "favorites"
+                ],
+                "summary": "取消收藏",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Emoji ID",
+                        "name": "emoji_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/integrations/mock/qq/video-jobs": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Create mock QQ ingress video job",
+                "parameters": [
+                    {
+                        "description": "create mock ingress request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateMockIngressVideoJobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateMockIngressVideoJobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/integrations/mock/wecom/video-jobs": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Create mock WeCom ingress video job",
+                "parameters": [
+                    {
+                        "description": "create mock ingress request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateMockIngressVideoJobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateMockIngressVideoJobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ips": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "List IPs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "keyword",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.IPResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ips/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Get IP",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ip id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ips/{id}/collections": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Get IP collections",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ip id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sort field: created_at|file_count|id",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sort order: asc|desc",
+                        "name": "order",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "preview images count",
+                        "name": "preview_count",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.IPCollectionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/join-applications": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Submit join application",
+                "parameters": [
+                    {
+                        "description": "join application request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.JoinApplicationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.JoinApplicationResponse"
                         }
                     }
                 }
@@ -1541,7 +5028,443 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UserResponse"
+                            "$ref": "#/definitions/internal_handlers.UserResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Update current user profile",
+                "parameters": [
+                    {
+                        "description": "profile",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateProfileRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/collection-download-code/redeem": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Redeem collection download code card",
+                "responses": {}
+            }
+        },
+        "/api/me/collection-download-code/validate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Validate collection download code card",
+                "responses": {}
+            }
+        },
+        "/api/me/collection-download-entitlements": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List my collection download entitlements",
+                "responses": {}
+            }
+        },
+        "/api/me/collection-download-redeem-records": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List my collection card redeem records",
+                "responses": {}
+            }
+        },
+        "/api/me/compute-account": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user compute account",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "ledger limit (max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeAccountSummaryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/compute-redeem-code/redeem": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Redeem compute points code",
+                "parameters": [
+                    {
+                        "description": "redeem code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeSubmitResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/compute-redeem-code/validate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Validate compute redeem code availability",
+                "parameters": [
+                    {
+                        "description": "redeem code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeValidateResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/compute-redeem-records": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List my compute redeem records",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ComputeRedeemRedemptionRecordListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/integrations/overview": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user integrations overview",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.MyIntegrationsOverviewResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/redeem-code": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Redeem subscription code",
+                "parameters": [
+                    {
+                        "description": "redeem code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedeemCodeSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedeemCodeSubmitResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/redeem-code/validate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Validate redeem code availability",
+                "parameters": [
+                    {
+                        "description": "redeem code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedeemCodeSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedeemCodeValidateResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me/redeem-records": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List my redemption records",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "page",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "page size",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RedemptionRecordListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/my/works": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "List current user works cards",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "format: all|gif|png|jpg|webp|live|mp4",
+                        "name": "format",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "status filter, default done",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "limit (default 80, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/site-settings/footer": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Get public site footer setting",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SiteFooterSettingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/stats/home": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Get home page stats snapshot",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.HomeStatsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/stats/today": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public"
+                ],
+                "summary": "Get today stats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.TodayStatsResponse"
                         }
                     }
                 }
@@ -1569,7 +5492,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.StorageObjectResponse"
+                            "$ref": "#/definitions/internal_handlers.StorageObjectResponse"
                         }
                     }
                 }
@@ -1595,7 +5518,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
                         }
                     }
                 }
@@ -1613,7 +5536,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "default": "emoji/",
+                        "default": "configured root prefix",
                         "description": "prefix",
                         "name": "prefix",
                         "in": "query"
@@ -1636,7 +5559,40 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ListObjectsResponse"
+                            "$ref": "#/definitions/internal_handlers.ListObjectsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/storage/proxy": {
+            "get": {
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "storage"
+                ],
+                "summary": "Proxy object content (temporary fallback)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "object key",
+                        "name": "key",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "raw object url",
+                        "name": "url",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -1661,7 +5617,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.RenameObjectRequest"
+                            "$ref": "#/definitions/internal_handlers.RenameObjectRequest"
                         }
                     }
                 ],
@@ -1669,7 +5625,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.MessageResponse"
+                            "$ref": "#/definitions/internal_handlers.MessageResponse"
                         }
                     }
                 }
@@ -1677,7 +5633,7 @@ const docTemplate = `{
         },
         "/api/storage/upload-token": {
             "post": {
-                "description": "Generate Qiniu upload token for key or prefix (default emoji/)",
+                "description": "Generate Qiniu upload token for key or prefix (default configured root prefix)",
                 "consumes": [
                     "application/json"
                 ],
@@ -1695,7 +5651,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handlers.UploadTokenRequest"
+                            "$ref": "#/definitions/internal_handlers.UploadTokenRequest"
                         }
                     }
                 ],
@@ -1703,7 +5659,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.UploadTokenResponse"
+                            "$ref": "#/definitions/internal_handlers.UploadTokenResponse"
                         }
                     }
                 }
@@ -1738,21 +5694,1890 @@ const docTemplate = `{
                         "description": "force private url",
                         "name": "private",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "url style preset, e.g. cover_static",
+                        "name": "style",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/handlers.ObjectURLResponse"
+                            "$ref": "#/definitions/internal_handlers.ObjectURLResponse"
                         }
                     }
                 }
             }
+        },
+        "/api/storage/urls": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "storage"
+                ],
+                "summary": "Batch get object URLs",
+                "parameters": [
+                    {
+                        "description": "batch object urls request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.BatchObjectURLRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.BatchObjectURLResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "List current user video jobs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.VideoJobResponse"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Create video emoji generation job",
+                "parameters": [
+                    {
+                        "description": "create video job request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateVideoJobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/advanced-scene-options": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get advanced scene options for video-to-image AI1",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "target format, e.g. png/gif/jpg/webp/live",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobAdvancedSceneOptionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/capabilities": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get video generation runtime capabilities",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobCapabilitiesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/source-probe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Probe uploaded source video metadata",
+                "parameters": [
+                    {
+                        "description": "source video key",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ProbeSourceVideoRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ProbeSourceVideoResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/source-url-probe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Probe external video url (mock placeholder)",
+                "parameters": [
+                    {
+                        "description": "external source url",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ProbeSourceVideoURLRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ProbeSourceVideoURLResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/upload-token": {
+            "post": {
+                "description": "Authenticated user upload token, scoped to configured root user-video path",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "storage"
+                ],
+                "summary": "Get upload token for video-job source upload",
+                "parameters": [
+                    {
+                        "description": "upload token request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UploadTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UploadTokenResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user video job detail",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}/ai1-debug": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user video job ai1 debug payloads",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobAI1DebugResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}/ai1-plan": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user video job ai1 executable plan",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobAI1PlanResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Patch current user video job ai1 plan and regenerate ai2 consumable payload",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobAI1PlanResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}/cancel": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Cancel current user video job",
+                "responses": {}
+            }
+        },
+        "/api/video-jobs/{id}/confirm-ai1": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Confirm AI1 result and continue current user video job",
+                "responses": {}
+            }
+        },
+        "/api/video-jobs/{id}/download-zip": {
+            "get": {
+                "description": "权限：仅任务所属用户可下载自己的创作 ZIP；不要求订阅状态。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user video job zip download URL",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "video job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "ttl (seconds)",
+                        "name": "ttl",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.DownloadURLResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}/emojis/{emojiID}/download-file": {
+            "get": {
+                "description": "权限：仅任务所属用户可下载自己的创作产物；不要求订阅状态（仍受限频与风控策略约束）。",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Download video job output file directly",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "video job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "emoji/output id in result collection",
+                        "name": "emojiID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "ttl (seconds)",
+                        "name": "ttl",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/video-jobs/{id}/events": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "List current user video job events",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "event id cursor (exclusive)",
+                        "name": "since_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "limit (default 80, max 300)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.VideoJobEventListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}/feedback": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Submit user feedback for one generated output",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "feedback request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SubmitVideoJobFeedbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SubmitVideoJobFeedbackResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/video-jobs/{id}/result": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get current user video job result collection",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "whether to only return deliver outputs (default true)",
+                        "name": "delivery_only",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "comma-separated review statuses: deliver,keep_internal,reject,need_manual_review",
+                        "name": "review_status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/api/video-jobs/{id}/stream": {
+            "get": {
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Stream current user video job events (SSE)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "job id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "event cursor",
+                        "name": "since_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {}
+            }
         }
     },
     "definitions": {
-        "handlers.AdminStorageItem": {
+        "emoji_internal_models.Emoji": {
+            "type": "object",
+            "properties": {
+                "collectionID": {
+                    "type": "integer"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "deletedAt": {
+                    "$ref": "#/definitions/gorm.DeletedAt"
+                },
+                "displayOrder": {
+                    "type": "integer"
+                },
+                "fileURL": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "sizeBytes": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "thumbURL": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
+        "emoji_internal_models.Favorite": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "emoji": {
+                    "$ref": "#/definitions/emoji_internal_models.Emoji"
+                },
+                "emojiID": {
+                    "type": "integer"
+                },
+                "userID": {
+                    "type": "integer"
+                }
+            }
+        },
+        "emoji_internal_videojobs.FormatCapability": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "supported": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "emoji_internal_videojobs.GIFRerenderResult": {
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "integer"
+                },
+                "candidate_id": {
+                    "type": "integer"
+                },
+                "collection_id": {
+                    "type": "integer"
+                },
+                "cost_after_cny": {
+                    "type": "number"
+                },
+                "cost_before_cny": {
+                    "type": "number"
+                },
+                "cost_delta_cny": {
+                    "type": "number"
+                },
+                "display_order": {
+                    "type": "integer"
+                },
+                "emoji_id": {
+                    "type": "integer"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "output_object_key": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "proposal_rank": {
+                    "type": "integer"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "width": {
+                    "type": "integer"
+                },
+                "window_duration_sec": {
+                    "type": "number"
+                },
+                "window_end_sec": {
+                    "type": "number"
+                },
+                "window_start_sec": {
+                    "type": "number"
+                },
+                "zip_invalidated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "emoji_internal_videojobs.PublicVideoImageSplitBackfillReport": {
+            "type": "object",
+            "properties": {
+                "apply": {
+                    "type": "boolean"
+                },
+                "batch_size": {
+                    "type": "integer"
+                },
+                "events": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillTableReport"
+                },
+                "fallback_format": {
+                    "type": "string"
+                },
+                "feedbacks": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillTableReport"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "format_filter": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillTableReport"
+                },
+                "outputs": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillTableReport"
+                },
+                "packages": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillTableReport"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "stopped": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "emoji_internal_videojobs.PublicVideoImageSplitBackfillTableReport": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "integer"
+                },
+                "fallback_used": {
+                    "type": "integer"
+                },
+                "last_id": {
+                    "type": "integer"
+                },
+                "scanned": {
+                    "type": "integer"
+                },
+                "skipped_by_format": {
+                    "type": "integer"
+                },
+                "would_write": {
+                    "type": "integer"
+                },
+                "written": {
+                    "type": "integer"
+                }
+            }
+        },
+        "gorm.DeletedAt": {
+            "type": "object",
+            "properties": {
+                "time": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if Time is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.ActivateAdminVideoAIPromptTemplateVersionRequest": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "layer": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "template_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminAdjustComputeAccountRequest": {
+            "type": "object",
+            "properties": {
+                "delta_points": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminBatchAssignCollectionIPRequest": {
+            "type": "object",
+            "properties": {
+                "collection_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "ip_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminBatchRerenderVideoJobGIFItemResult": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "proposal_rank": {
+                    "type": "integer"
+                },
+                "result": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.GIFRerenderResult"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminBatchRerenderVideoJobGIFRequest": {
+            "type": "object",
+            "properties": {
+                "force": {
+                    "type": "boolean"
+                },
+                "proposal_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "proposal_ranks": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "strategy": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminBatchRerenderVideoJobGIFResponse": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "integer"
+                },
+                "force": {
+                    "type": "boolean"
+                },
+                "idempotent": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminBatchRerenderVideoJobGIFItemResult"
+                    }
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "strategy": {
+                    "type": "string"
+                },
+                "succeeded": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminBatchUpdateCollectionSampleRequest": {
+            "type": "object",
+            "properties": {
+                "collection_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "is_sample": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.AdminBatchUpdateCollectionVisibilityRequest": {
+            "type": "object",
+            "properties": {
+                "collection_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "visibility": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminCollectionIPAuditLogItem": {
+            "type": "object",
+            "properties": {
+                "admin_id": {
+                    "type": "integer"
+                },
+                "admin_name": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "integer"
+                },
+                "collection_title": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "new_ip_id": {
+                    "type": "integer"
+                },
+                "new_ip_name": {
+                    "type": "string"
+                },
+                "old_ip_id": {
+                    "type": "integer"
+                },
+                "old_ip_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminCollectionIPAuditLogsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminCollectionIPAuditLogItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminCollectionIPStatItem": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "ip_id": {
+                    "type": "integer"
+                },
+                "ip_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminCollectionIPStatsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminCollectionIPStatItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminComputeAccountDetailResponse": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/internal_handlers.ComputeAccountResponse"
+                },
+                "held_jobs": {
+                    "type": "integer"
+                },
+                "holds": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminComputePointHoldItem"
+                    }
+                },
+                "ledgers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.ComputeLedgerItem"
+                    }
+                },
+                "point_per_cny": {
+                    "type": "number"
+                },
+                "user": {
+                    "$ref": "#/definitions/internal_handlers.AdminComputeAccountUser"
+                }
+            }
+        },
+        "internal_handlers.AdminComputeAccountItem": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/internal_handlers.ComputeAccountResponse"
+                },
+                "held_jobs": {
+                    "type": "integer"
+                },
+                "last_ledger_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/internal_handlers.AdminComputeAccountUser"
+                }
+            }
+        },
+        "internal_handlers.AdminComputeAccountListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminComputeAccountItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "summary": {
+                    "$ref": "#/definitions/internal_handlers.AdminComputeAccountListSummary"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminComputeAccountListSummary": {
+            "type": "object",
+            "properties": {
+                "available_points": {
+                    "type": "integer"
+                },
+                "debt_points": {
+                    "type": "integer"
+                },
+                "frozen_points": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminComputeAccountUser": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subscription_plan": {
+                    "type": "string"
+                },
+                "subscription_status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminComputePointHoldItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "remark": {
+                    "type": "string"
+                },
+                "reserved_points": {
+                    "type": "integer"
+                },
+                "settled_at": {
+                    "type": "string"
+                },
+                "settled_points": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminDataAuditOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminDataAuditRunItem"
+                    }
+                },
+                "latest": {
+                    "$ref": "#/definitions/internal_handlers.AdminDataAuditRunItem"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminDataAuditTrendPoint"
+                    }
+                },
+                "window_days": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminDataAuditRunItem": {
+            "type": "object",
+            "properties": {
+                "apply": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "db_emoji_total": {
+                    "type": "integer"
+                },
+                "db_zip_total": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "file_count_mismatch_count": {
+                    "type": "integer"
+                },
+                "fix_orphans": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "missing_emoji_object_count": {
+                    "type": "integer"
+                },
+                "missing_zip_object_count": {
+                    "type": "integer"
+                },
+                "qiniu_object_total": {
+                    "type": "integer"
+                },
+                "qiniu_orphan_raw_count": {
+                    "type": "integer"
+                },
+                "qiniu_orphan_zip_count": {
+                    "type": "integer"
+                },
+                "report_path": {
+                    "type": "string"
+                },
+                "run_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminDataAuditTrendPoint": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "failed_runs": {
+                    "type": "integer"
+                },
+                "healthy_runs": {
+                    "type": "integer"
+                },
+                "max_file_count_mismatch_count": {
+                    "type": "integer"
+                },
+                "max_missing_emoji_object_count": {
+                    "type": "integer"
+                },
+                "max_missing_zip_object_count": {
+                    "type": "integer"
+                },
+                "max_qiniu_orphan_raw_count": {
+                    "type": "integer"
+                },
+                "runs": {
+                    "type": "integer"
+                },
+                "warn_runs": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthAlert": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthCandidateRejectItem": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "rate": {
+                    "type": "number"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthCandidateRejectSummary": {
+            "type": "object",
+            "properties": {
+                "blur_low": {
+                    "type": "integer"
+                },
+                "duplicate_candidate": {
+                    "type": "integer"
+                },
+                "loop_poor": {
+                    "type": "integer"
+                },
+                "low_confidence": {
+                    "type": "integer"
+                },
+                "low_emotion": {
+                    "type": "integer"
+                },
+                "reject_rate": {
+                    "type": "number"
+                },
+                "rejected": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "size_budget_exceeded": {
+                    "type": "integer"
+                },
+                "unknown_reason": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthConsistencySummary": {
+            "type": "object",
+            "properties": {
+                "done_without_main_output": {
+                    "type": "integer"
+                },
+                "failed_but_has_main_output": {
+                    "type": "integer"
+                },
+                "running_but_has_main_output": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthFailureReason": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthIntegritySummary": {
+            "type": "object",
+            "properties": {
+                "invalid_dimension": {
+                    "type": "integer"
+                },
+                "missing_object_key": {
+                    "type": "integer"
+                },
+                "non_positive_size": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "tune_applied_but_zero_score": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthJobsSummary": {
+            "type": "object",
+            "properties": {
+                "done_rate": {
+                    "type": "number"
+                },
+                "failed_rate": {
+                    "type": "number"
+                },
+                "jobs_done": {
+                    "type": "integer"
+                },
+                "jobs_failed": {
+                    "type": "integer"
+                },
+                "jobs_queued": {
+                    "type": "integer"
+                },
+                "jobs_running": {
+                    "type": "integer"
+                },
+                "jobs_total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthLoopTuneSummary": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "type": "integer"
+                },
+                "applied_rate": {
+                    "type": "number"
+                },
+                "avg_effective_sec": {
+                    "type": "number"
+                },
+                "avg_loop_closure": {
+                    "type": "number"
+                },
+                "avg_motion_mean": {
+                    "type": "number"
+                },
+                "avg_score": {
+                    "type": "number"
+                },
+                "effective_applied": {
+                    "type": "integer"
+                },
+                "effective_applied_rate": {
+                    "type": "number"
+                },
+                "fallback_rate": {
+                    "type": "number"
+                },
+                "fallback_to_base": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthOptimizerSummary": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "type": "integer"
+                },
+                "applied_rate": {
+                    "type": "number"
+                },
+                "attempted": {
+                    "type": "integer"
+                },
+                "avg_saved_bytes": {
+                    "type": "number"
+                },
+                "avg_saved_ratio": {
+                    "type": "number"
+                },
+                "samples": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthOutputsSummary": {
+            "type": "object",
+            "properties": {
+                "avg_height": {
+                    "type": "number"
+                },
+                "avg_size_bytes": {
+                    "type": "number"
+                },
+                "avg_width": {
+                    "type": "number"
+                },
+                "outputs_total": {
+                    "type": "integer"
+                },
+                "p50_size_bytes": {
+                    "type": "number"
+                },
+                "p95_size_bytes": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthPathSummary": {
+            "type": "object",
+            "properties": {
+                "new_path_prefix_count": {
+                    "type": "integer"
+                },
+                "new_path_prefix_rate": {
+                    "type": "number"
+                },
+                "new_path_strict_count": {
+                    "type": "integer"
+                },
+                "new_path_strict_rate": {
+                    "type": "number"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthReportResponse": {
+            "type": "object",
+            "properties": {
+                "alert_thresholds": {
+                    "$ref": "#/definitions/internal_handlers.GIFHealthAlertThresholdSettings"
+                },
+                "alerts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminGIFHealthAlert"
+                    }
+                },
+                "candidate_reject": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthCandidateRejectSummary"
+                },
+                "candidate_top": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminGIFHealthCandidateRejectItem"
+                    }
+                },
+                "checked_at": {
+                    "type": "string"
+                },
+                "consistency": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthConsistencySummary"
+                },
+                "health": {
+                    "type": "string"
+                },
+                "integrity": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthIntegritySummary"
+                },
+                "jobs": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthJobsSummary"
+                },
+                "loop_tune": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthLoopTuneSummary"
+                },
+                "missing_columns": {
+                    "type": "integer"
+                },
+                "optimizer": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthOptimizerSummary"
+                },
+                "outputs": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthOutputsSummary"
+                },
+                "path": {
+                    "$ref": "#/definitions/internal_handlers.AdminGIFHealthPathSummary"
+                },
+                "schema_checks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminGIFHealthSchemaCheck"
+                    }
+                },
+                "schema_ok": {
+                    "type": "boolean"
+                },
+                "top_failures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminGIFHealthFailureReason"
+                    }
+                },
+                "window_end": {
+                    "type": "string"
+                },
+                "window_hours": {
+                    "type": "integer"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthSchemaCheck": {
+            "type": "object",
+            "properties": {
+                "column_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthTrendPoint": {
+            "type": "object",
+            "properties": {
+                "avg_loop_score": {
+                    "type": "number"
+                },
+                "avg_size_bytes": {
+                    "type": "number"
+                },
+                "bucket_end": {
+                    "type": "string"
+                },
+                "bucket_start": {
+                    "type": "string"
+                },
+                "done_rate": {
+                    "type": "number"
+                },
+                "failed_rate": {
+                    "type": "number"
+                },
+                "jobs_done": {
+                    "type": "integer"
+                },
+                "jobs_failed": {
+                    "type": "integer"
+                },
+                "jobs_queued": {
+                    "type": "integer"
+                },
+                "jobs_running": {
+                    "type": "integer"
+                },
+                "jobs_total": {
+                    "type": "integer"
+                },
+                "loop_applied_rate": {
+                    "type": "number"
+                },
+                "loop_fallback_rate": {
+                    "type": "number"
+                },
+                "new_path_strict_rate": {
+                    "type": "number"
+                },
+                "outputs_total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminGIFHealthTrendResponse": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminGIFHealthTrendPoint"
+                    }
+                },
+                "window_end": {
+                    "type": "string"
+                },
+                "window_hours": {
+                    "type": "integer"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminSampleVideoJobsBaselineDiffFormatStat": {
+            "type": "object",
+            "properties": {
+                "avg_artifact_size_delta": {
+                    "type": "number"
+                },
+                "avg_artifact_size_uplift": {
+                    "type": "number"
+                },
+                "base_avg_artifact_size_bytes": {
+                    "type": "number"
+                },
+                "base_duration_p50_sec": {
+                    "type": "number"
+                },
+                "base_duration_p95_sec": {
+                    "type": "number"
+                },
+                "base_generated_jobs": {
+                    "type": "integer"
+                },
+                "base_requested_jobs": {
+                    "type": "integer"
+                },
+                "base_success_rate": {
+                    "type": "number"
+                },
+                "duration_p50_delta": {
+                    "type": "number"
+                },
+                "duration_p50_uplift": {
+                    "type": "number"
+                },
+                "duration_p95_delta": {
+                    "type": "number"
+                },
+                "duration_p95_uplift": {
+                    "type": "number"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "success_rate_delta": {
+                    "type": "number"
+                },
+                "success_rate_uplift": {
+                    "type": "number"
+                },
+                "target_avg_artifact_size_bytes": {
+                    "type": "number"
+                },
+                "target_duration_p50_sec": {
+                    "type": "number"
+                },
+                "target_duration_p95_sec": {
+                    "type": "number"
+                },
+                "target_generated_jobs": {
+                    "type": "integer"
+                },
+                "target_requested_jobs": {
+                    "type": "integer"
+                },
+                "target_success_rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminSampleVideoJobsBaselineDiffResponse": {
+            "type": "object",
+            "properties": {
+                "base_window": {
+                    "type": "string"
+                },
+                "formats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminSampleVideoJobsBaselineDiffFormatStat"
+                    }
+                },
+                "generated_at": {
+                    "type": "string"
+                },
+                "summary": {
+                    "$ref": "#/definitions/internal_handlers.AdminSampleVideoJobsBaselineDiffSummary"
+                },
+                "target_window": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminSampleVideoJobsBaselineDiffSummary": {
+            "type": "object",
+            "properties": {
+                "base_done_window": {
+                    "type": "integer"
+                },
+                "base_duration_p50_sec": {
+                    "type": "number"
+                },
+                "base_duration_p95_sec": {
+                    "type": "number"
+                },
+                "base_failed_window": {
+                    "type": "integer"
+                },
+                "base_jobs_window": {
+                    "type": "integer"
+                },
+                "base_success_rate": {
+                    "type": "number"
+                },
+                "done_window_delta": {
+                    "type": "number"
+                },
+                "done_window_uplift": {
+                    "type": "number"
+                },
+                "duration_p50_delta": {
+                    "type": "number"
+                },
+                "duration_p50_uplift": {
+                    "type": "number"
+                },
+                "duration_p95_delta": {
+                    "type": "number"
+                },
+                "duration_p95_uplift": {
+                    "type": "number"
+                },
+                "failed_window_delta": {
+                    "type": "number"
+                },
+                "failed_window_uplift": {
+                    "type": "number"
+                },
+                "jobs_window_delta": {
+                    "type": "number"
+                },
+                "jobs_window_uplift": {
+                    "type": "number"
+                },
+                "success_rate_delta": {
+                    "type": "number"
+                },
+                "success_rate_uplift": {
+                    "type": "number"
+                },
+                "target_done_window": {
+                    "type": "integer"
+                },
+                "target_duration_p50_sec": {
+                    "type": "number"
+                },
+                "target_duration_p95_sec": {
+                    "type": "number"
+                },
+                "target_failed_window": {
+                    "type": "integer"
+                },
+                "target_jobs_window": {
+                    "type": "integer"
+                },
+                "target_success_rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminStorageItem": {
             "type": "object",
             "properties": {
                 "fsize": {
@@ -1781,7 +7606,60 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.AdminUpdateCollectionRequest": {
+        "internal_handlers.AdminSystemDoctorCheck": {
+            "type": "object",
+            "properties": {
+                "alerts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "details": {},
+                "health": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminSystemDoctorResponse": {
+            "type": "object",
+            "properties": {
+                "alerts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "checked_at": {
+                    "type": "string"
+                },
+                "checks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminSystemDoctorCheck"
+                    }
+                },
+                "health": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminUpdateCollectionRequest": {
             "type": "object",
             "properties": {
                 "category_id": {
@@ -1793,10 +7671,16 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "ip_id": {
+                    "type": "integer"
+                },
                 "is_featured": {
                     "type": "boolean"
                 },
                 "is_pinned": {
+                    "type": "boolean"
+                },
+                "is_sample": {
                     "type": "boolean"
                 },
                 "status": {
@@ -1819,7 +7703,3648 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.AppendZipResponse": {
+        "internal_handlers.AdminUserDetailResponse": {
+            "type": "object",
+            "properties": {
+                "redemption_records": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.RedemptionRecordResponse"
+                    }
+                },
+                "user": {
+                    "$ref": "#/definitions/internal_handlers.UserResponse"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoAIPromptTemplateAuditItem": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "layer": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "operator_admin_id": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "template_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoAIPromptTemplateItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "layer": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "resolved_from": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "template_json_schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "template_text": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoAIPromptTemplateVersionItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "layer": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoIngressCountItem": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "key": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoIngressJobItem": {
+            "type": "object",
+            "properties": {
+                "bound_user_id": {
+                    "type": "integer"
+                },
+                "channel": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "external_user_id": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "provider_label": {
+                    "type": "string"
+                },
+                "source_file_name": {
+                    "type": "string"
+                },
+                "source_size_bytes": {
+                    "type": "integer"
+                },
+                "source_video_key": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tenant_key": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_display_name": {
+                    "type": "string"
+                },
+                "user_phone": {
+                    "type": "string"
+                },
+                "video_job_id": {
+                    "type": "integer"
+                },
+                "video_job_status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoIngressJobListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoIngressJobItem"
+                    }
+                },
+                "provider_counts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoIngressCountItem"
+                    }
+                },
+                "status_counts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoIngressCountItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "window": {
+                    "type": "string"
+                },
+                "window_end": {
+                    "type": "string"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAI1DebugItem": {
+            "type": "object",
+            "properties": {
+                "field_audit": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAI1FieldAuditItem"
+                    }
+                },
+                "flow_mode": {
+                    "type": "string"
+                },
+                "input": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model_request": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model_response": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "requested_format": {
+                    "type": "string"
+                },
+                "source_prompt": {
+                    "type": "string"
+                },
+                "trace": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAI1FieldAuditItem": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "field_path": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "value": {}
+            }
+        },
+        "internal_handlers.AdminVideoJobAIGIFDirectiveItem": {
+            "type": "object",
+            "properties": {
+                "audience": {
+                    "type": "string"
+                },
+                "avoid": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "brief_version": {
+                    "type": "string"
+                },
+                "business_goal": {
+                    "type": "string"
+                },
+                "clip_count_max": {
+                    "type": "integer"
+                },
+                "clip_count_min": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "directive_text": {
+                    "type": "string"
+                },
+                "duration_pref_max_sec": {
+                    "type": "number"
+                },
+                "duration_pref_min_sec": {
+                    "type": "number"
+                },
+                "fallback_used": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "input_context": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "loop_preference": {
+                    "type": "number"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model": {
+                    "type": "string"
+                },
+                "model_version": {
+                    "type": "string"
+                },
+                "must_capture": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "prompt_version": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "quality_weights": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "risk_flags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "style_direction": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAIGIFProposalItem": {
+            "type": "object",
+            "properties": {
+                "base_score": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_sec": {
+                    "type": "number"
+                },
+                "end_sec": {
+                    "type": "number"
+                },
+                "expected_value_level": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "loop_friendliness_hint": {
+                    "type": "number"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt_version": {
+                    "type": "string"
+                },
+                "proposal_rank": {
+                    "type": "integer"
+                },
+                "proposal_reason": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "semantic_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "standalone_confidence": {
+                    "type": "number"
+                },
+                "start_sec": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAIGIFReviewItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "diagnostic_reason": {
+                    "type": "string"
+                },
+                "final_recommendation": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model": {
+                    "type": "string"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "prompt_version": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "semantic_verdict": {
+                    "type": "number"
+                },
+                "suggested_action": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAIImageReviewItem": {
+            "type": "object",
+            "properties": {
+                "candidate_budget": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deliver_count": {
+                    "type": "integer"
+                },
+                "effective_duration_sec": {
+                    "type": "number"
+                },
+                "hard_gate_manual_review_count": {
+                    "type": "integer"
+                },
+                "hard_gate_reject_count": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "manual_review_count": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "quality_fallback": {
+                    "type": "boolean"
+                },
+                "quality_selector_version": {
+                    "type": "string"
+                },
+                "recommendation": {
+                    "type": "string"
+                },
+                "reject_count": {
+                    "type": "integer"
+                },
+                "reviewed_outputs": {
+                    "type": "integer"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "summary_note": {
+                    "type": "string"
+                },
+                "target_format": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAIUsageItem": {
+            "type": "object",
+            "properties": {
+                "audio_seconds": {
+                    "type": "number"
+                },
+                "cached_input_tokens": {
+                    "type": "integer"
+                },
+                "cost_usd": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "endpoint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_tokens": {
+                    "type": "integer"
+                },
+                "input_tokens": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model": {
+                    "type": "string"
+                },
+                "output_tokens": {
+                    "type": "integer"
+                },
+                "pricing_source_url": {
+                    "type": "string"
+                },
+                "pricing_version": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "request_duration_ms": {
+                    "type": "integer"
+                },
+                "request_error": {
+                    "type": "string"
+                },
+                "request_status": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "video_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobArtifactItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_primary": {
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "mime_type": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "qiniu_key": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobAuditSummary": {
+            "type": "object",
+            "properties": {
+                "deliver_count": {
+                    "type": "integer"
+                },
+                "feedback_count": {
+                    "type": "integer"
+                },
+                "keep_internal_count": {
+                    "type": "integer"
+                },
+                "need_manual_review_count": {
+                    "type": "integer"
+                },
+                "proposal_count": {
+                    "type": "integer"
+                },
+                "reject_count": {
+                    "type": "integer"
+                },
+                "rerender_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobCollection": {
+            "type": "object",
+            "properties": {
+                "cover_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_sample": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobCost": {
+            "type": "object",
+            "properties": {
+                "ai_audio_seconds": {
+                    "type": "number"
+                },
+                "ai_cached_input_tokens": {
+                    "type": "integer"
+                },
+                "ai_calls": {
+                    "type": "integer"
+                },
+                "ai_cost_cny": {
+                    "type": "number"
+                },
+                "ai_cost_usd": {
+                    "type": "number"
+                },
+                "ai_duration_ms": {
+                    "type": "integer"
+                },
+                "ai_error_calls": {
+                    "type": "integer"
+                },
+                "ai_image_tokens": {
+                    "type": "integer"
+                },
+                "ai_input_tokens": {
+                    "type": "integer"
+                },
+                "ai_output_tokens": {
+                    "type": "integer"
+                },
+                "ai_video_tokens": {
+                    "type": "integer"
+                },
+                "cpu_ms": {
+                    "type": "integer"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "estimated_cost": {
+                    "type": "number"
+                },
+                "gpu_ms": {
+                    "type": "integer"
+                },
+                "output_count": {
+                    "type": "integer"
+                },
+                "pricing_version": {
+                    "type": "string"
+                },
+                "storage_bytes_output": {
+                    "type": "integer"
+                },
+                "storage_bytes_raw": {
+                    "type": "integer"
+                },
+                "usd_to_cny_rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobDetailResponse": {
+            "type": "object",
+            "properties": {
+                "ai1_debug": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobAI1DebugItem"
+                },
+                "ai_gif_directives": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFDirectiveItem"
+                    }
+                },
+                "ai_gif_proposals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFProposalItem"
+                    }
+                },
+                "ai_gif_review_status_counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "ai_gif_review_status_filter": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ai_gif_reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFReviewItem"
+                    }
+                },
+                "ai_image_reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIImageReviewItem"
+                    }
+                },
+                "ai_usages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIUsageItem"
+                    }
+                },
+                "artifacts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobArtifactItem"
+                    }
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobEventItem"
+                    }
+                },
+                "gif_candidates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFCandidateItem"
+                    }
+                },
+                "job": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobListItem"
+                },
+                "proposal_chains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFProposalChainItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobEventItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "stage": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFailureReason": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackActionStat": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "ratio": {
+                    "type": "number"
+                },
+                "weight_sum": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackGroupFormatStat": {
+            "type": "object",
+            "properties": {
+                "applied_jobs": {
+                    "type": "integer"
+                },
+                "avg_engagement_score": {
+                    "type": "number"
+                },
+                "engaged_jobs": {
+                    "type": "integer"
+                },
+                "feedback_signals": {
+                    "type": "integer"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "group": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackGroupStat": {
+            "type": "object",
+            "properties": {
+                "applied_jobs": {
+                    "type": "integer"
+                },
+                "avg_engagement_score": {
+                    "type": "number"
+                },
+                "engaged_jobs": {
+                    "type": "integer"
+                },
+                "feedback_signals": {
+                    "type": "integer"
+                },
+                "group": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityAlert": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityAlertCodeStat": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "days_hit": {
+                    "type": "integer"
+                },
+                "latest_bucket": {
+                    "type": "string"
+                },
+                "latest_level": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityDelta": {
+            "type": "object",
+            "properties": {
+                "alert_count_delta": {
+                    "type": "integer"
+                },
+                "current_alert_count": {
+                    "type": "integer"
+                },
+                "current_health": {
+                    "type": "string"
+                },
+                "current_samples": {
+                    "type": "integer"
+                },
+                "has_previous_data": {
+                    "type": "boolean"
+                },
+                "output_coverage_rate_delta": {
+                    "type": "number"
+                },
+                "output_job_consistency_rate_delta": {
+                    "type": "number"
+                },
+                "output_resolved_rate_delta": {
+                    "type": "number"
+                },
+                "previous_alert_count": {
+                    "type": "integer"
+                },
+                "previous_health": {
+                    "type": "string"
+                },
+                "previous_samples": {
+                    "type": "integer"
+                },
+                "previous_window_end": {
+                    "type": "string"
+                },
+                "previous_window_start": {
+                    "type": "string"
+                },
+                "samples_delta": {
+                    "type": "integer"
+                },
+                "top_pick_multi_hit_users_delta": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityDrilldownResponse": {
+            "type": "object",
+            "properties": {
+                "anomaly_jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityDrilldownRow"
+                    }
+                },
+                "filter_format": {
+                    "type": "string"
+                },
+                "filter_guard_reason": {
+                    "type": "string"
+                },
+                "filter_user_id": {
+                    "type": "integer"
+                },
+                "top_pick_conflict_jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityDrilldownRow"
+                    }
+                },
+                "window": {
+                    "type": "string"
+                },
+                "window_end": {
+                    "type": "string"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityDrilldownRow": {
+            "type": "object",
+            "properties": {
+                "anomaly_count": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "latest_feedback_at": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "top_pick_conflict_actions": {
+                    "type": "integer"
+                },
+                "top_pick_conflict_users": {
+                    "type": "integer"
+                },
+                "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityEscalation": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "triggered_rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityEscalationIncident": {
+            "type": "object",
+            "properties": {
+                "alert_count": {
+                    "type": "integer"
+                },
+                "alert_count_delta": {
+                    "type": "integer"
+                },
+                "bucket": {
+                    "type": "string"
+                },
+                "escalation_level": {
+                    "type": "string"
+                },
+                "escalation_reason": {
+                    "type": "string"
+                },
+                "escalation_required": {
+                    "type": "boolean"
+                },
+                "recovery_status": {
+                    "type": "string"
+                },
+                "top_pick_multi_hit_users": {
+                    "type": "integer"
+                },
+                "top_pick_multi_hit_users_delta": {
+                    "type": "integer"
+                },
+                "triggered_rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityEscalationStats": {
+            "type": "object",
+            "properties": {
+                "latest_bucket": {
+                    "type": "string"
+                },
+                "latest_level": {
+                    "type": "string"
+                },
+                "latest_reason": {
+                    "type": "string"
+                },
+                "latest_required": {
+                    "type": "boolean"
+                },
+                "none_days": {
+                    "type": "integer"
+                },
+                "notice_days": {
+                    "type": "integer"
+                },
+                "oncall_days": {
+                    "type": "integer"
+                },
+                "required_days": {
+                    "type": "integer"
+                },
+                "total_days": {
+                    "type": "integer"
+                },
+                "watch_days": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityEscalationTrendPoint": {
+            "type": "object",
+            "properties": {
+                "alert_count": {
+                    "type": "integer"
+                },
+                "alert_count_delta": {
+                    "type": "integer"
+                },
+                "bucket": {
+                    "type": "string"
+                },
+                "escalation_level": {
+                    "type": "string"
+                },
+                "escalation_reason": {
+                    "type": "string"
+                },
+                "escalation_required": {
+                    "type": "boolean"
+                },
+                "health": {
+                    "type": "string"
+                },
+                "recovery_status": {
+                    "type": "string"
+                },
+                "top_pick_multi_hit_users": {
+                    "type": "integer"
+                },
+                "top_pick_multi_hit_users_delta": {
+                    "type": "integer"
+                },
+                "triggered_rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityHealthTrendPoint": {
+            "type": "object",
+            "properties": {
+                "alert_codes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "alert_count": {
+                    "type": "integer"
+                },
+                "bucket": {
+                    "type": "string"
+                },
+                "health": {
+                    "type": "string"
+                },
+                "output_coverage_rate": {
+                    "type": "number"
+                },
+                "output_job_consistency_rate": {
+                    "type": "number"
+                },
+                "output_resolved_rate": {
+                    "type": "number"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "top_pick_multi_hit_users": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityOverview": {
+            "type": "object",
+            "properties": {
+                "job_mismatch": {
+                    "type": "integer"
+                },
+                "missing_output_id": {
+                    "type": "integer"
+                },
+                "orphan_output": {
+                    "type": "integer"
+                },
+                "output_coverage_rate": {
+                    "type": "number"
+                },
+                "output_job_consistency_rate": {
+                    "type": "number"
+                },
+                "output_resolved_rate": {
+                    "type": "number"
+                },
+                "resolved_output": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "top_pick_multi_hit_users": {
+                    "type": "integer"
+                },
+                "with_output_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "feedback_action_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackActionStat"
+                    }
+                },
+                "feedback_integrity_alert_code_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityAlertCodeStat"
+                    }
+                },
+                "feedback_integrity_alert_thresholds": {
+                    "$ref": "#/definitions/internal_handlers.FeedbackIntegrityAlertThresholdSettings"
+                },
+                "feedback_integrity_alerts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityAlert"
+                    }
+                },
+                "feedback_integrity_anomaly_jobs_window": {
+                    "type": "integer"
+                },
+                "feedback_integrity_delta": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityDelta"
+                },
+                "feedback_integrity_escalation": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalation"
+                },
+                "feedback_integrity_escalation_incidents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalationIncident"
+                    }
+                },
+                "feedback_integrity_escalation_stats": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalationStats"
+                },
+                "feedback_integrity_escalation_trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalationTrendPoint"
+                    }
+                },
+                "feedback_integrity_health": {
+                    "type": "string"
+                },
+                "feedback_integrity_health_trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityHealthTrendPoint"
+                    }
+                },
+                "feedback_integrity_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityOverview"
+                },
+                "feedback_integrity_previous_health": {
+                    "type": "string"
+                },
+                "feedback_integrity_recommendations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityRecommendation"
+                    }
+                },
+                "feedback_integrity_recovered": {
+                    "type": "boolean"
+                },
+                "feedback_integrity_recovery_status": {
+                    "type": "string"
+                },
+                "feedback_integrity_streaks": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityStreaks"
+                },
+                "feedback_integrity_top_pick_conflict_jobs_window": {
+                    "type": "integer"
+                },
+                "feedback_learning_chain": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackLearningChainStatus"
+                },
+                "feedback_negative_guard_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackNegativeGuardOverview"
+                },
+                "feedback_negative_guard_reasons": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackNegativeGuardReasonStat"
+                    }
+                },
+                "feedback_top_scene_tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackSceneStat"
+                    }
+                },
+                "feedback_trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackTrendPoint"
+                    }
+                },
+                "filter_format": {
+                    "type": "string"
+                },
+                "filter_guard_reason": {
+                    "type": "string"
+                },
+                "filter_user_id": {
+                    "type": "integer"
+                },
+                "window": {
+                    "type": "string"
+                },
+                "window_end": {
+                    "type": "string"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityRecommendation": {
+            "type": "object",
+            "properties": {
+                "alert_codes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "category": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "suggested_action": {
+                    "type": "string"
+                },
+                "suggested_quick": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackIntegrityStreaks": {
+            "type": "object",
+            "properties": {
+                "consecutive_green_days": {
+                    "type": "integer"
+                },
+                "consecutive_non_green_days": {
+                    "type": "integer"
+                },
+                "consecutive_red_days": {
+                    "type": "integer"
+                },
+                "last_non_green_bucket": {
+                    "type": "string"
+                },
+                "last_red_bucket": {
+                    "type": "string"
+                },
+                "recent_7d_non_green_days": {
+                    "type": "integer"
+                },
+                "recent_7d_red_days": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackLearningChainStatus": {
+            "type": "object",
+            "properties": {
+                "learning_mode": {
+                    "type": "string"
+                },
+                "legacy_eval_backfill_candidates": {
+                    "type": "integer"
+                },
+                "legacy_feedback_fallback_enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackNegativeGuardOverview": {
+            "type": "object",
+            "properties": {
+                "avg_negative_signals": {
+                    "type": "number"
+                },
+                "avg_positive_signals": {
+                    "type": "number"
+                },
+                "blocked_reason_jobs": {
+                    "type": "integer"
+                },
+                "blocked_reason_rate": {
+                    "type": "number"
+                },
+                "guard_enabled_jobs": {
+                    "type": "integer"
+                },
+                "guard_hit_rate": {
+                    "type": "number"
+                },
+                "guard_reason_hit_jobs": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "selection_shift_jobs": {
+                    "type": "integer"
+                },
+                "selection_shift_rate": {
+                    "type": "number"
+                },
+                "treatment_jobs": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackNegativeGuardReasonStat": {
+            "type": "object",
+            "properties": {
+                "avg_weight": {
+                    "type": "number"
+                },
+                "blocked_jobs": {
+                    "type": "integer"
+                },
+                "jobs": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackRolloutAudit": {
+            "type": "object",
+            "properties": {
+                "admin_id": {
+                    "type": "integer"
+                },
+                "confirm_windows": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "from_rollout_percent": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "recommendation_reason": {
+                    "type": "string"
+                },
+                "recommendation_state": {
+                    "type": "string"
+                },
+                "to_rollout_percent": {
+                    "type": "integer"
+                },
+                "window": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackRolloutRecommendation": {
+            "type": "object",
+            "properties": {
+                "consecutive_matched": {
+                    "type": "integer"
+                },
+                "consecutive_passed": {
+                    "type": "boolean"
+                },
+                "consecutive_required": {
+                    "type": "integer"
+                },
+                "control_avg_score": {
+                    "type": "number"
+                },
+                "control_jobs": {
+                    "type": "integer"
+                },
+                "control_signals_per_job": {
+                    "type": "number"
+                },
+                "current_rollout_percent": {
+                    "type": "integer"
+                },
+                "live_guard_eligible_total": {
+                    "type": "integer"
+                },
+                "live_guard_min_samples": {
+                    "type": "integer"
+                },
+                "live_guard_risk_scenes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "live_guard_score_floor": {
+                    "type": "number"
+                },
+                "live_guard_triggered": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "recent_states": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "score_uplift": {
+                    "type": "number"
+                },
+                "signals_uplift": {
+                    "type": "number"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "suggested_rollout_percent": {
+                    "type": "integer"
+                },
+                "treatment_avg_score": {
+                    "type": "number"
+                },
+                "treatment_jobs": {
+                    "type": "integer"
+                },
+                "treatment_signals_per_job": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackSceneStat": {
+            "type": "object",
+            "properties": {
+                "scene_tag": {
+                    "type": "string"
+                },
+                "signals": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFeedbackTrendPoint": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "negative": {
+                    "type": "integer"
+                },
+                "neutral": {
+                    "type": "integer"
+                },
+                "positive": {
+                    "type": "integer"
+                },
+                "top_pick": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobFormatStat": {
+            "type": "object",
+            "properties": {
+                "artifact_count": {
+                    "type": "integer"
+                },
+                "avg_artifact_size_bytes": {
+                    "type": "number"
+                },
+                "avg_engagement_score": {
+                    "type": "number"
+                },
+                "engaged_jobs": {
+                    "type": "integer"
+                },
+                "feedback_signals": {
+                    "type": "integer"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "generated_jobs": {
+                    "type": "integer"
+                },
+                "requested_jobs": {
+                    "type": "integer"
+                },
+                "size_budget_hit_rate": {
+                    "type": "number"
+                },
+                "size_budget_hits": {
+                    "type": "integer"
+                },
+                "size_budget_samples": {
+                    "type": "integer"
+                },
+                "size_profile_avg_artifact_size_bytes": {
+                    "type": "number"
+                },
+                "size_profile_jobs": {
+                    "type": "integer"
+                },
+                "size_profile_rate": {
+                    "type": "number"
+                },
+                "success_rate": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFAuditChainResponse": {
+            "type": "object",
+            "properties": {
+                "ai_gif_directives": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFDirectiveItem"
+                    }
+                },
+                "ai_gif_proposals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFProposalItem"
+                    }
+                },
+                "ai_gif_reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFReviewItem"
+                    }
+                },
+                "ai_usages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIUsageItem"
+                    }
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobEventItem"
+                    }
+                },
+                "feedbacks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFFeedbackItem"
+                    }
+                },
+                "gif_candidates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFCandidateItem"
+                    }
+                },
+                "gif_evaluations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFEvaluationItem"
+                    }
+                },
+                "job": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobListItem"
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobArtifactItem"
+                    }
+                },
+                "proposal_chains": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFProposalChainItem"
+                    }
+                },
+                "rerenders": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFRerenderRecord"
+                    }
+                },
+                "review_status_filter": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "summary": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFAuditChainSummary"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFAuditChainSummary": {
+            "type": "object",
+            "properties": {
+                "ai_usage_count": {
+                    "type": "integer"
+                },
+                "candidate_count": {
+                    "type": "integer"
+                },
+                "directive_count": {
+                    "type": "integer"
+                },
+                "evaluation_count": {
+                    "type": "integer"
+                },
+                "event_count": {
+                    "type": "integer"
+                },
+                "experiment_bucket": {
+                    "type": "string"
+                },
+                "feedback_count": {
+                    "type": "integer"
+                },
+                "hard_gate_blocked_count": {
+                    "type": "integer"
+                },
+                "latest_recommendation": {
+                    "type": "string"
+                },
+                "latest_recommendation_at": {
+                    "type": "string"
+                },
+                "output_count": {
+                    "type": "integer"
+                },
+                "pipeline_mode": {
+                    "type": "string"
+                },
+                "policy_version": {
+                    "type": "string"
+                },
+                "proposal_count": {
+                    "type": "integer"
+                },
+                "rerender_count": {
+                    "type": "integer"
+                },
+                "review_count": {
+                    "type": "integer"
+                },
+                "review_status_counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFBaselineSnapshot": {
+            "type": "object",
+            "properties": {
+                "avg_clarity_score": {
+                    "type": "number"
+                },
+                "avg_efficiency_score": {
+                    "type": "number"
+                },
+                "avg_emotion_score": {
+                    "type": "number"
+                },
+                "avg_loop_score": {
+                    "type": "number"
+                },
+                "avg_motion_score": {
+                    "type": "number"
+                },
+                "avg_overall_score": {
+                    "type": "number"
+                },
+                "baseline_date": {
+                    "type": "string"
+                },
+                "done_jobs": {
+                    "type": "integer"
+                },
+                "done_rate": {
+                    "type": "number"
+                },
+                "failed_jobs": {
+                    "type": "integer"
+                },
+                "failed_rate": {
+                    "type": "number"
+                },
+                "sample_jobs": {
+                    "type": "integer"
+                },
+                "sample_outputs": {
+                    "type": "integer"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "window_label": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFCandidateItem": {
+            "type": "object",
+            "properties": {
+                "base_score": {
+                    "type": "number"
+                },
+                "confidence_score": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "feature_json": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "final_rank": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_selected": {
+                    "type": "boolean"
+                },
+                "reject_reason": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFEvaluationItem": {
+            "type": "object",
+            "properties": {
+                "candidate_id": {
+                    "type": "integer"
+                },
+                "clarity_score": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "efficiency_score": {
+                    "type": "number"
+                },
+                "emotion_score": {
+                    "type": "number"
+                },
+                "feature_json": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "loop_score": {
+                    "type": "number"
+                },
+                "motion_score": {
+                    "type": "number"
+                },
+                "object_key": {
+                    "type": "string"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "overall_score": {
+                    "type": "number"
+                },
+                "preview_url": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "window_end_ms": {
+                    "type": "integer"
+                },
+                "window_start_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFEvaluationOverview": {
+            "type": "object",
+            "properties": {
+                "avg_clarity_score": {
+                    "type": "number"
+                },
+                "avg_efficiency_score": {
+                    "type": "number"
+                },
+                "avg_emotion_score": {
+                    "type": "number"
+                },
+                "avg_loop_score": {
+                    "type": "number"
+                },
+                "avg_motion_score": {
+                    "type": "number"
+                },
+                "avg_overall_score": {
+                    "type": "number"
+                },
+                "samples": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFEvaluationSample": {
+            "type": "object",
+            "properties": {
+                "candidate_reason": {
+                    "type": "string"
+                },
+                "clarity_score": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "efficiency_score": {
+                    "type": "number"
+                },
+                "emotion_score": {
+                    "type": "number"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "loop_score": {
+                    "type": "number"
+                },
+                "motion_score": {
+                    "type": "number"
+                },
+                "object_key": {
+                    "type": "string"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "overall_score": {
+                    "type": "number"
+                },
+                "preview_url": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "width": {
+                    "type": "integer"
+                },
+                "window_end_ms": {
+                    "type": "integer"
+                },
+                "window_start_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFFeedbackItem": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "scene_tag": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFLoopTuneOverview": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "type": "integer"
+                },
+                "applied_rate": {
+                    "type": "number"
+                },
+                "avg_effective_sec": {
+                    "type": "number"
+                },
+                "avg_loop_closure": {
+                    "type": "number"
+                },
+                "avg_motion_mean": {
+                    "type": "number"
+                },
+                "avg_score": {
+                    "type": "number"
+                },
+                "effective_applied": {
+                    "type": "integer"
+                },
+                "effective_applied_rate": {
+                    "type": "number"
+                },
+                "fallback_rate": {
+                    "type": "number"
+                },
+                "fallback_to_base": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFManualScoreDiffSample": {
+            "type": "object",
+            "properties": {
+                "abs_overall_score_diff": {
+                    "type": "number"
+                },
+                "auto_clarity_score": {
+                    "type": "number"
+                },
+                "auto_loop_score": {
+                    "type": "number"
+                },
+                "auto_overall_score": {
+                    "type": "number"
+                },
+                "baseline_version": {
+                    "type": "string"
+                },
+                "clarity_score_delta": {
+                    "type": "number"
+                },
+                "is_pass": {
+                    "type": "boolean"
+                },
+                "is_top_pick": {
+                    "type": "boolean"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "loop_score_delta": {
+                    "type": "number"
+                },
+                "manual_clarity_score": {
+                    "type": "number"
+                },
+                "manual_loop_score": {
+                    "type": "number"
+                },
+                "manual_overall_score": {
+                    "type": "number"
+                },
+                "object_key": {
+                    "type": "string"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "overall_score_delta": {
+                    "type": "number"
+                },
+                "preview_url": {
+                    "type": "string"
+                },
+                "reject_reason": {
+                    "type": "string"
+                },
+                "review_round": {
+                    "type": "string"
+                },
+                "reviewed_at": {
+                    "type": "string"
+                },
+                "reviewer": {
+                    "type": "string"
+                },
+                "sample_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFManualScoreOverview": {
+            "type": "object",
+            "properties": {
+                "avg_auto_clarity": {
+                    "type": "number"
+                },
+                "avg_auto_efficiency": {
+                    "type": "number"
+                },
+                "avg_auto_emotion": {
+                    "type": "number"
+                },
+                "avg_auto_loop": {
+                    "type": "number"
+                },
+                "avg_auto_motion": {
+                    "type": "number"
+                },
+                "avg_auto_overall": {
+                    "type": "number"
+                },
+                "avg_manual_clarity": {
+                    "type": "number"
+                },
+                "avg_manual_efficiency": {
+                    "type": "number"
+                },
+                "avg_manual_emotion": {
+                    "type": "number"
+                },
+                "avg_manual_loop": {
+                    "type": "number"
+                },
+                "avg_manual_motion": {
+                    "type": "number"
+                },
+                "avg_manual_overall": {
+                    "type": "number"
+                },
+                "avg_overall_delta": {
+                    "type": "number"
+                },
+                "mae_clarity": {
+                    "type": "number"
+                },
+                "mae_efficiency": {
+                    "type": "number"
+                },
+                "mae_emotion": {
+                    "type": "number"
+                },
+                "mae_loop": {
+                    "type": "number"
+                },
+                "mae_motion": {
+                    "type": "number"
+                },
+                "mae_overall": {
+                    "type": "number"
+                },
+                "matched_evaluations": {
+                    "type": "integer"
+                },
+                "matched_rate": {
+                    "type": "number"
+                },
+                "pass_rate": {
+                    "type": "number"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "top_pick_rate": {
+                    "type": "number"
+                },
+                "with_output_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFProposalChainItem": {
+            "type": "object",
+            "properties": {
+                "chain_key": {
+                    "type": "string"
+                },
+                "chain_type": {
+                    "type": "string"
+                },
+                "evaluations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFEvaluationItem"
+                    }
+                },
+                "feedbacks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFFeedbackItem"
+                    }
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobArtifactItem"
+                    }
+                },
+                "proposal": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFProposalItem"
+                },
+                "rerenders": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFRerenderRecord"
+                    }
+                },
+                "reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobAIGIFReviewItem"
+                    }
+                },
+                "summary": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFProposalChainSummary"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFProposalChainSummary": {
+            "type": "object",
+            "properties": {
+                "deliver_count": {
+                    "type": "integer"
+                },
+                "evaluation_count": {
+                    "type": "integer"
+                },
+                "feedback_action_counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "feedback_count": {
+                    "type": "integer"
+                },
+                "keep_internal_count": {
+                    "type": "integer"
+                },
+                "latest_recommendation": {
+                    "type": "string"
+                },
+                "need_manual_review_count": {
+                    "type": "integer"
+                },
+                "output_count": {
+                    "type": "integer"
+                },
+                "reject_count": {
+                    "type": "integer"
+                },
+                "rerender_count": {
+                    "type": "integer"
+                },
+                "review_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFRerenderRecord": {
+            "type": "object",
+            "properties": {
+                "actor_id": {
+                    "type": "integer"
+                },
+                "actor_role": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "diagnostic": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "output_object_key": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "proposal_rank": {
+                    "type": "integer"
+                },
+                "recommendation": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "integer"
+                },
+                "suggested_action": {
+                    "type": "string"
+                },
+                "trigger": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFReviewDecisionItemRequest": {
+            "type": "object",
+            "properties": {
+                "decision": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFReviewDecisionItemResult": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "type": "boolean"
+                },
+                "decision": {
+                    "type": "string"
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "output_status": {
+                    "type": "string"
+                },
+                "proposal_id": {
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "review_row_id": {
+                    "type": "integer"
+                },
+                "skip_reason": {
+                    "type": "string"
+                },
+                "skipped": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFReviewDecisionsRequest": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFReviewDecisionItemRequest"
+                    }
+                },
+                "request_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFReviewDecisionsResponse": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFReviewDecisionItemResult"
+                    }
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "skipped": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFSubStageAnomalyReasonStat": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "sub_stage": {
+                    "type": "string"
+                },
+                "sub_stage_label": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobGIFSubStageAnomalyStat": {
+            "type": "object",
+            "properties": {
+                "anomaly_jobs": {
+                    "type": "integer"
+                },
+                "anomaly_rate": {
+                    "type": "number"
+                },
+                "degraded_jobs": {
+                    "type": "integer"
+                },
+                "done_jobs": {
+                    "type": "integer"
+                },
+                "failed_jobs": {
+                    "type": "integer"
+                },
+                "pending_jobs": {
+                    "type": "integer"
+                },
+                "running_jobs": {
+                    "type": "integer"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "sub_stage": {
+                    "type": "string"
+                },
+                "sub_stage_label": {
+                    "type": "string"
+                },
+                "top_reason": {
+                    "type": "string"
+                },
+                "top_reason_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobHealthCheckItem": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "message": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobHealthResponse": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "checks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobHealthCheckItem"
+                    }
+                },
+                "health": {
+                    "type": "string"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "job_stage": {
+                    "type": "string"
+                },
+                "job_status": {
+                    "type": "string"
+                },
+                "requested_format": {
+                    "type": "string"
+                },
+                "source_video_key": {
+                    "type": "string"
+                },
+                "stats": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobHealthStats"
+                },
+                "storage_checked": {
+                    "type": "boolean"
+                },
+                "summary": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobHealthSummary"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobHealthStats": {
+            "type": "object",
+            "properties": {
+                "effective_event_count": {
+                    "type": "integer"
+                },
+                "effective_output_count": {
+                    "type": "integer"
+                },
+                "events_source": {
+                    "type": "string"
+                },
+                "format_counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "legacy_artifact_count": {
+                    "type": "integer"
+                },
+                "legacy_event_count": {
+                    "type": "integer"
+                },
+                "outputs_source": {
+                    "type": "string"
+                },
+                "primary_output_count": {
+                    "type": "integer"
+                },
+                "public_event_count": {
+                    "type": "integer"
+                },
+                "public_output_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobHealthSummary": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "integer"
+                },
+                "passed": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "warned": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobListItem": {
+            "type": "object",
+            "properties": {
+                "asset_domain": {
+                    "type": "string"
+                },
+                "audit": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobAuditSummary"
+                },
+                "category_id": {
+                    "type": "integer"
+                },
+                "collection": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobCollection"
+                },
+                "cost": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobCost"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "metrics": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "options": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output_formats": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "point_hold": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobPointHold"
+                },
+                "priority": {
+                    "type": "string"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "queued_at": {
+                    "type": "string"
+                },
+                "result_collection_id": {
+                    "type": "integer"
+                },
+                "source_video_key": {
+                    "type": "string"
+                },
+                "source_video_url": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobUser"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobListItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobLiveCoverSceneStat": {
+            "type": "object",
+            "properties": {
+                "avg_cover_exposure": {
+                    "type": "number"
+                },
+                "avg_cover_face": {
+                    "type": "number"
+                },
+                "avg_cover_portrait": {
+                    "type": "number"
+                },
+                "avg_cover_score": {
+                    "type": "number"
+                },
+                "low_sample": {
+                    "type": "boolean"
+                },
+                "samples": {
+                    "type": "integer"
+                },
+                "scene_tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "cancelled": {
+                    "type": "integer"
+                },
+                "cost_24h": {
+                    "type": "number"
+                },
+                "cost_avg_24h": {
+                    "type": "number"
+                },
+                "cost_avg_window": {
+                    "type": "number"
+                },
+                "cost_total": {
+                    "type": "number"
+                },
+                "cost_window": {
+                    "type": "number"
+                },
+                "created_24h": {
+                    "type": "integer"
+                },
+                "created_window": {
+                    "type": "integer"
+                },
+                "done": {
+                    "type": "integer"
+                },
+                "done_24h": {
+                    "type": "integer"
+                },
+                "done_window": {
+                    "type": "integer"
+                },
+                "duration_p50_sec": {
+                    "type": "number"
+                },
+                "duration_p95_sec": {
+                    "type": "number"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "failed_24h": {
+                    "type": "integer"
+                },
+                "failed_window": {
+                    "type": "integer"
+                },
+                "feedback_action_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackActionStat"
+                    }
+                },
+                "feedback_avg_score_window": {
+                    "type": "number"
+                },
+                "feedback_downloads_window": {
+                    "type": "integer"
+                },
+                "feedback_engaged_jobs_window": {
+                    "type": "integer"
+                },
+                "feedback_favorites_window": {
+                    "type": "integer"
+                },
+                "feedback_group_format_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackGroupFormatStat"
+                    }
+                },
+                "feedback_group_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackGroupStat"
+                    }
+                },
+                "feedback_integrity_alert_code_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityAlertCodeStat"
+                    }
+                },
+                "feedback_integrity_alert_thresholds": {
+                    "$ref": "#/definitions/internal_handlers.FeedbackIntegrityAlertThresholdSettings"
+                },
+                "feedback_integrity_alerts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityAlert"
+                    }
+                },
+                "feedback_integrity_anomaly_jobs_window": {
+                    "type": "integer"
+                },
+                "feedback_integrity_delta": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityDelta"
+                },
+                "feedback_integrity_escalation": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalation"
+                },
+                "feedback_integrity_escalation_incidents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalationIncident"
+                    }
+                },
+                "feedback_integrity_escalation_stats": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalationStats"
+                },
+                "feedback_integrity_escalation_trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityEscalationTrendPoint"
+                    }
+                },
+                "feedback_integrity_health": {
+                    "type": "string"
+                },
+                "feedback_integrity_health_trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityHealthTrendPoint"
+                    }
+                },
+                "feedback_integrity_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityOverview"
+                },
+                "feedback_integrity_previous_health": {
+                    "type": "string"
+                },
+                "feedback_integrity_recommendations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityRecommendation"
+                    }
+                },
+                "feedback_integrity_recovered": {
+                    "type": "boolean"
+                },
+                "feedback_integrity_recovery_status": {
+                    "type": "string"
+                },
+                "feedback_integrity_streaks": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackIntegrityStreaks"
+                },
+                "feedback_integrity_top_pick_conflict_jobs_window": {
+                    "type": "integer"
+                },
+                "feedback_negative_guard_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackNegativeGuardOverview"
+                },
+                "feedback_negative_guard_reasons": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackNegativeGuardReasonStat"
+                    }
+                },
+                "feedback_rollout_audit_logs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackRolloutAudit"
+                    }
+                },
+                "feedback_rollout_recommendation": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackRolloutRecommendation"
+                },
+                "feedback_scene_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackSceneStat"
+                    }
+                },
+                "feedback_signals_window": {
+                    "type": "integer"
+                },
+                "feedback_top_scene_tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackSceneStat"
+                    }
+                },
+                "feedback_trend": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackTrendPoint"
+                    }
+                },
+                "format_stats_24h": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFormatStat"
+                    }
+                },
+                "gif_baseline_snapshots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFBaselineSnapshot"
+                    }
+                },
+                "gif_evaluation_low_samples": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFEvaluationSample"
+                    }
+                },
+                "gif_evaluation_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFEvaluationOverview"
+                },
+                "gif_evaluation_top_samples": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFEvaluationSample"
+                    }
+                },
+                "gif_loop_tune_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFLoopTuneOverview"
+                },
+                "gif_manual_score_diff_samples": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFManualScoreDiffSample"
+                    }
+                },
+                "gif_manual_score_overview": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFManualScoreOverview"
+                },
+                "gif_sub_stage_anomaly_jobs_window": {
+                    "type": "integer"
+                },
+                "gif_sub_stage_anomaly_overview": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFSubStageAnomalyStat"
+                    }
+                },
+                "gif_sub_stage_anomaly_reasons": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobGIFSubStageAnomalyReasonStat"
+                    }
+                },
+                "live_cover_scene_guard_min_total": {
+                    "type": "integer"
+                },
+                "live_cover_scene_guard_score_floor": {
+                    "type": "number"
+                },
+                "live_cover_scene_min_samples": {
+                    "type": "integer"
+                },
+                "live_cover_scene_stats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobLiveCoverSceneStat"
+                    }
+                },
+                "queued": {
+                    "type": "integer"
+                },
+                "retrying": {
+                    "type": "integer"
+                },
+                "running": {
+                    "type": "integer"
+                },
+                "sample_done_window": {
+                    "type": "integer"
+                },
+                "sample_duration_p50_sec": {
+                    "type": "number"
+                },
+                "sample_duration_p95_sec": {
+                    "type": "number"
+                },
+                "sample_failed_window": {
+                    "type": "integer"
+                },
+                "sample_jobs_window": {
+                    "type": "integer"
+                },
+                "sample_success_rate_window": {
+                    "type": "number"
+                },
+                "source_probe_duration_buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSimpleCount"
+                    }
+                },
+                "source_probe_duration_quality": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSourceProbeQualityStat"
+                    }
+                },
+                "source_probe_fps_buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSimpleCount"
+                    }
+                },
+                "source_probe_fps_quality": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSourceProbeQualityStat"
+                    }
+                },
+                "source_probe_jobs_window": {
+                    "type": "integer"
+                },
+                "source_probe_resolution_buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSimpleCount"
+                    }
+                },
+                "source_probe_resolution_quality": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSourceProbeQualityStat"
+                    }
+                },
+                "stage_counts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobSimpleCount"
+                    }
+                },
+                "stage_durations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobStageDuration"
+                    }
+                },
+                "top_failures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoJobFailureReason"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "window": {
+                    "type": "string"
+                },
+                "window_end": {
+                    "type": "string"
+                },
+                "window_start": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobPointHold": {
+            "type": "object",
+            "properties": {
+                "reserved_points": {
+                    "type": "integer"
+                },
+                "settled_points": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobSimpleCount": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "key": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobSourceProbeQualityStat": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "cancelled_jobs": {
+                    "type": "integer"
+                },
+                "done_jobs": {
+                    "type": "integer"
+                },
+                "duration_p50_sec": {
+                    "type": "number"
+                },
+                "duration_p95_sec": {
+                    "type": "number"
+                },
+                "failed_jobs": {
+                    "type": "integer"
+                },
+                "failure_rate": {
+                    "type": "number"
+                },
+                "jobs": {
+                    "type": "integer"
+                },
+                "pending_jobs": {
+                    "type": "integer"
+                },
+                "success_rate": {
+                    "type": "number"
+                },
+                "terminal_jobs": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobStageDuration": {
+            "type": "object",
+            "properties": {
+                "avg_sec": {
+                    "type": "number"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "from_stage": {
+                    "type": "string"
+                },
+                "p95_sec": {
+                    "type": "number"
+                },
+                "to_stage": {
+                    "type": "string"
+                },
+                "transition": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminVideoJobUser": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "subscription_plan": {
+                    "type": "string"
+                },
+                "subscription_status": {
+                    "type": "string"
+                },
+                "user_level": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerGuardAction": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "queue_name": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "trigger": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerGuardPolicy": {
+            "type": "object",
+            "properties": {
+                "auto_pause_enabled": {
+                    "type": "boolean"
+                },
+                "auto_run_on_health": {
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "latency_critical_seconds": {
+                    "type": "number"
+                },
+                "latency_warn_seconds": {
+                    "type": "number"
+                },
+                "pause_cooldown_seconds": {
+                    "type": "integer"
+                },
+                "pending_critical": {
+                    "type": "integer"
+                },
+                "pending_warn": {
+                    "type": "integer"
+                },
+                "retry_critical": {
+                    "type": "integer"
+                },
+                "stale_queued_critical": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerGuardStatus": {
+            "type": "object",
+            "properties": {
+                "applied_actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminWorkerGuardAction"
+                    }
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "policy": {
+                    "$ref": "#/definitions/internal_handlers.AdminWorkerGuardPolicy"
+                },
+                "recent_actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminWorkerGuardAction"
+                    }
+                },
+                "recommended_actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminWorkerGuardAction"
+                    }
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerHealthResponse": {
+            "type": "object",
+            "properties": {
+                "alerts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "checked_at": {
+                    "type": "string"
+                },
+                "guard": {
+                    "$ref": "#/definitions/internal_handlers.AdminWorkerGuardStatus"
+                },
+                "health": {
+                    "type": "string"
+                },
+                "lanes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminWorkerLaneStatus"
+                    }
+                },
+                "oldest_queued_age_sec": {
+                    "type": "number"
+                },
+                "queue": {
+                    "description": "legacy",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_handlers.AdminWorkerQueueStatus"
+                        }
+                    ]
+                },
+                "queue_name": {
+                    "description": "legacy",
+                    "type": "string"
+                },
+                "redis_addr": {
+                    "type": "string"
+                },
+                "redis_db": {
+                    "type": "integer"
+                },
+                "redis_reachable": {
+                    "type": "boolean"
+                },
+                "servers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminWorkerServerStatus"
+                    }
+                },
+                "servers_active": {
+                    "type": "integer"
+                },
+                "servers_total": {
+                    "type": "integer"
+                },
+                "stale_queued_jobs": {
+                    "type": "integer"
+                },
+                "start_enabled": {
+                    "type": "boolean"
+                },
+                "start_hint": {
+                    "type": "string"
+                },
+                "stop_enabled": {
+                    "type": "boolean"
+                },
+                "stop_hint": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerLaneStatus": {
+            "type": "object",
+            "properties": {
+                "alerts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "health": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "queue": {
+                    "$ref": "#/definitions/internal_handlers.AdminWorkerQueueStatus"
+                },
+                "queue_name": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "servers_active": {
+                    "type": "integer"
+                },
+                "servers_total": {
+                    "type": "integer"
+                },
+                "start_enabled": {
+                    "type": "boolean"
+                },
+                "start_hint": {
+                    "type": "string"
+                },
+                "stop_enabled": {
+                    "type": "boolean"
+                },
+                "stop_hint": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerQueueStatus": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "integer"
+                },
+                "archived": {
+                    "type": "integer"
+                },
+                "completed": {
+                    "type": "integer"
+                },
+                "failed_today": {
+                    "type": "integer"
+                },
+                "latency_seconds": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "paused": {
+                    "type": "boolean"
+                },
+                "pending": {
+                    "type": "integer"
+                },
+                "processed_today": {
+                    "type": "integer"
+                },
+                "retry": {
+                    "type": "integer"
+                },
+                "scheduled": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.AdminWorkerServerStatus": {
+            "type": "object",
+            "properties": {
+                "active_workers": {
+                    "type": "integer"
+                },
+                "concurrency": {
+                    "type": "integer"
+                },
+                "host": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "queues": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.AppendZipResponse": {
             "type": "object",
             "properties": {
                 "added": {
@@ -1842,18 +11367,50 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.AuthResponse": {
+        "internal_handlers.ApplyVideoQualityRolloutSuggestionResponse": {
             "type": "object",
             "properties": {
-                "tokens": {
-                    "$ref": "#/definitions/handlers.TokenResponse"
+                "applied": {
+                    "type": "boolean"
                 },
-                "user": {
-                    "$ref": "#/definitions/handlers.UserResponse"
+                "applied_at": {
+                    "type": "string"
+                },
+                "confirm_windows": {
+                    "type": "integer"
+                },
+                "cooldown_seconds": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "next_allowed_at": {
+                    "type": "string"
+                },
+                "recommendation": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoJobFeedbackRolloutRecommendation"
+                },
+                "setting": {
+                    "$ref": "#/definitions/internal_handlers.VideoQualitySettingResponse"
+                },
+                "window": {
+                    "type": "string"
                 }
             }
         },
-        "handlers.BatchDeleteRequest": {
+        "internal_handlers.AuthResponse": {
+            "type": "object",
+            "properties": {
+                "tokens": {
+                    "$ref": "#/definitions/internal_handlers.TokenResponse"
+                },
+                "user": {
+                    "$ref": "#/definitions/internal_handlers.UserResponse"
+                }
+            }
+        },
+        "internal_handlers.BatchDeleteRequest": {
             "type": "object",
             "properties": {
                 "keys": {
@@ -1867,7 +11424,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.BatchDeleteResponse": {
+        "internal_handlers.BatchDeleteResponse": {
             "type": "object",
             "properties": {
                 "failed": {
@@ -1887,7 +11444,52 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.BatchRestoreRequest": {
+        "internal_handlers.BatchObjectURLItem": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "integer"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.BatchObjectURLRequest": {
+            "type": "object",
+            "properties": {
+                "keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "private": {
+                    "type": "boolean"
+                },
+                "style": {
+                    "type": "string"
+                },
+                "ttl": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.BatchObjectURLResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.BatchObjectURLItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.BatchRestoreRequest": {
             "type": "object",
             "properties": {
                 "keys": {
@@ -1898,7 +11500,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.BatchRestoreResponse": {
+        "internal_handlers.BatchRestoreResponse": {
             "type": "object",
             "properties": {
                 "failed": {
@@ -1912,7 +11514,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.CategoryRequest": {
+        "internal_handlers.CategoryRequest": {
             "type": "object",
             "properties": {
                 "cover_url": {
@@ -1944,7 +11546,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.CategoryResponse": {
+        "internal_handlers.CategoryResponse": {
             "type": "object",
             "properties": {
                 "cover_url": {
@@ -1988,11 +11590,25 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.CollectionListItem": {
+        "internal_handlers.CategoryStatsResponse": {
             "type": "object",
             "properties": {
                 "category_id": {
                     "type": "integer"
+                },
+                "collection_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.CollectionListItem": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "integer"
+                },
+                "cover_key": {
+                    "type": "string"
                 },
                 "cover_url": {
                     "type": "string"
@@ -2000,8 +11616,35 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "creator_avatar_url": {
+                    "type": "string"
+                },
+                "creator_name": {
+                    "type": "string"
+                },
+                "creator_name_en": {
+                    "type": "string"
+                },
+                "creator_name_zh": {
+                    "type": "string"
+                },
+                "creator_profile_id": {
+                    "type": "integer"
+                },
                 "description": {
                     "type": "string"
+                },
+                "download_code": {
+                    "type": "string"
+                },
+                "download_count": {
+                    "type": "integer"
+                },
+                "favorite_count": {
+                    "type": "integer"
+                },
+                "favorited": {
+                    "type": "boolean"
                 },
                 "file_count": {
                     "type": "integer"
@@ -2009,10 +11652,16 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "ip_id": {
+                    "type": "integer"
+                },
                 "is_featured": {
                     "type": "boolean"
                 },
                 "is_pinned": {
+                    "type": "boolean"
+                },
+                "is_sample": {
                     "type": "boolean"
                 },
                 "latest_zip_at": {
@@ -2027,11 +11676,32 @@ const docTemplate = `{
                 "latest_zip_size": {
                     "type": "integer"
                 },
+                "like_count": {
+                    "type": "integer"
+                },
+                "liked": {
+                    "type": "boolean"
+                },
                 "owner_id": {
                     "type": "integer"
                 },
+                "path_mismatch": {
+                    "type": "boolean"
+                },
                 "pinned_at": {
                     "type": "string"
+                },
+                "preview_assets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.CollectionPreviewAsset"
+                    }
+                },
+                "preview_images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "qiniu_prefix": {
                     "type": "string"
@@ -2048,7 +11718,7 @@ const docTemplate = `{
                 "tags": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.TagBrief"
+                        "$ref": "#/definitions/internal_handlers.TagBrief"
                     }
                 },
                 "theme_id": {
@@ -2065,7 +11735,506 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.DeleteCategoryResponse": {
+        "internal_handlers.CollectionPreviewAsset": {
+            "type": "object",
+            "properties": {
+                "animated_url": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "is_animated": {
+                    "type": "boolean"
+                },
+                "static_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.CollectionZipItem": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "uploaded_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.CollectionZipListResponse": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.CollectionZipItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.ComputeAccountResponse": {
+            "type": "object",
+            "properties": {
+                "available_points": {
+                    "type": "integer"
+                },
+                "cost_markup_multiplier": {
+                    "type": "number"
+                },
+                "debt_points": {
+                    "type": "integer"
+                },
+                "frozen_points": {
+                    "type": "integer"
+                },
+                "point_per_cny": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "total_consumed_points": {
+                    "type": "integer"
+                },
+                "total_recharged_points": {
+                    "type": "integer"
+                },
+                "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ComputeAccountSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/internal_handlers.ComputeAccountResponse"
+                },
+                "held_jobs": {
+                    "type": "integer"
+                },
+                "ledgers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.ComputeLedgerItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.ComputeLedgerItem": {
+            "type": "object",
+            "properties": {
+                "available_after": {
+                    "type": "integer"
+                },
+                "available_before": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "debt_after": {
+                    "type": "integer"
+                },
+                "debt_before": {
+                    "type": "integer"
+                },
+                "frozen_after": {
+                    "type": "integer"
+                },
+                "frozen_before": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "points": {
+                    "type": "integer"
+                },
+                "remark": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemCodeAdminItem": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "code_mask": {
+                    "type": "string"
+                },
+                "code_plain": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "granted_points": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_issued_at": {
+                    "type": "string"
+                },
+                "last_issued_uid": {
+                    "type": "integer"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "used_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemCodeListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.ComputeRedeemCodeAdminItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemCodeSubmitRequest": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemCodeSubmitResponse": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/internal_handlers.ComputeAccountResponse"
+                },
+                "code_mask": {
+                    "type": "string"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "granted_points": {
+                    "type": "integer"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                },
+                "used_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemCodeValidateResponse": {
+            "type": "object",
+            "properties": {
+                "code_mask": {
+                    "type": "string"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "granted_points": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "valid": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemRedemptionRecordListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.ComputeRedeemRedemptionRecordResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ComputeRedeemRedemptionRecordResponse": {
+            "type": "object",
+            "properties": {
+                "code_id": {
+                    "type": "integer"
+                },
+                "code_mask": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "granted_expires_at": {
+                    "type": "string"
+                },
+                "granted_points": {
+                    "type": "integer"
+                },
+                "granted_starts_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip": {
+                    "type": "string"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_display_name": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "user_phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.CreateMockIngressVideoJobRequest": {
+            "type": "object",
+            "properties": {
+                "chat_id": {
+                    "type": "string",
+                    "example": "chat_123456"
+                },
+                "external_user_id": {
+                    "type": "string",
+                    "example": "openid_123456"
+                },
+                "fast_extract_fps": {
+                    "type": "integer",
+                    "enum": [
+                        1,
+                        2
+                    ],
+                    "example": 1
+                },
+                "output_format": {
+                    "type": "string",
+                    "enum": [
+                        "png",
+                        "gif",
+                        "jpg"
+                    ],
+                    "example": "png"
+                },
+                "png_mode": {
+                    "type": "string",
+                    "enum": [
+                        "smart_llm",
+                        "fast_extract"
+                    ],
+                    "example": "smart_llm"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "session_123456"
+                },
+                "source_video_key": {
+                    "type": "string",
+                    "example": "video/jobs/demo/source.mp4"
+                },
+                "tenant_key": {
+                    "type": "string",
+                    "example": "corp_demo"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "QQ 测试视频任务"
+                }
+            }
+        },
+        "internal_handlers.CreateMockIngressVideoJobResponse": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "example": "qq_bot"
+                },
+                "ingress_id": {
+                    "type": "integer",
+                    "example": 1001
+                },
+                "job": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobResponse"
+                },
+                "provider": {
+                    "type": "string",
+                    "example": "qq"
+                }
+            }
+        },
+        "internal_handlers.CreateVideoJobRequest": {
+            "type": "object",
+            "properties": {
+                "advanced_options": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobAdvancedOptionsInput"
+                },
+                "ai_model": {
+                    "type": "string",
+                    "example": "gpt-5.4"
+                },
+                "auto_highlight": {
+                    "type": "boolean"
+                },
+                "category_id": {
+                    "type": "integer"
+                },
+                "edit_options": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobEditOptionsInput"
+                },
+                "fast_extract_fps": {
+                    "type": "integer",
+                    "enum": [
+                        1,
+                        2
+                    ],
+                    "example": 1
+                },
+                "flow_mode": {
+                    "type": "string",
+                    "example": "normal"
+                },
+                "frame_interval_sec": {
+                    "type": "number",
+                    "example": 1
+                },
+                "gif_pipeline_mode": {
+                    "type": "string",
+                    "example": "smart"
+                },
+                "max_static": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "output_formats": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "png_mode": {
+                    "type": "string",
+                    "enum": [
+                        "smart_llm",
+                        "fast_extract"
+                    ],
+                    "example": "smart_llm"
+                },
+                "priority": {
+                    "type": "string",
+                    "example": "normal"
+                },
+                "prompt": {
+                    "type": "string",
+                    "example": "提取清晰主体，适合社媒封面"
+                },
+                "source_video_key": {
+                    "type": "string",
+                    "example": "video/jobs/demo/source.mp4"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "我的视频转图任务"
+                }
+            }
+        },
+        "internal_handlers.DeleteAdminVideoAIPromptFixedTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "deleted_id": {
+                    "type": "integer"
+                },
+                "replacement_id": {
+                    "type": "integer"
+                },
+                "replacement_set": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.DeleteCategoryResponse": {
             "type": "object",
             "properties": {
                 "message": {
@@ -2085,7 +12254,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.DownloadListItem": {
+        "internal_handlers.DownloadListItem": {
             "type": "object",
             "properties": {
                 "collection_id": {
@@ -2114,7 +12283,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.DownloadListResponse": {
+        "internal_handlers.DownloadListResponse": {
             "type": "object",
             "properties": {
                 "collection_id": {
@@ -2123,7 +12292,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.DownloadListItem"
+                        "$ref": "#/definitions/internal_handlers.DownloadListItem"
                     }
                 },
                 "total": {
@@ -2131,7 +12300,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.DownloadURLResponse": {
+        "internal_handlers.DownloadURLResponse": {
             "type": "object",
             "properties": {
                 "collection_id": {
@@ -2154,7 +12323,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.EmojiListItem": {
+        "internal_handlers.EmojiListItem": {
             "type": "object",
             "properties": {
                 "collection_id": {
@@ -2162,6 +12331,9 @@ const docTemplate = `{
                 },
                 "created_at": {
                     "type": "string"
+                },
+                "favorited": {
+                    "type": "boolean"
                 },
                 "file_url": {
                     "type": "string"
@@ -2198,7 +12370,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.EmojiUploadResponse": {
+        "internal_handlers.EmojiUploadResponse": {
             "type": "object",
             "properties": {
                 "added": {
@@ -2216,12 +12388,454 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.EmojiListItem"
+                        "$ref": "#/definitions/internal_handlers.EmojiListItem"
                     }
                 }
             }
         },
-        "handlers.ImportZipResponse": {
+        "internal_handlers.FavoriteCollectionListItem": {
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "$ref": "#/definitions/internal_handlers.CollectionListItem"
+                },
+                "collection_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.FavoriteCollectionListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.FavoriteCollectionListItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.FavoriteEmojiListItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "emoji": {
+                    "$ref": "#/definitions/internal_handlers.EmojiListItem"
+                },
+                "emoji_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.FavoriteEmojiListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.FavoriteEmojiListItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.FeedbackIntegrityAlertThresholdSettings": {
+            "type": "object",
+            "properties": {
+                "feedback_integrity_output_coverage_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_coverage_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_job_consistency_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_job_consistency_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_resolved_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_resolved_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_top_pick_conflict_users_critical": {
+                    "type": "integer"
+                },
+                "feedback_integrity_top_pick_conflict_users_warn": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.GIFHealthAlertThresholdSettings": {
+            "type": "object",
+            "properties": {
+                "gif_health_done_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_done_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_failed_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_failed_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_loop_fallback_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_loop_fallback_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_path_strict_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_path_strict_rate_warn": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.GenerateCollectionDownloadCodesRequest": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "integer"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "download_times": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "max_redeem_users": {
+                    "type": "integer"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.GenerateCollectionDownloadCodesResponse": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "codes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "collection_id": {
+                    "type": "integer"
+                },
+                "collection_title": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "download_times": {
+                    "type": "integer"
+                },
+                "max_redeem_users": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.GenerateComputeRedeemCodesRequest": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "granted_points": {
+                    "type": "integer"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.GenerateComputeRedeemCodesResponse": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "codes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "granted_points": {
+                    "type": "integer"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "starts_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.GenerateRedeemCodesRequest": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.GenerateRedeemCodesResponse": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "codes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.GetAdminVideoAIPromptFixedTemplateResponse": {
+            "type": "object",
+            "properties": {
+                "item": {
+                    "$ref": "#/definitions/internal_handlers.AdminVideoAIPromptTemplateItem"
+                }
+            }
+        },
+        "internal_handlers.GetAdminVideoAIPromptTemplatesResponse": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoAIPromptTemplateItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.HomeStatsResponse": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string"
+                },
+                "stat_date": {
+                    "type": "string"
+                },
+                "today_new_emojis": {
+                    "type": "integer"
+                },
+                "total_collections": {
+                    "type": "integer"
+                },
+                "total_emojis": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.IPCollectionsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.CollectionListItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.IPRequest": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "description": "兼容保留，不再作为主关联",
+                    "type": "integer"
+                },
+                "cover_url": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.IPResponse": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "integer"
+                },
+                "collection_count": {
+                    "type": "integer"
+                },
+                "cover_thumb_url": {
+                    "type": "string"
+                },
+                "cover_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ImportZipResponse": {
             "type": "object",
             "properties": {
                 "collection_id": {
@@ -2247,7 +12861,228 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ListCategoryObjectsResponse": {
+        "internal_handlers.IntegrationAccountItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "open_id_masked": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "provider_label": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tenant_key": {
+                    "type": "string"
+                },
+                "union_id_masked": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.IntegrationCountItem": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "key": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.IntegrationProviderSummaryItem": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "bound_count": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "provider_label": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.IntegrationRecentIngressItem": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "provider_label": {
+                    "type": "string"
+                },
+                "source_file_name": {
+                    "type": "string"
+                },
+                "source_size_bytes": {
+                    "type": "integer"
+                },
+                "source_video_key": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "video_job_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.JoinApplicationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.JoinApplicationResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.JoinApplicationRequest": {
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "gender": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "occupation": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.JoinApplicationResponse": {
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "gender": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "occupation": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ListAdminVideoAIPromptFixedTemplatesResponse": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoAIPromptTemplateItem"
+                    }
+                },
+                "stage": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ListAdminVideoAIPromptTemplateAuditsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoAIPromptTemplateAuditItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.ListAdminVideoAIPromptTemplateVersionsResponse": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.AdminVideoAIPromptTemplateVersionItem"
+                    }
+                },
+                "layer": {
+                    "type": "string"
+                },
+                "resolved_from": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ListCategoryObjectsResponse": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2256,7 +13091,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.AdminStorageItem"
+                        "$ref": "#/definitions/internal_handlers.AdminStorageItem"
                     }
                 },
                 "next_marker": {
@@ -2267,7 +13102,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ListObjectsResponse": {
+        "internal_handlers.ListObjectsResponse": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2276,7 +13111,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.QiniuListItem"
+                        "$ref": "#/definitions/internal_handlers.QiniuListItem"
                     }
                 },
                 "next_marker": {
@@ -2290,10 +13125,35 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.LoginPhoneRequest": {
+        "internal_handlers.ListVideoQualityRolloutEffectsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.VideoQualityRolloutEffectCard"
+                    }
+                }
+            }
+        },
+        "internal_handlers.ListVideoQualitySettingAuditsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.VideoQualitySettingAuditItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.LoginPhoneRequest": {
             "type": "object",
             "properties": {
                 "code": {
+                    "type": "string"
+                },
+                "device_id": {
                     "type": "string"
                 },
                 "phone": {
@@ -2301,9 +13161,12 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.LoginRequest": {
+        "internal_handlers.LoginRequest": {
             "type": "object",
             "properties": {
+                "device_id": {
+                    "type": "string"
+                },
                 "email": {
                     "type": "string"
                 },
@@ -2315,7 +13178,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.LogoutRequest": {
+        "internal_handlers.LogoutRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -2323,7 +13186,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.MessageResponse": {
+        "internal_handlers.MessageResponse": {
             "type": "object",
             "properties": {
                 "message": {
@@ -2331,7 +13194,42 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ObjectURLResponse": {
+        "internal_handlers.MyIntegrationsOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "accounts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.IntegrationAccountItem"
+                    }
+                },
+                "ingress_provider_counts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.IntegrationCountItem"
+                    }
+                },
+                "ingress_status_counts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.IntegrationCountItem"
+                    }
+                },
+                "provider_summary": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.IntegrationProviderSummaryItem"
+                    }
+                },
+                "recent_ingress": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.IntegrationRecentIngressItem"
+                    }
+                }
+            }
+        },
+        "internal_handlers.ObjectURLResponse": {
             "type": "object",
             "properties": {
                 "expires_at": {
@@ -2342,7 +13240,167 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.QiniuFileInfo": {
+        "internal_handlers.PatchAdminVideoAIPromptTemplateEntry": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "layer": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "template_json_schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "template_text": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.PatchAdminVideoAIPromptTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.PatchAdminVideoAIPromptTemplateEntry"
+                    }
+                }
+            }
+        },
+        "internal_handlers.ProbeSourceVideoRequest": {
+            "type": "object",
+            "properties": {
+                "source_video_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ProbeSourceVideoResponse": {
+            "type": "object",
+            "properties": {
+                "aspect_ratio": {
+                    "type": "string"
+                },
+                "duration_sec": {
+                    "type": "number"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "fps": {
+                    "type": "number"
+                },
+                "height": {
+                    "type": "integer"
+                },
+                "mime_type": {
+                    "type": "string"
+                },
+                "orientation": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "source_video_key": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.ProbeSourceVideoURLRequest": {
+            "type": "object",
+            "properties": {
+                "source_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.ProbeSourceVideoURLResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "mock_only": {
+                    "type": "boolean"
+                },
+                "needs_ingestion": {
+                    "type": "boolean"
+                },
+                "normalized_url": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "provider_label": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "supported": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.PublicCategoryResponse": {
+            "type": "object",
+            "properties": {
+                "cover_url": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parent_id": {
+                    "type": "integer"
+                },
+                "public_collection_count": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.QiniuFileInfo": {
             "type": "object",
             "properties": {
                 "end_user": {
@@ -2374,7 +13432,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.QiniuListItem": {
+        "internal_handlers.QiniuListItem": {
             "type": "object",
             "properties": {
                 "end_user": {
@@ -2406,7 +13464,201 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.RefreshRequest": {
+        "internal_handlers.RedeemCodeAdminItem": {
+            "type": "object",
+            "properties": {
+                "batch_no": {
+                    "type": "string"
+                },
+                "code_mask": {
+                    "type": "string"
+                },
+                "code_plain": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "ends_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_issued_at": {
+                    "type": "string"
+                },
+                "last_issued_uid": {
+                    "type": "integer"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "used_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.RedeemCodeListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.RedeemCodeAdminItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.RedeemCodeSubmitRequest": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.RedeemCodeSubmitResponse": {
+            "type": "object",
+            "properties": {
+                "code_mask": {
+                    "type": "string"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "max_uses": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                },
+                "used_count": {
+                    "type": "integer"
+                },
+                "user": {
+                    "$ref": "#/definitions/internal_handlers.UserResponse"
+                }
+            }
+        },
+        "internal_handlers.RedeemCodeValidateResponse": {
+            "type": "object",
+            "properties": {
+                "code_mask": {
+                    "type": "string"
+                },
+                "duration_days": {
+                    "type": "integer"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "starts_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "valid": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.RedemptionRecordListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.RedemptionRecordResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.RedemptionRecordResponse": {
+            "type": "object",
+            "properties": {
+                "code_id": {
+                    "type": "integer"
+                },
+                "code_mask": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "granted_expires_at": {
+                    "type": "string"
+                },
+                "granted_plan": {
+                    "type": "string"
+                },
+                "granted_starts_at": {
+                    "type": "string"
+                },
+                "granted_status": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip": {
+                    "type": "string"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_display_name": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "user_phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.RefreshRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -2414,10 +13666,13 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.RegisterPhoneRequest": {
+        "internal_handlers.RegisterPhoneRequest": {
             "type": "object",
             "properties": {
                 "code": {
+                    "type": "string"
+                },
+                "device_id": {
                     "type": "string"
                 },
                 "display_name": {
@@ -2431,7 +13686,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.RegisterRequest": {
+        "internal_handlers.RegisterRequest": {
             "type": "object",
             "properties": {
                 "display_name": {
@@ -2448,7 +13703,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.RenameObjectRequest": {
+        "internal_handlers.RenameObjectRequest": {
             "type": "object",
             "properties": {
                 "force": {
@@ -2462,7 +13717,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.SearchObjectsResponse": {
+        "internal_handlers.SearchObjectsResponse": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2471,7 +13726,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.AdminStorageItem"
+                        "$ref": "#/definitions/internal_handlers.AdminStorageItem"
                     }
                 },
                 "next_marker": {
@@ -2482,15 +13737,24 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.SendCodeRequest": {
+        "internal_handlers.SendCodeRequest": {
             "type": "object",
             "properties": {
+                "captcha_code": {
+                    "type": "string"
+                },
+                "captcha_token": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
                 "phone": {
                     "type": "string"
                 }
             }
         },
-        "handlers.SendCodeResponse": {
+        "internal_handlers.SendCodeResponse": {
             "type": "object",
             "properties": {
                 "code": {
@@ -2507,18 +13771,227 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.StorageObjectResponse": {
+        "internal_handlers.SiteFooterSelfMediaItemRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "logo": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "profile_link": {
+                    "type": "string"
+                },
+                "qr_code": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.SiteFooterSelfMediaItemResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "logo": {
+                    "type": "string"
+                },
+                "logo_url": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "profile_link": {
+                    "type": "string"
+                },
+                "qr_code": {
+                    "type": "string"
+                },
+                "qr_code_url": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.SiteFooterSettingRequest": {
+            "type": "object",
+            "properties": {
+                "complaint_email": {
+                    "type": "string"
+                },
+                "contact_email": {
+                    "type": "string"
+                },
+                "copyright_text": {
+                    "type": "string"
+                },
+                "icp_link": {
+                    "type": "string"
+                },
+                "icp_number": {
+                    "type": "string"
+                },
+                "public_security_link": {
+                    "type": "string"
+                },
+                "public_security_number": {
+                    "type": "string"
+                },
+                "self_media_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.SiteFooterSelfMediaItemRequest"
+                    }
+                },
+                "self_media_logo": {
+                    "type": "string"
+                },
+                "self_media_qr_code": {
+                    "type": "string"
+                },
+                "site_description": {
+                    "type": "string"
+                },
+                "site_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.SiteFooterSettingResponse": {
+            "type": "object",
+            "properties": {
+                "complaint_email": {
+                    "type": "string"
+                },
+                "contact_email": {
+                    "type": "string"
+                },
+                "copyright_text": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "icp_link": {
+                    "type": "string"
+                },
+                "icp_number": {
+                    "type": "string"
+                },
+                "public_security_link": {
+                    "type": "string"
+                },
+                "public_security_number": {
+                    "type": "string"
+                },
+                "self_media_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.SiteFooterSelfMediaItemResponse"
+                    }
+                },
+                "self_media_logo": {
+                    "type": "string"
+                },
+                "self_media_logo_url": {
+                    "type": "string"
+                },
+                "self_media_qr_code": {
+                    "type": "string"
+                },
+                "self_media_qr_code_url": {
+                    "type": "string"
+                },
+                "site_description": {
+                    "type": "string"
+                },
+                "site_name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.StorageObjectResponse": {
             "type": "object",
             "properties": {
                 "info": {
-                    "$ref": "#/definitions/handlers.QiniuFileInfo"
+                    "$ref": "#/definitions/internal_handlers.QiniuFileInfo"
                 },
                 "key": {
                     "type": "string"
                 }
             }
         },
-        "handlers.TagBrief": {
+        "internal_handlers.SubmitVideoJobFeedbackRequest": {
+            "type": "object",
+            "required": [
+                "action"
+            ],
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "emoji_id": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.SubmitVideoJobFeedbackResponse": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "emoji_id": {
+                    "type": "integer"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output_id": {
+                    "type": "integer"
+                },
+                "scene_tag": {
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.TagBrief": {
             "type": "object",
             "properties": {
                 "id": {
@@ -2532,7 +14005,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TagGroupRequest": {
+        "internal_handlers.TagGroupRequest": {
             "type": "object",
             "properties": {
                 "description": {
@@ -2552,7 +14025,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TagGroupResponse": {
+        "internal_handlers.TagGroupResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -2581,7 +14054,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TagRequest": {
+        "internal_handlers.TagRequest": {
             "type": "object",
             "properties": {
                 "group_id": {
@@ -2592,14 +14065,26 @@ const docTemplate = `{
                 },
                 "slug": {
                     "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
-        "handlers.TagResponse": {
+        "internal_handlers.TagResponse": {
             "type": "object",
             "properties": {
+                "collection_count": {
+                    "type": "integer"
+                },
                 "created_at": {
                     "type": "string"
+                },
+                "emoji_count": {
+                    "type": "integer"
                 },
                 "group_id": {
                     "type": "integer"
@@ -2619,12 +14104,21 @@ const docTemplate = `{
                 "slug": {
                     "type": "string"
                 },
+                "sort": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
                 "updated_at": {
                     "type": "string"
+                },
+                "usage_count": {
+                    "type": "integer"
                 }
             }
         },
-        "handlers.TelegramDownloadRequest": {
+        "internal_handlers.TelegramDownloadRequest": {
             "type": "object",
             "properties": {
                 "link": {
@@ -2635,7 +14129,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TelegramDownloadResponse": {
+        "internal_handlers.TelegramDownloadResponse": {
             "type": "object",
             "properties": {
                 "base_dir": {
@@ -2647,7 +14141,7 @@ const docTemplate = `{
                 "files": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.TelegramDownloadedFile"
+                        "$ref": "#/definitions/internal_handlers.TelegramDownloadedFile"
                     }
                 },
                 "pack_name": {
@@ -2664,7 +14158,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TelegramDownloadedFile": {
+        "internal_handlers.TelegramDownloadedFile": {
             "type": "object",
             "properties": {
                 "emoji": {
@@ -2687,7 +14181,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ThemeRequest": {
+        "internal_handlers.ThemeRequest": {
             "type": "object",
             "properties": {
                 "description": {
@@ -2707,7 +14201,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.ThemeResponse": {
+        "internal_handlers.ThemeResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -2736,7 +14230,18 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TokenResponse": {
+        "internal_handlers.TodayStatsResponse": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "today_new_emojis": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.TokenResponse": {
             "type": "object",
             "properties": {
                 "access_token": {
@@ -2753,7 +14258,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TrashEmptyResponse": {
+        "internal_handlers.TrashEmptyResponse": {
             "type": "object",
             "properties": {
                 "deleted": {
@@ -2770,7 +14275,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TrashListResponse": {
+        "internal_handlers.TrashListResponse": {
             "type": "object",
             "properties": {
                 "has_next": {
@@ -2779,7 +14284,7 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.AdminStorageItem"
+                        "$ref": "#/definitions/internal_handlers.AdminStorageItem"
                     }
                 },
                 "next_marker": {
@@ -2790,7 +14295,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TrashRestoreRequest": {
+        "internal_handlers.TrashRestoreRequest": {
             "type": "object",
             "properties": {
                 "key": {
@@ -2798,7 +14303,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.TrashRestoreResponse": {
+        "internal_handlers.TrashRestoreResponse": {
             "type": "object",
             "properties": {
                 "from": {
@@ -2812,15 +14317,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.UpdateRoleRequest": {
-            "type": "object",
-            "properties": {
-                "role": {
-                    "type": "string"
-                }
-            }
-        },
-        "handlers.UpdateStatusRequest": {
+        "internal_handlers.UpdateComputeRedeemCodeStatusRequest": {
             "type": "object",
             "properties": {
                 "status": {
@@ -2828,7 +14325,118 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.UploadTokenRequest": {
+        "internal_handlers.UpdateProfileRequest": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "bio": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.UpdateRedeemCodeStatusRequest": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.UpdateRoleRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.UpdateStatusRequest": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.UploadTaskItem": {
+            "type": "object",
+            "properties": {
+                "category_id": {
+                    "type": "integer"
+                },
+                "collection_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "file_name": {
+                    "type": "string"
+                },
+                "file_size": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "input": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.UploadTaskListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.UploadTaskItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.UploadTokenRequest": {
             "type": "object",
             "properties": {
                 "collection_id": {
@@ -2848,7 +14456,7 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.UploadTokenResponse": {
+        "internal_handlers.UploadTokenResponse": {
             "type": "object",
             "properties": {
                 "bucket": {
@@ -2871,10 +14479,13 @@ const docTemplate = `{
                 }
             }
         },
-        "handlers.UserResponse": {
+        "internal_handlers.UserResponse": {
             "type": "object",
             "properties": {
                 "avatar_url": {
+                    "type": "string"
+                },
+                "bio": {
                     "type": "string"
                 },
                 "created_at": {
@@ -2889,6 +14500,12 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "is_admin": {
+                    "type": "boolean"
+                },
+                "is_subscriber": {
+                    "type": "boolean"
+                },
                 "phone": {
                     "type": "string"
                 },
@@ -2897,20 +14514,2038 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "subscription_expires_at": {
+                    "type": "string"
+                },
+                "subscription_plan": {
+                    "type": "string"
+                },
+                "subscription_started_at": {
+                    "type": "string"
+                },
+                "subscription_status": {
+                    "type": "string"
+                },
+                "user_level": {
+                    "type": "string"
                 }
             }
         },
-        "handlers.UsersListResponse": {
+        "internal_handlers.UsersListResponse": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/handlers.UserResponse"
+                        "$ref": "#/definitions/internal_handlers.UserResponse"
                     }
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoJobAI1DebugResponse": {
+            "type": "object",
+            "properties": {
+                "flow_mode": {
+                    "type": "string"
+                },
+                "focus": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "input": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "model_request": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "model_response": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "requested_format": {
+                    "type": "string"
+                },
+                "source_prompt": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "trace": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "internal_handlers.VideoJobAI1PlanResponse": {
+            "type": "object",
+            "properties": {
+                "confirmed_at": {
+                    "type": "string"
+                },
+                "confirmed_by_user": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "fallback_used": {
+                    "type": "boolean"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "model_provider": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "plan_revision": {
+                    "type": "integer"
+                },
+                "prompt_version": {
+                    "type": "string"
+                },
+                "requested_format": {
+                    "type": "string"
+                },
+                "schema_version": {
+                    "type": "string"
+                },
+                "source_prompt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoJobAdvancedOptionsInput": {
+            "type": "object",
+            "properties": {
+                "enable_matting": {
+                    "type": "boolean"
+                },
+                "scenario": {
+                    "type": "string"
+                },
+                "scene": {
+                    "type": "string"
+                },
+                "visual_focus": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_handlers.VideoJobAdvancedSceneOptionItem": {
+            "type": "object",
+            "properties": {
+                "candidate_count_max": {
+                    "type": "integer"
+                },
+                "candidate_count_min": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator_identity": {
+                    "type": "string"
+                },
+                "scene": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoJobAdvancedSceneOptionsResponse": {
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.VideoJobAdvancedSceneOptionItem"
+                    }
+                },
+                "resolved_from": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoJobAnalysisInfo": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "highlights": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "model": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "status": {
+                    "type": "string"
+                },
+                "summary_text": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoJobBillingInfo": {
+            "type": "object",
+            "properties": {
+                "actual_cost_cny": {
+                    "type": "number"
+                },
+                "charged_points": {
+                    "type": "integer"
+                },
+                "cost_markup_multiplier": {
+                    "type": "number"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "hold_status": {
+                    "type": "string"
+                },
+                "point_per_cny": {
+                    "type": "number"
+                },
+                "pricing_version": {
+                    "type": "string"
+                },
+                "reserved_points": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoJobCapabilitiesResponse": {
+            "type": "object",
+            "properties": {
+                "ffmpeg_available": {
+                    "type": "boolean"
+                },
+                "ffprobe_available": {
+                    "type": "boolean"
+                },
+                "formats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/emoji_internal_videojobs.FormatCapability"
+                    }
+                },
+                "gifsicle_available": {
+                    "type": "boolean"
+                },
+                "gifsicle_path": {
+                    "type": "string"
+                },
+                "supported_formats": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "unsupported_formats": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_handlers.VideoJobCropInput": {
+            "type": "object",
+            "properties": {
+                "h": {
+                    "type": "integer"
+                },
+                "w": {
+                    "type": "integer"
+                },
+                "x": {
+                    "type": "integer"
+                },
+                "y": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoJobEditOptionsInput": {
+            "type": "object",
+            "properties": {
+                "crop": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobCropInput"
+                },
+                "end_sec": {
+                    "type": "number"
+                },
+                "fps": {
+                    "type": "integer"
+                },
+                "max_colors": {
+                    "type": "integer"
+                },
+                "speed": {
+                    "type": "number"
+                },
+                "start_sec": {
+                    "type": "number"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoJobEventItemResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "stage": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoJobEventListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.VideoJobEventItemResponse"
+                    }
+                },
+                "next_since_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoJobResponse": {
+            "type": "object",
+            "properties": {
+                "analysis": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobAnalysisInfo"
+                },
+                "asset_domain": {
+                    "type": "string"
+                },
+                "billing": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobBillingInfo"
+                },
+                "category_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "metrics": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "options": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "output_formats": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "priority": {
+                    "type": "string"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "queued_at": {
+                    "type": "string"
+                },
+                "result_collection_id": {
+                    "type": "integer"
+                },
+                "result_summary": {
+                    "$ref": "#/definitions/internal_handlers.VideoJobResultSummary"
+                },
+                "source_video_key": {
+                    "type": "string"
+                },
+                "source_video_url": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoJobResultSummary": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "integer"
+                },
+                "collection_title": {
+                    "type": "string"
+                },
+                "file_count": {
+                    "type": "integer"
+                },
+                "format_summary": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "output_total_size_bytes": {
+                    "type": "integer"
+                },
+                "package_size_bytes": {
+                    "type": "integer"
+                },
+                "package_status": {
+                    "type": "string"
+                },
+                "preview_images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "quality_avg_loop_closure": {
+                    "type": "number"
+                },
+                "quality_avg_score": {
+                    "type": "number"
+                },
+                "quality_sample_count": {
+                    "type": "integer"
+                },
+                "quality_top_score": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.VideoQualityRolloutEffectCard": {
+            "type": "object",
+            "properties": {
+                "admin_id": {
+                    "type": "integer"
+                },
+                "applied_at": {
+                    "type": "string"
+                },
+                "audit_id": {
+                    "type": "integer"
+                },
+                "base_metrics": {
+                    "$ref": "#/definitions/internal_handlers.VideoQualityRolloutEffectMetric"
+                },
+                "base_window_end": {
+                    "type": "string"
+                },
+                "base_window_start": {
+                    "type": "string"
+                },
+                "delta": {
+                    "$ref": "#/definitions/internal_handlers.VideoQualityRolloutEffectDelta"
+                },
+                "from_rollout_percent": {
+                    "type": "integer"
+                },
+                "recommendation_state": {
+                    "type": "string"
+                },
+                "target_metrics": {
+                    "$ref": "#/definitions/internal_handlers.VideoQualityRolloutEffectMetric"
+                },
+                "target_window_end": {
+                    "type": "string"
+                },
+                "target_window_start": {
+                    "type": "string"
+                },
+                "to_rollout_percent": {
+                    "type": "integer"
+                },
+                "verdict": {
+                    "type": "string"
+                },
+                "verdict_reason": {
+                    "type": "string"
+                },
+                "window": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.VideoQualityRolloutEffectDelta": {
+            "type": "object",
+            "properties": {
+                "avg_loop_closure_delta": {
+                    "type": "number"
+                },
+                "avg_output_score_delta": {
+                    "type": "number"
+                },
+                "done_rate_delta": {
+                    "type": "number"
+                },
+                "failed_rate_delta": {
+                    "type": "number"
+                },
+                "loop_effective_rate_delta": {
+                    "type": "number"
+                },
+                "loop_fallback_rate_delta": {
+                    "type": "number"
+                }
+            }
+        },
+        "internal_handlers.VideoQualityRolloutEffectMetric": {
+            "type": "object",
+            "properties": {
+                "avg_loop_closure": {
+                    "type": "number"
+                },
+                "avg_output_score": {
+                    "type": "number"
+                },
+                "done_rate": {
+                    "type": "number"
+                },
+                "failed_rate": {
+                    "type": "number"
+                },
+                "jobs_done": {
+                    "type": "integer"
+                },
+                "jobs_failed": {
+                    "type": "integer"
+                },
+                "jobs_total": {
+                    "type": "integer"
+                },
+                "loop_effective_rate": {
+                    "type": "number"
+                },
+                "loop_fallback_rate": {
+                    "type": "number"
+                },
+                "output_samples": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoQualitySettingAuditItem": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "admin_id": {
+                    "type": "integer"
+                },
+                "change_kind": {
+                    "type": "string"
+                },
+                "changed_count": {
+                    "type": "integer"
+                },
+                "changed_fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.VideoQualitySettingChangedField"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "format_scope": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "resolved_from": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_handlers.VideoQualitySettingChangedField": {
+            "type": "object",
+            "properties": {
+                "field": {
+                    "type": "string"
+                },
+                "new_value": {},
+                "old_value": {}
+            }
+        },
+        "internal_handlers.VideoQualitySettingRequest": {
+            "type": "object",
+            "properties": {
+                "ai_director_constraint_override_enabled": {
+                    "type": "boolean"
+                },
+                "ai_director_count_absolute_cap": {
+                    "type": "integer"
+                },
+                "ai_director_count_expand_ratio": {
+                    "type": "number"
+                },
+                "ai_director_duration_absolute_cap_sec": {
+                    "type": "number"
+                },
+                "ai_director_duration_expand_ratio": {
+                    "type": "number"
+                },
+                "ai_director_input_mode": {
+                    "type": "string"
+                },
+                "ai_director_operator_enabled": {
+                    "type": "boolean"
+                },
+                "ai_director_operator_instruction": {
+                    "type": "string"
+                },
+                "ai_director_operator_instruction_version": {
+                    "type": "string"
+                },
+                "blur_threshold_factor": {
+                    "type": "number"
+                },
+                "blur_threshold_max": {
+                    "type": "number"
+                },
+                "blur_threshold_min": {
+                    "type": "number"
+                },
+                "duplicate_backtrack_frames": {
+                    "type": "integer"
+                },
+                "duplicate_hamming_threshold": {
+                    "type": "integer"
+                },
+                "fallback_blur_relax_factor": {
+                    "type": "number"
+                },
+                "fallback_hamming_threshold": {
+                    "type": "integer"
+                },
+                "feedback_integrity_output_coverage_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_coverage_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_job_consistency_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_job_consistency_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_resolved_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_resolved_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_top_pick_conflict_users_critical": {
+                    "type": "integer"
+                },
+                "feedback_integrity_top_pick_conflict_users_warn": {
+                    "type": "integer"
+                },
+                "gif_adaptive_fps_max": {
+                    "type": "integer"
+                },
+                "gif_adaptive_fps_min": {
+                    "type": "integer"
+                },
+                "gif_ai_judge_hard_gate_min_clarity_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_min_duration_ms": {
+                    "type": "integer"
+                },
+                "gif_ai_judge_hard_gate_min_loop_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_min_output_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_min_overall_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_size_multiplier": {
+                    "type": "integer"
+                },
+                "gif_candidate_confidence_threshold": {
+                    "type": "number"
+                },
+                "gif_candidate_dedup_iou_threshold": {
+                    "type": "number"
+                },
+                "gif_candidate_long_video_max_outputs": {
+                    "type": "integer"
+                },
+                "gif_candidate_max_outputs": {
+                    "type": "integer"
+                },
+                "gif_candidate_ultra_video_max_outputs": {
+                    "type": "integer"
+                },
+                "gif_colors_clarity_high": {
+                    "type": "integer"
+                },
+                "gif_colors_clarity_low": {
+                    "type": "integer"
+                },
+                "gif_colors_clarity_medium": {
+                    "type": "integer"
+                },
+                "gif_colors_size_high": {
+                    "type": "integer"
+                },
+                "gif_colors_size_low": {
+                    "type": "integer"
+                },
+                "gif_colors_size_medium": {
+                    "type": "integer"
+                },
+                "gif_default_fps": {
+                    "type": "integer"
+                },
+                "gif_default_max_colors": {
+                    "type": "integer"
+                },
+                "gif_dither_mode": {
+                    "type": "string"
+                },
+                "gif_downshift_early_duration_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_early_long_side_threshold": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_high_res_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_long_side_threshold": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_width_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_long_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_long_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_long_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_long_width_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_medium_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_medium_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_medium_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_medium_width_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_ultra_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_ultra_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_ultra_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_ultra_width_cap": {
+                    "type": "integer"
+                },
+                "gif_duration_high_sec": {
+                    "type": "number"
+                },
+                "gif_duration_low_sec": {
+                    "type": "number"
+                },
+                "gif_duration_medium_sec": {
+                    "type": "number"
+                },
+                "gif_duration_size_profile_max_sec": {
+                    "type": "number"
+                },
+                "gif_duration_tier_long_sec": {
+                    "type": "number"
+                },
+                "gif_duration_tier_medium_sec": {
+                    "type": "number"
+                },
+                "gif_duration_tier_ultra_sec": {
+                    "type": "number"
+                },
+                "gif_gifsicle_enabled": {
+                    "type": "boolean"
+                },
+                "gif_gifsicle_level": {
+                    "type": "integer"
+                },
+                "gif_gifsicle_min_gain_ratio": {
+                    "type": "number"
+                },
+                "gif_gifsicle_skip_below_kb": {
+                    "type": "integer"
+                },
+                "gif_health_done_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_done_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_failed_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_failed_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_loop_fallback_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_loop_fallback_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_path_strict_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_path_strict_rate_warn": {
+                    "type": "number"
+                },
+                "gif_loop_tune_enabled": {
+                    "type": "boolean"
+                },
+                "gif_loop_tune_min_enable_sec": {
+                    "type": "number"
+                },
+                "gif_loop_tune_min_improvement": {
+                    "type": "number"
+                },
+                "gif_loop_tune_motion_target": {
+                    "type": "number"
+                },
+                "gif_loop_tune_prefer_duration_sec": {
+                    "type": "number"
+                },
+                "gif_motion_high_fps_delta": {
+                    "type": "integer"
+                },
+                "gif_motion_high_score_threshold": {
+                    "type": "number"
+                },
+                "gif_motion_low_fps_delta": {
+                    "type": "integer"
+                },
+                "gif_motion_low_score_threshold": {
+                    "type": "number"
+                },
+                "gif_pipeline_default_mode": {
+                    "type": "string"
+                },
+                "gif_pipeline_high_priority_enabled": {
+                    "type": "boolean"
+                },
+                "gif_pipeline_high_priority_mode": {
+                    "type": "string"
+                },
+                "gif_pipeline_long_video_min_sec": {
+                    "type": "number"
+                },
+                "gif_pipeline_long_video_mode": {
+                    "type": "string"
+                },
+                "gif_pipeline_short_video_max_sec": {
+                    "type": "number"
+                },
+                "gif_pipeline_short_video_mode": {
+                    "type": "string"
+                },
+                "gif_profile": {
+                    "type": "string"
+                },
+                "gif_render_budget_long_mult": {
+                    "type": "number"
+                },
+                "gif_render_budget_normal_mult": {
+                    "type": "number"
+                },
+                "gif_render_budget_ultra_mult": {
+                    "type": "number"
+                },
+                "gif_render_initial_clarity_colors_floor": {
+                    "type": "integer"
+                },
+                "gif_render_initial_clarity_fps_floor": {
+                    "type": "integer"
+                },
+                "gif_render_initial_size_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_render_initial_size_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_render_retry_fps_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_fps_step": {
+                    "type": "integer"
+                },
+                "gif_render_retry_max_attempts": {
+                    "type": "integer"
+                },
+                "gif_render_retry_primary_colors_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_primary_colors_step": {
+                    "type": "integer"
+                },
+                "gif_render_retry_secondary_colors_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_secondary_colors_step": {
+                    "type": "integer"
+                },
+                "gif_render_retry_width_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_width_scale": {
+                    "type": "number"
+                },
+                "gif_render_retry_width_trigger": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_emergency_cap_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_fallback_cap_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_last_resort_cap_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_max_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_min_sec": {
+                    "type": "integer"
+                },
+                "gif_target_size_kb": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_duration_min_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_emergency_duration_scale": {
+                    "type": "number"
+                },
+                "gif_timeout_emergency_duration_trigger_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_emergency_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_min_width": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_width_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_min_width": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_ultra_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_ultra_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_ultra_width_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_width_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_duration_max_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_last_resort_duration_min_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_last_resort_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_min_width": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_width_cap": {
+                    "type": "integer"
+                },
+                "gif_width_clarity_high": {
+                    "type": "integer"
+                },
+                "gif_width_clarity_low": {
+                    "type": "integer"
+                },
+                "gif_width_clarity_medium": {
+                    "type": "integer"
+                },
+                "gif_width_size_high": {
+                    "type": "integer"
+                },
+                "gif_width_size_low": {
+                    "type": "integer"
+                },
+                "gif_width_size_medium": {
+                    "type": "integer"
+                },
+                "highlight_feedback_boost_scale": {
+                    "type": "number"
+                },
+                "highlight_feedback_duration_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_enabled": {
+                    "type": "boolean"
+                },
+                "highlight_feedback_min_engaged_jobs": {
+                    "type": "integer"
+                },
+                "highlight_feedback_min_weighted_signals": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_dominance_threshold": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_enabled": {
+                    "type": "boolean"
+                },
+                "highlight_feedback_negative_guard_min_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_penalty_scale": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_penalty_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_position_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_reason_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_rollout_percent": {
+                    "type": "integer"
+                },
+                "jpg_profile": {
+                    "type": "string"
+                },
+                "jpg_target_size_kb": {
+                    "type": "integer"
+                },
+                "live_cover_guard_min_total": {
+                    "type": "integer"
+                },
+                "live_cover_guard_score_floor": {
+                    "type": "number"
+                },
+                "live_cover_portrait_weight": {
+                    "type": "number"
+                },
+                "live_cover_scene_min_samples": {
+                    "type": "integer"
+                },
+                "live_profile": {
+                    "type": "string"
+                },
+                "max_brightness": {
+                    "type": "number"
+                },
+                "min_brightness": {
+                    "type": "number"
+                },
+                "min_keep_base": {
+                    "type": "integer"
+                },
+                "min_keep_ratio": {
+                    "type": "number"
+                },
+                "png_profile": {
+                    "type": "string"
+                },
+                "png_target_size_kb": {
+                    "type": "integer"
+                },
+                "quality_analysis_workers": {
+                    "type": "integer"
+                },
+                "still_min_blur_score": {
+                    "type": "number"
+                },
+                "still_min_exposure_score": {
+                    "type": "number"
+                },
+                "still_min_height": {
+                    "type": "integer"
+                },
+                "still_min_width": {
+                    "type": "integer"
+                },
+                "upload_concurrency": {
+                    "type": "integer"
+                },
+                "webp_profile": {
+                    "type": "string"
+                },
+                "webp_target_size_kb": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.VideoQualitySettingResponse": {
+            "type": "object",
+            "properties": {
+                "ai_director_constraint_override_enabled": {
+                    "type": "boolean"
+                },
+                "ai_director_count_absolute_cap": {
+                    "type": "integer"
+                },
+                "ai_director_count_expand_ratio": {
+                    "type": "number"
+                },
+                "ai_director_duration_absolute_cap_sec": {
+                    "type": "number"
+                },
+                "ai_director_duration_expand_ratio": {
+                    "type": "number"
+                },
+                "ai_director_input_mode": {
+                    "type": "string"
+                },
+                "ai_director_operator_enabled": {
+                    "type": "boolean"
+                },
+                "ai_director_operator_instruction": {
+                    "type": "string"
+                },
+                "ai_director_operator_instruction_version": {
+                    "type": "string"
+                },
+                "blur_threshold_factor": {
+                    "type": "number"
+                },
+                "blur_threshold_max": {
+                    "type": "number"
+                },
+                "blur_threshold_min": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duplicate_backtrack_frames": {
+                    "type": "integer"
+                },
+                "duplicate_hamming_threshold": {
+                    "type": "integer"
+                },
+                "fallback_blur_relax_factor": {
+                    "type": "number"
+                },
+                "fallback_hamming_threshold": {
+                    "type": "integer"
+                },
+                "feedback_integrity_output_coverage_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_coverage_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_job_consistency_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_job_consistency_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_resolved_rate_critical": {
+                    "type": "number"
+                },
+                "feedback_integrity_output_resolved_rate_warn": {
+                    "type": "number"
+                },
+                "feedback_integrity_top_pick_conflict_users_critical": {
+                    "type": "integer"
+                },
+                "feedback_integrity_top_pick_conflict_users_warn": {
+                    "type": "integer"
+                },
+                "format_scope": {
+                    "type": "string"
+                },
+                "gif_adaptive_fps_max": {
+                    "type": "integer"
+                },
+                "gif_adaptive_fps_min": {
+                    "type": "integer"
+                },
+                "gif_ai_judge_hard_gate_min_clarity_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_min_duration_ms": {
+                    "type": "integer"
+                },
+                "gif_ai_judge_hard_gate_min_loop_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_min_output_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_min_overall_score": {
+                    "type": "number"
+                },
+                "gif_ai_judge_hard_gate_size_multiplier": {
+                    "type": "integer"
+                },
+                "gif_candidate_confidence_threshold": {
+                    "type": "number"
+                },
+                "gif_candidate_dedup_iou_threshold": {
+                    "type": "number"
+                },
+                "gif_candidate_long_video_max_outputs": {
+                    "type": "integer"
+                },
+                "gif_candidate_max_outputs": {
+                    "type": "integer"
+                },
+                "gif_candidate_ultra_video_max_outputs": {
+                    "type": "integer"
+                },
+                "gif_colors_clarity_high": {
+                    "type": "integer"
+                },
+                "gif_colors_clarity_low": {
+                    "type": "integer"
+                },
+                "gif_colors_clarity_medium": {
+                    "type": "integer"
+                },
+                "gif_colors_size_high": {
+                    "type": "integer"
+                },
+                "gif_colors_size_low": {
+                    "type": "integer"
+                },
+                "gif_colors_size_medium": {
+                    "type": "integer"
+                },
+                "gif_default_fps": {
+                    "type": "integer"
+                },
+                "gif_default_max_colors": {
+                    "type": "integer"
+                },
+                "gif_dither_mode": {
+                    "type": "string"
+                },
+                "gif_downshift_early_duration_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_early_long_side_threshold": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_high_res_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_long_side_threshold": {
+                    "type": "integer"
+                },
+                "gif_downshift_high_res_width_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_long_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_long_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_long_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_long_width_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_medium_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_medium_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_medium_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_medium_width_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_ultra_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_ultra_duration_cap_sec": {
+                    "type": "number"
+                },
+                "gif_downshift_ultra_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_downshift_ultra_width_cap": {
+                    "type": "integer"
+                },
+                "gif_duration_high_sec": {
+                    "type": "number"
+                },
+                "gif_duration_low_sec": {
+                    "type": "number"
+                },
+                "gif_duration_medium_sec": {
+                    "type": "number"
+                },
+                "gif_duration_size_profile_max_sec": {
+                    "type": "number"
+                },
+                "gif_duration_tier_long_sec": {
+                    "type": "number"
+                },
+                "gif_duration_tier_medium_sec": {
+                    "type": "number"
+                },
+                "gif_duration_tier_ultra_sec": {
+                    "type": "number"
+                },
+                "gif_gifsicle_enabled": {
+                    "type": "boolean"
+                },
+                "gif_gifsicle_level": {
+                    "type": "integer"
+                },
+                "gif_gifsicle_min_gain_ratio": {
+                    "type": "number"
+                },
+                "gif_gifsicle_skip_below_kb": {
+                    "type": "integer"
+                },
+                "gif_health_done_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_done_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_failed_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_failed_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_loop_fallback_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_loop_fallback_rate_warn": {
+                    "type": "number"
+                },
+                "gif_health_path_strict_rate_critical": {
+                    "type": "number"
+                },
+                "gif_health_path_strict_rate_warn": {
+                    "type": "number"
+                },
+                "gif_loop_tune_enabled": {
+                    "type": "boolean"
+                },
+                "gif_loop_tune_min_enable_sec": {
+                    "type": "number"
+                },
+                "gif_loop_tune_min_improvement": {
+                    "type": "number"
+                },
+                "gif_loop_tune_motion_target": {
+                    "type": "number"
+                },
+                "gif_loop_tune_prefer_duration_sec": {
+                    "type": "number"
+                },
+                "gif_motion_high_fps_delta": {
+                    "type": "integer"
+                },
+                "gif_motion_high_score_threshold": {
+                    "type": "number"
+                },
+                "gif_motion_low_fps_delta": {
+                    "type": "integer"
+                },
+                "gif_motion_low_score_threshold": {
+                    "type": "number"
+                },
+                "gif_pipeline_default_mode": {
+                    "type": "string"
+                },
+                "gif_pipeline_high_priority_enabled": {
+                    "type": "boolean"
+                },
+                "gif_pipeline_high_priority_mode": {
+                    "type": "string"
+                },
+                "gif_pipeline_long_video_min_sec": {
+                    "type": "number"
+                },
+                "gif_pipeline_long_video_mode": {
+                    "type": "string"
+                },
+                "gif_pipeline_short_video_max_sec": {
+                    "type": "number"
+                },
+                "gif_pipeline_short_video_mode": {
+                    "type": "string"
+                },
+                "gif_profile": {
+                    "type": "string"
+                },
+                "gif_render_budget_long_mult": {
+                    "type": "number"
+                },
+                "gif_render_budget_normal_mult": {
+                    "type": "number"
+                },
+                "gif_render_budget_ultra_mult": {
+                    "type": "number"
+                },
+                "gif_render_initial_clarity_colors_floor": {
+                    "type": "integer"
+                },
+                "gif_render_initial_clarity_fps_floor": {
+                    "type": "integer"
+                },
+                "gif_render_initial_size_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_render_initial_size_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_render_retry_fps_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_fps_step": {
+                    "type": "integer"
+                },
+                "gif_render_retry_max_attempts": {
+                    "type": "integer"
+                },
+                "gif_render_retry_primary_colors_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_primary_colors_step": {
+                    "type": "integer"
+                },
+                "gif_render_retry_secondary_colors_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_secondary_colors_step": {
+                    "type": "integer"
+                },
+                "gif_render_retry_width_floor": {
+                    "type": "integer"
+                },
+                "gif_render_retry_width_scale": {
+                    "type": "number"
+                },
+                "gif_render_retry_width_trigger": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_emergency_cap_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_fallback_cap_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_last_resort_cap_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_max_sec": {
+                    "type": "integer"
+                },
+                "gif_segment_timeout_min_sec": {
+                    "type": "integer"
+                },
+                "gif_target_size_kb": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_duration_min_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_emergency_duration_scale": {
+                    "type": "number"
+                },
+                "gif_timeout_emergency_duration_trigger_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_emergency_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_min_width": {
+                    "type": "integer"
+                },
+                "gif_timeout_emergency_width_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_min_width": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_ultra_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_ultra_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_ultra_width_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_fallback_width_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_colors_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_duration_max_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_last_resort_duration_min_sec": {
+                    "type": "number"
+                },
+                "gif_timeout_last_resort_fps_cap": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_min_width": {
+                    "type": "integer"
+                },
+                "gif_timeout_last_resort_width_cap": {
+                    "type": "integer"
+                },
+                "gif_width_clarity_high": {
+                    "type": "integer"
+                },
+                "gif_width_clarity_low": {
+                    "type": "integer"
+                },
+                "gif_width_clarity_medium": {
+                    "type": "integer"
+                },
+                "gif_width_size_high": {
+                    "type": "integer"
+                },
+                "gif_width_size_low": {
+                    "type": "integer"
+                },
+                "gif_width_size_medium": {
+                    "type": "integer"
+                },
+                "highlight_feedback_boost_scale": {
+                    "type": "number"
+                },
+                "highlight_feedback_duration_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_enabled": {
+                    "type": "boolean"
+                },
+                "highlight_feedback_min_engaged_jobs": {
+                    "type": "integer"
+                },
+                "highlight_feedback_min_weighted_signals": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_dominance_threshold": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_enabled": {
+                    "type": "boolean"
+                },
+                "highlight_feedback_negative_guard_min_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_penalty_scale": {
+                    "type": "number"
+                },
+                "highlight_feedback_negative_guard_penalty_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_position_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_reason_weight": {
+                    "type": "number"
+                },
+                "highlight_feedback_rollout_percent": {
+                    "type": "integer"
+                },
+                "jpg_profile": {
+                    "type": "string"
+                },
+                "jpg_target_size_kb": {
+                    "type": "integer"
+                },
+                "live_cover_guard_min_total": {
+                    "type": "integer"
+                },
+                "live_cover_guard_score_floor": {
+                    "type": "number"
+                },
+                "live_cover_portrait_weight": {
+                    "type": "number"
+                },
+                "live_cover_scene_min_samples": {
+                    "type": "integer"
+                },
+                "live_profile": {
+                    "type": "string"
+                },
+                "max_brightness": {
+                    "type": "number"
+                },
+                "min_brightness": {
+                    "type": "number"
+                },
+                "min_keep_base": {
+                    "type": "integer"
+                },
+                "min_keep_ratio": {
+                    "type": "number"
+                },
+                "override_version": {
+                    "type": "string"
+                },
+                "png_profile": {
+                    "type": "string"
+                },
+                "png_target_size_kb": {
+                    "type": "integer"
+                },
+                "quality_analysis_workers": {
+                    "type": "integer"
+                },
+                "resolved_from": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "still_min_blur_score": {
+                    "type": "number"
+                },
+                "still_min_exposure_score": {
+                    "type": "number"
+                },
+                "still_min_height": {
+                    "type": "integer"
+                },
+                "still_min_width": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "upload_concurrency": {
+                    "type": "integer"
+                },
+                "webp_profile": {
+                    "type": "string"
+                },
+                "webp_target_size_kb": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageReadRouteResponse": {
+            "type": "object",
+            "properties": {
+                "base_tables": {
+                    "$ref": "#/definitions/internal_handlers.adminVideoImageReadTablesPayload"
+                },
+                "debug_enabled": {
+                    "type": "boolean"
+                },
+                "normalized_format": {
+                    "type": "string"
+                },
+                "requested_format": {
+                    "type": "string"
+                },
+                "split_only": {
+                    "type": "boolean"
+                },
+                "tables": {
+                    "$ref": "#/definitions/internal_handlers.adminVideoImageReadTablesPayload"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageReadTablesPayload": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "string"
+                },
+                "feedback": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "type": "string"
+                },
+                "outputs": {
+                    "type": "string"
+                },
+                "packages": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageSplitBackfillHistoryItem": {
+            "type": "object",
+            "properties": {
+                "finished_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "options": {
+                    "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillOptionsPayload"
+                },
+                "report": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillReport"
+                },
+                "requested_by": {
+                    "type": "integer"
+                },
+                "run_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "stopped": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageSplitBackfillLeaseStatus": {
+            "type": "object",
+            "properties": {
+                "can_takeover": {
+                    "type": "boolean"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "is_local_owner": {
+                    "type": "boolean"
+                },
+                "owner_instance": {
+                    "type": "string"
+                },
+                "remaining_seconds": {
+                    "type": "integer"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageSplitBackfillOptionsPayload": {
+            "type": "object",
+            "properties": {
+                "apply": {
+                    "type": "boolean"
+                },
+                "batch_size": {
+                    "type": "integer"
+                },
+                "fallback_format": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "limit_events": {
+                    "type": "integer"
+                },
+                "limit_feedbacks": {
+                    "type": "integer"
+                },
+                "limit_jobs": {
+                    "type": "integer"
+                },
+                "limit_outputs": {
+                    "type": "integer"
+                },
+                "limit_packages": {
+                    "type": "integer"
+                },
+                "start_event_id": {
+                    "type": "integer"
+                },
+                "start_feedback_id": {
+                    "type": "integer"
+                },
+                "start_job_id": {
+                    "type": "integer"
+                },
+                "start_output_id": {
+                    "type": "integer"
+                },
+                "start_package_id": {
+                    "type": "integer"
+                },
+                "tables": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageSplitBackfillStartRequest": {
+            "type": "object",
+            "properties": {
+                "apply": {
+                    "type": "boolean"
+                },
+                "batch_size": {
+                    "type": "integer"
+                },
+                "fallback_format": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "limit_events": {
+                    "type": "integer"
+                },
+                "limit_feedbacks": {
+                    "type": "integer"
+                },
+                "limit_jobs": {
+                    "type": "integer"
+                },
+                "limit_outputs": {
+                    "type": "integer"
+                },
+                "limit_packages": {
+                    "type": "integer"
+                },
+                "start_event_id": {
+                    "type": "integer"
+                },
+                "start_feedback_id": {
+                    "type": "integer"
+                },
+                "start_job_id": {
+                    "type": "integer"
+                },
+                "start_output_id": {
+                    "type": "integer"
+                },
+                "start_package_id": {
+                    "type": "integer"
+                },
+                "tables": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.adminVideoImageSplitBackfillStatusResponse": {
+            "type": "object",
+            "properties": {
+                "finished_at": {
+                    "type": "string"
+                },
+                "heartbeat_at": {
+                    "type": "string"
+                },
+                "history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillHistoryItem"
+                    }
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "lease": {
+                    "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillLeaseStatus"
+                },
+                "options": {
+                    "$ref": "#/definitions/internal_handlers.adminVideoImageSplitBackfillOptionsPayload"
+                },
+                "report": {
+                    "$ref": "#/definitions/emoji_internal_videojobs.PublicVideoImageSplitBackfillReport"
+                },
+                "requested_by": {
+                    "type": "integer"
+                },
+                "run_id": {
+                    "type": "string"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "stop_requested": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.setVideoImageReadRouteDebugRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         }

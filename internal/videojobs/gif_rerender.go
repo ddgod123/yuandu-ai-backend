@@ -242,7 +242,7 @@ func (p *Processor) RerenderGIFByProposal(ctx context.Context, req GIFRerenderRe
 		return nil, newGIFRerenderError(GIFRerenderErrorInvalidInput, "proposal window too short after clamp", nil)
 	}
 
-	qualitySettings := p.loadQualitySettings()
+	qualitySettings, _ := p.loadQualitySettingsByFormat("gif")
 	options := parseJobOptions(job.Options)
 	options = applyAnimatedProfileDefaults(options, []string{"gif"}, qualitySettings)
 

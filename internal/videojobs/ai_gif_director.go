@@ -345,10 +345,11 @@ func (p *Processor) requestAIGIFPromptDirective(
 	info["source_video_url_available"] = directorRuntime.sourceVideoURL != ""
 	info["source_video_url_error"] = directorRuntime.sourceVideoURLError
 
+	attempt := 1
 	modelText, _, rawResp, _, err := p.callAndRecordAIGIFDirector(
 		directorRuntime,
 		systemPrompt,
-		1,
+		attempt,
 		cfg,
 		modelPayload,
 		debugPayload,
@@ -368,10 +369,11 @@ func (p *Processor) requestAIGIFPromptDirective(
 			userParts, userBytes = buildAIGIFDirectorUserParts(directorRuntime, modelPayload)
 			info["hybrid_retry"] = "video_input_error_fallback_to_frames"
 			info["hybrid_first_error"] = err.Error()
+			attempt++
 			modelText, _, rawResp, _, err = p.callAndRecordAIGIFDirector(
 				directorRuntime,
 				systemPrompt,
-				2,
+				attempt,
 				cfg,
 				modelPayload,
 				debugPayload,
@@ -394,6 +396,57 @@ func (p *Processor) requestAIGIFPromptDirective(
 	info["director_input_source"] = directorRuntime.directorInputSource
 	info["source_video_url_available"] = directorRuntime.sourceVideoURL != ""
 	info["source_video_url_error"] = directorRuntime.sourceVideoURLError
+	if err != nil && isOpenAICompatAccessDeniedError(err) {
+		fallbackModels := suggestQwenFallbackModels(cfg.Model)
+		if len(fallbackModels) > 0 {
+			attempts := make([]map[string]interface{}, 0, len(fallbackModels))
+			lastErr := err
+			for _, fallbackModel := range fallbackModels {
+				nextCfg := cfg
+				nextCfg.Model = fallbackModel
+				attempt++
+				modelText, _, rawResp, _, err = p.callAndRecordAIGIFDirector(
+					directorRuntime,
+					systemPrompt,
+					attempt,
+					nextCfg,
+					modelPayload,
+					debugPayload,
+					userBytes,
+					userParts,
+					promptPack.FixedPromptVersion,
+					promptPack.FixedPromptSource,
+					promptPack.ContractTailVersion,
+				)
+				item := map[string]interface{}{
+					"model":  fallbackModel,
+					"status": "error",
+				}
+				if err == nil {
+					item["status"] = "ok"
+					attempts = append(attempts, item)
+					cfg = nextCfg
+					info["model"] = cfg.Model
+					info["access_fallback_model"] = cfg.Model
+					info["access_fallback_used"] = true
+					lastErr = nil
+					break
+				}
+				item["error"] = err.Error()
+				attempts = append(attempts, item)
+				lastErr = err
+				if !isOpenAICompatAccessDeniedError(err) {
+					break
+				}
+			}
+			if len(attempts) > 0 {
+				info["access_fallback_attempts"] = attempts
+			}
+			if lastErr == nil {
+				err = nil
+			}
+		}
+	}
 	if err != nil {
 		fallbackDirective := buildFallbackAIGIFDirective(local, qualitySettings, "director_call_error")
 		_ = p.persistAIGIFDirective(job.ID, job.UserID, cfg, *fallbackDirective, rawResp, buildAIGIFDirectivePersistContext(directorRuntime, cfg, modelPayload, "fallback", true, rawResp, "director_call_error"))
@@ -531,6 +584,40 @@ func buildFallbackAIGIFDirective(local highlightSuggestion, qualitySettings Qual
 		DirectiveText: "AI1 回退策略：优先情绪/反应峰值片段，控制时长，避免低价值过渡镜头。",
 	}
 	return normalizeAIGIFDirective(directive, def.GIFCandidateMaxOutputs)
+}
+
+func isOpenAICompatAccessDeniedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(err.Error()))
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "access_denied") {
+		return true
+	}
+	return strings.Contains(text, "access denied") && strings.Contains(text, "403")
+}
+
+func suggestQwenFallbackModels(current string) []string {
+	model := strings.ToLower(strings.TrimSpace(current))
+	switch model {
+	case "qwen3.5-omni-plus":
+		return []string{"qwen3-vl-flash", "qwen3.5-plus", "qwen-plus", "qwen-turbo"}
+	case "qwen3.5-omni-flash":
+		return []string{"qwen3-vl-flash", "qwen3.5-plus", "qwen-plus", "qwen-turbo"}
+	case "qwen3-vl-flash":
+		return []string{"qwen3.5-plus", "qwen-plus", "qwen-turbo"}
+	case "qwen3-vl-plus":
+		return []string{"qwen3.5-plus", "qwen-plus", "qwen-turbo"}
+	case "qwen3.5-plus":
+		return []string{"qwen-plus", "qwen-turbo"}
+	case "qwen-plus":
+		return []string{"qwen-turbo"}
+	default:
+		return nil
+	}
 }
 
 func resolveAIDirectiveBriefVersion(operatorVersion, promptVersion string) string {

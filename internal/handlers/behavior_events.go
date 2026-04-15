@@ -65,6 +65,34 @@ func trimToMax(raw string, max int) string {
 	return value[:max]
 }
 
+func firstHeaderValue(c *gin.Context, keys ...string) string {
+	if c == nil {
+		return ""
+	}
+	for _, key := range keys {
+		value := trimToMax(c.GetHeader(key), 128)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func metaStringValue(meta map[string]interface{}, key string) string {
+	if meta == nil {
+		return ""
+	}
+	raw, ok := meta[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
 func (h *Handler) recordUserBehaviorEvent(c *gin.Context, eventName string, options userBehaviorEventOptions) {
 	if h == nil || h.db == nil {
 		return
@@ -105,9 +133,86 @@ func (h *Handler) recordUserBehaviorEvent(c *gin.Context, eventName string, opti
 		}
 	}
 
+	metaMap := make(map[string]interface{}, 8)
+	for k, v := range options.Metadata {
+		metaMap[k] = v
+	}
+	if c != nil {
+		ipValue := ""
+		if _, exists := metaMap["request_ip"]; !exists {
+			if ip := trimToMax(c.ClientIP(), 64); ip != "" {
+				metaMap["request_ip"] = ip
+				ipValue = ip
+			}
+		}
+		if ipValue == "" {
+			ipValue = metaStringValue(metaMap, "request_ip")
+		}
+		if _, exists := metaMap["user_agent"]; !exists {
+			if ua := trimToMax(c.GetHeader("User-Agent"), 512); ua != "" {
+				metaMap["user_agent"] = ua
+			}
+		}
+		if _, exists := metaMap["country"]; !exists {
+			if country := firstHeaderValue(
+				c,
+				"X-Geo-Country",
+				"X-Country",
+				"CF-IPCountry",
+				"X-AppEngine-Country",
+				"CloudFront-Viewer-Country",
+			); country != "" {
+				metaMap["country"] = country
+			}
+		}
+		if _, exists := metaMap["region"]; !exists {
+			if region := firstHeaderValue(
+				c,
+				"X-Geo-Region",
+				"X-Region",
+				"X-AppEngine-Region",
+				"CloudFront-Viewer-Country-Region",
+			); region != "" {
+				metaMap["region"] = region
+			}
+		}
+		if _, exists := metaMap["city"]; !exists {
+			if city := firstHeaderValue(
+				c,
+				"X-Geo-City",
+				"X-City",
+				"X-AppEngine-City",
+				"CloudFront-Viewer-City",
+			); city != "" {
+				metaMap["city"] = city
+			}
+		}
+
+		missingCountry := metaStringValue(metaMap, "country") == ""
+		missingRegion := metaStringValue(metaMap, "region") == ""
+		missingCity := metaStringValue(metaMap, "city") == ""
+		if (missingCountry || missingRegion || missingCity) && ipValue != "" {
+			geo := lookupGeoByIP(h.cfg, ipValue)
+			if missingCountry && geo.Country != "" {
+				metaMap["country"] = geo.Country
+			}
+			if missingRegion && geo.Region != "" {
+				metaMap["region"] = geo.Region
+			}
+			if missingCity && geo.City != "" {
+				metaMap["city"] = geo.City
+			}
+			if geo.Source != "" {
+				if _, exists := metaMap["geo_source"]; !exists {
+					metaMap["geo_source"] = geo.Source
+				}
+			}
+		}
+	}
+
 	meta := datatypes.JSON([]byte("{}"))
-	if options.Metadata != nil {
-		if raw, err := json.Marshal(options.Metadata); err == nil {
+	if len(metaMap) > 0 {
+		if raw, err := json.Marshal(metaMap); err == nil {
 			meta = datatypes.JSON(raw)
 		}
 	}

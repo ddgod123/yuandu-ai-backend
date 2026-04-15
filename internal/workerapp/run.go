@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"emoji/internal/config"
 	"emoji/internal/copyrightjobs"
 	"emoji/internal/db"
+	"emoji/internal/feishujobs"
 	"emoji/internal/models"
 	"emoji/internal/queue"
 	"emoji/internal/storage"
@@ -53,6 +56,8 @@ func Run(videoWorkerRole string) {
 	processor.Register(mux)
 	copyrightProcessor := copyrightjobs.NewProcessor(dbConn, cfg)
 	copyrightProcessor.Register(mux)
+	feishuProcessor := feishujobs.NewProcessor(dbConn, qiniuClient, cfg)
+	feishuProcessor.Register(mux)
 
 	cleanupHours := parseCleanupHours("VIDEO_JOB_TMP_CLEANUP_HOURS", 12)
 	if cleanupHours > 0 {
@@ -79,9 +84,41 @@ func Run(videoWorkerRole string) {
 		normalizeWorkerRole(os.Getenv("VIDEO_WORKER_ROLE")),
 		formatQueueWeightsForLog(queue.ResolveAsynqQueueWeightsFromEnv()),
 	)
-	if err := server.Run(mux); err != nil {
-		log.Fatalf("worker failed: %v", err)
+	if err := server.Start(mux); err != nil {
+		log.Fatalf("worker failed to start: %v", err)
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	sig := <-sigCh
+	signal.Stop(sigCh)
+
+	reason := fmt.Sprintf("worker received %s; re-queue unfinished task for retry", sig.String())
+	log.Printf("video worker shutdown signal received: %s", sig.String())
+
+	server.Stop()
+	preReport := processor.RequeueRunningJobsOnShutdown(reason)
+	logShutdownRequeueReport("pre-shutdown", preReport)
+
+	server.Shutdown()
+	postReport := processor.RequeueRunningJobsOnShutdown("worker shutdown cleanup: dangling running task re-queued")
+	logShutdownRequeueReport("post-shutdown", postReport)
+	log.Printf("video worker shutdown complete")
+}
+
+func logShutdownRequeueReport(phase string, report videojobs.ShutdownRequeueReport) {
+	phase = strings.TrimSpace(phase)
+	if phase == "" {
+		phase = "shutdown"
+	}
+	log.Printf(
+		"video worker %s requeue report (tracked=%d requeued=%d skipped=%d failed=%d)",
+		phase,
+		report.Tracked,
+		report.Requeued,
+		report.Skipped,
+		report.Failed,
+	)
 }
 
 func isComputeRedeemExpireSweepEnabled() bool {
@@ -214,6 +251,8 @@ func normalizeWorkerRole(raw string) string {
 		return "live"
 	case "mp4":
 		return "mp4"
+	case "ai":
+		return "ai"
 	case "image":
 		return "image"
 	case "media":

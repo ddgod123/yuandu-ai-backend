@@ -41,6 +41,9 @@ type CollectionListItem struct {
 	Description      string                   `json:"description,omitempty"`
 	CoverKey         string                   `json:"cover_key,omitempty"`
 	CoverURL         string                   `json:"cover_url,omitempty"`
+	CopyrightAuthor  string                   `json:"copyright_author,omitempty"`
+	CopyrightWork    string                   `json:"copyright_work,omitempty"`
+	CopyrightLink    string                   `json:"copyright_link,omitempty"`
 	OwnerID          uint64                   `json:"owner_id"`
 	CreatorProfileID *uint64                  `json:"creator_profile_id,omitempty"`
 	CreatorName      string                   `json:"creator_name,omitempty"`
@@ -62,6 +65,7 @@ type CollectionListItem struct {
 	IsFeatured       bool                     `json:"is_featured"`
 	IsPinned         bool                     `json:"is_pinned"`
 	IsSample         bool                     `json:"is_sample"`
+	IsShowcase       bool                     `json:"is_showcase"`
 	PinnedAt         *time.Time               `json:"pinned_at,omitempty"`
 	LatestZipKey     string                   `json:"latest_zip_key,omitempty"`
 	LatestZipName    string                   `json:"latest_zip_name,omitempty"`
@@ -70,6 +74,8 @@ type CollectionListItem struct {
 	DownloadCode     string                   `json:"download_code,omitempty"`
 	Visibility       string                   `json:"visibility,omitempty"`
 	Status           string                   `json:"status,omitempty"`
+	ReviewStatus     string                   `json:"review_status,omitempty"`
+	PublishStatus    string                   `json:"publish_status,omitempty"`
 	CreatedAt        time.Time                `json:"created_at"`
 	UpdatedAt        time.Time                `json:"updated_at"`
 	Tags             []TagBrief               `json:"tags,omitempty"`
@@ -272,10 +278,26 @@ func (h *Handler) ListCollections(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_sample"})
 		return
 	}
+	showcaseRaw := strings.TrimSpace(c.Query("is_showcase"))
+	showcase, ok := parseOptionalBoolParam(showcaseRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_showcase"})
+		return
+	}
 	sortField := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	sortOrder := strings.ToLower(strings.TrimSpace(c.Query("order")))
 	status := strings.TrimSpace(c.Query("status"))
 	visibility := strings.TrimSpace(c.Query("visibility"))
+	source := strings.ToLower(strings.TrimSpace(c.Query("source")))
+	originalRaw := strings.TrimSpace(c.Query("is_original"))
+	original, ok := parseOptionalBoolParam(originalRaw)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid is_original"})
+		return
+	}
+	if original != nil && *original {
+		source = ugcCollectionSource
+	}
 	mediaType, ok := normalizeCollectionMediaType(c.DefaultQuery("media_type", "all"))
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid media_type"})
@@ -349,6 +371,18 @@ func (h *Handler) ListCollections(c *gin.Context) {
 	}
 	if sample != nil {
 		db = db.Where("is_sample = ?", *sample)
+	}
+	if showcase != nil {
+		db = db.Where("is_showcase = ?", *showcase)
+	} else if !adminView {
+		// 前台默认不展示「赏析模式」合集，避免混入可下载频道。
+		db = db.Where("is_showcase = ?", false)
+	}
+	if source != "" && source != "all" {
+		db = db.Where("source = ?", source)
+	}
+	if original != nil && !*original {
+		db = db.Where("source <> ?", ugcCollectionSource)
 	}
 
 	animatedExists := `
@@ -432,6 +466,10 @@ func (h *Handler) ListCollections(c *gin.Context) {
 	}
 	if !adminView {
 		db = db.Where("status = ?", "active").Where("visibility = ?", "public")
+		if source == ugcCollectionSource || (original != nil && *original) {
+			db = db.Joins("JOIN ops.ugc_collection_review_states urs ON urs.collection_id = archive.collections.id").
+				Where("urs.review_status = ? AND urs.publish_status = ?", ugcReviewStatusApproved, ugcPublishStatusOnline)
+		}
 	} else {
 		if status != "" && strings.ToLower(status) != "all" {
 			db = db.Where("status = ?", status)
@@ -485,6 +523,9 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			Description:      item.Description,
 			CoverKey:         coverKey,
 			CoverURL:         resolveListPreviewURL(item.CoverURL, h.qiniu),
+			CopyrightAuthor:  strings.TrimSpace(item.CopyrightAuthor),
+			CopyrightWork:    strings.TrimSpace(item.CopyrightWork),
+			CopyrightLink:    strings.TrimSpace(item.CopyrightLink),
 			OwnerID:          item.OwnerID,
 			CreatorProfileID: item.CreatorProfileID,
 			CreatorName:      creatorName,
@@ -504,6 +545,7 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			IsFeatured:       item.IsFeatured,
 			IsPinned:         item.IsPinned,
 			IsSample:         item.IsSample,
+			IsShowcase:       item.IsShowcase,
 			PinnedAt:         item.PinnedAt,
 			CreatedAt:        item.CreatedAt,
 			UpdatedAt:        item.UpdatedAt,
@@ -590,6 +632,9 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		Description:      collection.Description,
 		CoverKey:         resolveCollectionCoverKey(collection.CoverURL, h.qiniu),
 		CoverURL:         resolvePreviewURL(collection.CoverURL, h.qiniu),
+		CopyrightAuthor:  strings.TrimSpace(collection.CopyrightAuthor),
+		CopyrightWork:    strings.TrimSpace(collection.CopyrightWork),
+		CopyrightLink:    strings.TrimSpace(collection.CopyrightLink),
 		OwnerID:          collection.OwnerID,
 		CreatorProfileID: collection.CreatorProfileID,
 		CreatorName:      creatorName,
@@ -609,6 +654,7 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
 		IsSample:         collection.IsSample,
+		IsShowcase:       collection.IsShowcase,
 		PinnedAt:         collection.PinnedAt,
 		CreatedAt:        collection.CreatedAt,
 		UpdatedAt:        collection.UpdatedAt,
@@ -630,23 +676,32 @@ func (h *Handler) GetCollection(c *gin.Context) {
 }
 
 type AdminUpdateCollectionRequest struct {
-	Title       *string   `json:"title"`
-	Description *string   `json:"description"`
-	CategoryID  *uint64   `json:"category_id"`
-	IPID        *uint64   `json:"ip_id"`
-	ThemeID     *uint64   `json:"theme_id"`
-	CoverURL    *string   `json:"cover_url"`
-	Status      *string   `json:"status"`
-	Visibility  *string   `json:"visibility"`
-	IsFeatured  *bool     `json:"is_featured"`
-	IsPinned    *bool     `json:"is_pinned"`
-	IsSample    *bool     `json:"is_sample"`
-	TagIDs      *[]uint64 `json:"tag_ids"`
+	Title           *string   `json:"title"`
+	Description     *string   `json:"description"`
+	CategoryID      *uint64   `json:"category_id"`
+	IPID            *uint64   `json:"ip_id"`
+	ThemeID         *uint64   `json:"theme_id"`
+	CoverURL        *string   `json:"cover_url"`
+	Status          *string   `json:"status"`
+	Visibility      *string   `json:"visibility"`
+	IsFeatured      *bool     `json:"is_featured"`
+	IsPinned        *bool     `json:"is_pinned"`
+	IsSample        *bool     `json:"is_sample"`
+	IsShowcase      *bool     `json:"is_showcase"`
+	CopyrightAuthor *string   `json:"copyright_author"`
+	CopyrightWork   *string   `json:"copyright_work"`
+	CopyrightLink   *string   `json:"copyright_link"`
+	TagIDs          *[]uint64 `json:"tag_ids"`
 }
 
 type AdminBatchUpdateCollectionSampleRequest struct {
 	CollectionIDs []uint64 `json:"collection_ids"`
 	IsSample      bool     `json:"is_sample"`
+}
+
+type AdminBatchUpdateCollectionShowcaseRequest struct {
+	CollectionIDs []uint64 `json:"collection_ids"`
+	IsShowcase    bool     `json:"is_showcase"`
 }
 
 type AdminBatchAssignCollectionIPRequest struct {
@@ -884,11 +939,30 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 	if req.IsSample != nil {
 		collection.IsSample = *req.IsSample
 	}
+	if req.IsShowcase != nil {
+		collection.IsShowcase = *req.IsShowcase
+	}
+	if req.CopyrightAuthor != nil {
+		collection.CopyrightAuthor = strings.TrimSpace(*req.CopyrightAuthor)
+	}
+	if req.CopyrightWork != nil {
+		collection.CopyrightWork = strings.TrimSpace(*req.CopyrightWork)
+	}
+	if req.CopyrightLink != nil {
+		collection.CopyrightLink = strings.TrimSpace(*req.CopyrightLink)
+	}
 
 	if err := tx.Save(&collection).Error; err != nil {
 		_ = tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if req.IPID != nil {
+		if err := h.syncCollectionBindingsToSingleIP(tx, []uint64{collection.ID}, collection.IPID); err != nil {
+			_ = tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync ip binding"})
+			return
+		}
 	}
 
 	if req.TagIDs != nil {
@@ -945,6 +1019,9 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		Description:      collection.Description,
 		CoverKey:         resolveCollectionCoverKey(collection.CoverURL, h.qiniu),
 		CoverURL:         resolvePreviewURL(collection.CoverURL, h.qiniu),
+		CopyrightAuthor:  strings.TrimSpace(collection.CopyrightAuthor),
+		CopyrightWork:    strings.TrimSpace(collection.CopyrightWork),
+		CopyrightLink:    strings.TrimSpace(collection.CopyrightLink),
 		OwnerID:          collection.OwnerID,
 		CreatorProfileID: collection.CreatorProfileID,
 		CreatorName:      creatorName,
@@ -961,6 +1038,7 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		IsFeatured:       collection.IsFeatured,
 		IsPinned:         collection.IsPinned,
 		IsSample:         collection.IsSample,
+		IsShowcase:       collection.IsShowcase,
 		PinnedAt:         collection.PinnedAt,
 		Visibility:       collection.Visibility,
 		Status:           collection.Status,
@@ -1022,6 +1100,60 @@ func (h *Handler) AdminBatchUpdateCollectionSample(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"updated_count": result.RowsAffected,
 		"is_sample":     req.IsSample,
+	})
+}
+
+// AdminBatchUpdateCollectionShowcase godoc
+// @Summary Batch update collection showcase flag (admin)
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param body body AdminBatchUpdateCollectionShowcaseRequest true "batch update showcase flag"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/admin/collections/batch-showcase [post]
+func (h *Handler) AdminBatchUpdateCollectionShowcase(c *gin.Context) {
+	var req AdminBatchUpdateCollectionShowcaseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.CollectionIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "collection_ids is required"})
+		return
+	}
+	if len(req.CollectionIDs) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "too many collection_ids, max 500"})
+		return
+	}
+
+	idSet := make(map[uint64]struct{}, len(req.CollectionIDs))
+	ids := make([]uint64, 0, len(req.CollectionIDs))
+	for _, id := range req.CollectionIDs {
+		if id == 0 {
+			continue
+		}
+		if _, exists := idSet[id]; exists {
+			continue
+		}
+		idSet[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid collection_ids"})
+		return
+	}
+
+	result := h.db.Model(&models.Collection{}).
+		Where("id IN ?", ids).
+		Update("is_showcase", req.IsShowcase)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated_count": result.RowsAffected,
+		"is_showcase":   req.IsShowcase,
 	})
 }
 
@@ -1157,6 +1289,10 @@ func (h *Handler) AdminBatchAssignCollectionIP(c *gin.Context) {
 		Update("ip_id", applyIPID)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+	if err := h.syncCollectionBindingsToSingleIP(h.db, ids, newIPIDPtr); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync ip binding"})
 		return
 	}
 
@@ -1915,6 +2051,10 @@ func (h *Handler) CreateCollection(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create collection"})
 		return
 	}
+	if err := h.syncCollectionBindingsToSingleIP(h.db, []uint64{collection.ID}, collection.IPID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync ip binding"})
+		return
+	}
 
 	c.JSON(http.StatusCreated, collection)
 }
@@ -1969,6 +2109,10 @@ func (h *Handler) UpdateCollection(c *gin.Context) {
 
 	if err := h.db.Save(&collection).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update collection"})
+		return
+	}
+	if err := h.syncCollectionBindingsToSingleIP(h.db, []uint64{collection.ID}, collection.IPID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync ip binding"})
 		return
 	}
 

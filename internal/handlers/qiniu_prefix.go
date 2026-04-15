@@ -60,3 +60,42 @@ func (h *Handler) qiniuUserVideoPrefix(userID uint64) string {
 func (h *Handler) qiniuLegacyUserVideoPrefix(userID uint64) string {
 	return h.qiniuUserVideoPrefixForRoot(userID, qiniuLegacyRootPrefix)
 }
+
+func (h *Handler) qiniuUserGPUTestSourcePrefixForRoot(userID uint64, rootPrefix string) string {
+	root := strings.TrimSuffix(storage.NormalizeRootPrefix(rootPrefix), "/")
+	return path.Join(root, "gpu-test", strconv.FormatUint(userID, 10), "source") + "/"
+}
+
+func (h *Handler) qiniuUserGPUTestResultPrefixForRoot(userID uint64, rootPrefix string) string {
+	root := strings.TrimSuffix(storage.NormalizeRootPrefix(rootPrefix), "/")
+	return path.Join(root, "gpu-test", strconv.FormatUint(userID, 10), "result") + "/"
+}
+
+func (h *Handler) qiniuUserGPUTestSourcePrefix(userID uint64) string {
+	return h.qiniuUserGPUTestSourcePrefixForRoot(userID, h.cfg.QiniuRootPrefix)
+}
+
+func (h *Handler) qiniuUserGPUTestResultPrefix(userID uint64) string {
+	return h.qiniuUserGPUTestResultPrefixForRoot(userID, h.cfg.QiniuRootPrefix)
+}
+
+func (h *Handler) qiniuLegacyUserGPUTestSourcePrefix(userID uint64) string {
+	return h.qiniuUserGPUTestSourcePrefixForRoot(userID, qiniuLegacyRootPrefix)
+}
+
+func (h *Handler) qiniuLegacyUserGPUTestResultPrefix(userID uint64) string {
+	return h.qiniuUserGPUTestResultPrefixForRoot(userID, qiniuLegacyRootPrefix)
+}
+
+func (h *Handler) qiniuUserUGCPrefixForRoot(userID uint64, rootPrefix string) string {
+	root := strings.TrimSuffix(storage.NormalizeRootPrefix(rootPrefix), "/")
+	return path.Join(root, "ugc", strconv.FormatUint(userID, 10), "collections") + "/"
+}
+
+func (h *Handler) qiniuUserUGCPrefix(userID uint64) string {
+	return h.qiniuUserUGCPrefixForRoot(userID, h.cfg.QiniuRootPrefix)
+}
+
+func (h *Handler) qiniuLegacyUserUGCPrefix(userID uint64) string {
+	return h.qiniuUserUGCPrefixForRoot(userID, qiniuLegacyRootPrefix)
+}

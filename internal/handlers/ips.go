@@ -62,8 +62,46 @@ func (h *Handler) loadIPCollectionCountMap(tx *gorm.DB, ipIDs []uint64, publicOn
 		IPID  uint64
 		Count int64
 	}
-	var rows []row
 
+	// 新链路：优先读绑定表（仅 active 绑定），且当合集存在任意绑定记录时不再回退 collections.ip_id。
+	// 旧链路：无绑定记录时，继续回退 collections.ip_id，兼容历史数据。
+	if h.ipBindingTableReady(tx) {
+		var bindingRows []row
+		bindingQuery := tx.Table("taxonomy.ip_collection_bindings AS b").
+			Select("b.ip_id AS ip_id, COUNT(DISTINCT b.collection_id) AS count").
+			Joins("JOIN archive.collections c ON c.id = b.collection_id").
+			Where("b.ip_id IN ?", ipIDs).
+			Where("b.status = ?", ipBindingStatusActive).
+			Where("c.deleted_at IS NULL")
+		if publicOnly {
+			bindingQuery = bindingQuery.Where("c.status = ?", "active").Where("c.visibility = ?", "public")
+		}
+		if err := bindingQuery.Group("b.ip_id").Scan(&bindingRows).Error; err != nil {
+			return nil, err
+		}
+		for _, item := range bindingRows {
+			result[item.IPID] += item.Count
+		}
+
+		var fallbackRows []row
+		fallbackQuery := tx.Table("archive.collections AS c").
+			Select("c.ip_id AS ip_id, COUNT(*) AS count").
+			Where("c.ip_id IN ?", ipIDs).
+			Where("c.deleted_at IS NULL").
+			Where("NOT EXISTS (SELECT 1 FROM taxonomy.ip_collection_bindings bx WHERE bx.collection_id = c.id)")
+		if publicOnly {
+			fallbackQuery = fallbackQuery.Where("c.status = ?", "active").Where("c.visibility = ?", "public")
+		}
+		if err := fallbackQuery.Group("c.ip_id").Scan(&fallbackRows).Error; err != nil {
+			return nil, err
+		}
+		for _, item := range fallbackRows {
+			result[item.IPID] += item.Count
+		}
+		return result, nil
+	}
+
+	var rows []row
 	query := tx.Model(&models.Collection{}).
 		Select("ip_id AS ip_id, COUNT(*) AS count").
 		Where("ip_id IN ?", ipIDs).
@@ -75,7 +113,7 @@ func (h *Handler) loadIPCollectionCountMap(tx *gorm.DB, ipIDs []uint64, publicOn
 		return nil, err
 	}
 	for _, item := range rows {
-		result[item.IPID] = item.Count
+		result[item.IPID] += item.Count
 	}
 	return result, nil
 }
@@ -303,8 +341,24 @@ func (h *Handler) GetIPCollections(c *gin.Context) {
 	db := h.db.Model(&models.Collection{}).
 		Where("archive.collections.deleted_at IS NULL").
 		Where("archive.collections.status = ?", "active").
-		Where("archive.collections.visibility = ?", "public").
-		Where("archive.collections.ip_id = ?", id)
+		Where("archive.collections.visibility = ?", "public")
+
+	withBindingSort := false
+	if h.ipBindingTableReady(h.db) {
+		withBindingSort = true
+		db = db.Joins(
+			"LEFT JOIN taxonomy.ip_collection_bindings ipb ON ipb.collection_id = archive.collections.id AND ipb.ip_id = ? AND ipb.status = ?",
+			id,
+			ipBindingStatusActive,
+		).Where(
+			`ipb.id IS NOT NULL OR (archive.collections.ip_id = ? AND NOT EXISTS (
+				SELECT 1 FROM taxonomy.ip_collection_bindings bx WHERE bx.collection_id = archive.collections.id
+			))`,
+			id,
+		)
+	} else {
+		db = db.Where("archive.collections.ip_id = ?", id)
+	}
 
 	orderBy := "archive.collections.id desc"
 	switch sortField {
@@ -314,6 +368,9 @@ func (h *Handler) GetIPCollections(c *gin.Context) {
 		orderBy = "archive.collections.file_count " + sortOrder + ", archive.collections.id desc"
 	case "id":
 		orderBy = "archive.collections.id " + sortOrder
+	}
+	if withBindingSort {
+		orderBy = "COALESCE(ipb.sort, 2147483647) ASC, " + orderBy
 	}
 
 	var total int64

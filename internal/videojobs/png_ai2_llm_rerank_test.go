@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"emoji/internal/config"
 )
 
 func TestNormalizePNGAI2LLMOrderedPaths_PrioritizeIDsThenFallback(t *testing.T) {
@@ -112,5 +115,92 @@ func TestBuildPNGAI2LLMRerankVisualParts_AttachImages(t *testing.T) {
 	}
 	if got := intFromAny(report["succeeded"]); got != 1 {
 		t.Fatalf("expected succeeded=1, got %d", got)
+	}
+}
+
+func TestLoadPNGAI2LLMRerankConfig_FallbackFromPlannerWhenUnset(t *testing.T) {
+	t.Setenv(featureFlagPNGAI2LLMRerankMode, "on")
+	t.Setenv(featureFlagPNGAI2LLMRerankTimeoutSeconds, "")
+	t.Setenv(featureFlagPNGAI2LLMRerankMaxTokens, "")
+	t.Setenv(featureFlagPNGAI2LLMRerankPromptVersion, "")
+	t.Setenv(featureFlagPNGAI2LLMRerankProvider, "")
+	t.Setenv(featureFlagPNGAI2LLMRerankModel, "")
+	t.Setenv(featureFlagPNGAI2LLMRerankEndpoint, "")
+	t.Setenv(featureFlagPNGAI2LLMRerankAPIKey, "")
+
+	p := &Processor{
+		cfg: config.Config{
+			AIPlannerEnabled:       true,
+			AIPlannerProvider:      "qwen",
+			AIPlannerModel:         "qwen-plus",
+			AIPlannerEndpoint:      "https://planner.example",
+			AIPlannerAPIKey:        "planner-key",
+			AIPlannerPromptVersion: "gif_planner_v1",
+			AIPlannerTimeoutSec:    19,
+			AIPlannerMaxTokens:     1234,
+			LLMProvider:            "qwen",
+			LLMModel:               "qwen-max",
+			LLMEndpoint:            "https://llm.example",
+			LLMAPIKey:              "llm-key",
+		},
+	}
+	cfg := p.loadPNGAI2LLMRerankConfig()
+	if cfg.Mode != pngAI2LLMRerankModeOn {
+		t.Fatalf("expected mode on, got %q", cfg.Mode)
+	}
+	if cfg.ModelCfg.Timeout != 19*time.Second {
+		t.Fatalf("expected timeout from planner 19s, got %s", cfg.ModelCfg.Timeout)
+	}
+	if cfg.ModelCfg.MaxTokens != 1234 {
+		t.Fatalf("expected max tokens from planner 1234, got %d", cfg.ModelCfg.MaxTokens)
+	}
+	if cfg.ModelCfg.PromptVersion != "gif_planner_v1" {
+		t.Fatalf("expected prompt version from planner gif_planner_v1, got %q", cfg.ModelCfg.PromptVersion)
+	}
+}
+
+func TestLoadPNGAI2LLMRerankConfig_EnvOverrides(t *testing.T) {
+	t.Setenv(featureFlagPNGAI2LLMRerankMode, "shadow")
+	t.Setenv(featureFlagPNGAI2LLMRerankProvider, "qwen")
+	t.Setenv(featureFlagPNGAI2LLMRerankModel, "qwen3.5-omni-flash")
+	t.Setenv(featureFlagPNGAI2LLMRerankEndpoint, "https://dashscope.example")
+	t.Setenv(featureFlagPNGAI2LLMRerankAPIKey, "rerank-key")
+	t.Setenv(featureFlagPNGAI2LLMRerankTimeoutSeconds, "31")
+	t.Setenv(featureFlagPNGAI2LLMRerankMaxTokens, "1500")
+	t.Setenv(featureFlagPNGAI2LLMRerankPromptVersion, "png_ai2_rerank_v2")
+	t.Setenv(featureFlagPNGAI2LLMRerankMaxCandidates, "28")
+	t.Setenv(featureFlagPNGAI2LLMRerankMinCandidates, "9")
+	t.Setenv(featureFlagPNGAI2LLMRerankImageMaxCandidates, "16")
+	t.Setenv(featureFlagPNGAI2LLMRerankImageMaxSide, "900")
+	t.Setenv(featureFlagPNGAI2LLMRerankImageJPEGQuality, "80")
+	t.Setenv(featureFlagPNGAI2LLMRerankImageMaxBytes, "888888")
+	t.Setenv(featureFlagPNGAI2LLMRerankPostEnhance, "1")
+	t.Setenv(featureFlagPNGAI2LLMRerankIncludeImages, "0")
+
+	p := &Processor{cfg: config.Config{}}
+	cfg := p.loadPNGAI2LLMRerankConfig()
+	if cfg.Mode != pngAI2LLMRerankModeShadow {
+		t.Fatalf("expected mode shadow, got %q", cfg.Mode)
+	}
+	if cfg.ModelCfg.Provider != "qwen" || cfg.ModelCfg.Model != "qwen3.5-omni-flash" {
+		t.Fatalf("unexpected model routing: provider=%q model=%q", cfg.ModelCfg.Provider, cfg.ModelCfg.Model)
+	}
+	if cfg.ModelCfg.Timeout != 31*time.Second || cfg.ModelCfg.MaxTokens != 1500 {
+		t.Fatalf("unexpected timeout/max_tokens: %s/%d", cfg.ModelCfg.Timeout, cfg.ModelCfg.MaxTokens)
+	}
+	if cfg.ModelCfg.PromptVersion != "png_ai2_rerank_v2" {
+		t.Fatalf("unexpected prompt version: %q", cfg.ModelCfg.PromptVersion)
+	}
+	if cfg.MaxCandidates != 28 || cfg.MinCandidates != 9 {
+		t.Fatalf("unexpected candidates: max=%d min=%d", cfg.MaxCandidates, cfg.MinCandidates)
+	}
+	if cfg.MaxImageCandidates != 16 || cfg.ImageMaxSide != 900 || cfg.ImageJPEGQuality != 80 || cfg.ImageMaxBytes != 888888 {
+		t.Fatalf("unexpected image config: %+v", cfg)
+	}
+	if !cfg.EnablePostEnhance {
+		t.Fatalf("expected post enhance enabled")
+	}
+	if cfg.IncludeImages {
+		t.Fatalf("expected include images disabled")
 	}
 }

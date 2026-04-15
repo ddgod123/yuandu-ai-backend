@@ -25,6 +25,12 @@ type imageAI1ExecutablePlan struct {
 	DirectorSnapshot map[string]interface{}
 }
 
+var errImagePipelineHalt = errors.New("image pipeline halted")
+
+func newImagePipelineStageRegistry() *pipelineStageRegistry {
+	return newPipelineStageRegistry(8)
+}
+
 func (p *Processor) processImagePipeline(ctx context.Context, jobID uint64) error {
 	return p.processImagePipelineCore(ctx, jobID, "")
 }
@@ -77,7 +83,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 
 	preOptions := parseJSONMap(job.Options)
 	userRequestedMaxStatic := intFromAny(preOptions["user_requested_max_static"]) > 0
-	if isFlowAwaitingAI1Confirm(preOptions) {
+	if isFlowAwaitingAI1Confirm(preOptions) && !IsPNGFastExtractByOptions(preOptions) {
 		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "waiting for user confirmation before continuing", map[string]interface{}{
 			"flow_mode": "ai1_confirm",
 		})
@@ -188,22 +194,19 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		},
 		stageStatusKey: pipelineStageStatus,
 	}
+	taskFramework := newPipelineTaskFramework(p, job.ID, metrics, stageStatusKey, pipelineStageStatus)
 	if len(sourceReadability) > 0 {
-		metrics["source_video_readability_v1"] = sourceReadability
+		taskFramework.setMetric("source_video_readability_v1", sourceReadability)
 	}
 	if sourceInfo != nil && sourceInfo.Size() > 0 {
-		metrics["source_video_size_bytes"] = sourceInfo.Size()
+		taskFramework.setMetric("source_video_size_bytes", sourceInfo.Size())
 	}
 
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageAnalyzing,
-		"progress": 30,
-		"metrics":  mustJSON(metrics),
-	})
-	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "video metadata analyzed", metrics)
+	taskFramework.updateStageProgress(models.VideoJobStageAnalyzing, 30, nil)
+	taskFramework.appendEvent(models.VideoJobStageAnalyzing, "info", "video metadata analyzed", metrics)
 
 	if p.isJobCancelled(job.ID) {
-		p.appendJobEvent(job.ID, models.VideoJobStageCancelled, "info", "job cancelled during analyzing", nil)
+		taskFramework.appendEvent(models.VideoJobStageCancelled, "info", "job cancelled during analyzing", nil)
 		p.syncJobCost(job.ID)
 		p.syncJobPointSettlement(job.ID, models.VideoJobStatusCancelled)
 		p.cleanupSourceVideo(job.ID, "cancelled")
@@ -211,20 +214,55 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	}
 
 	options := parseJobOptions(job.Options)
-	qualitySettings := p.loadQualitySettings()
+	qualitySettings, qualityResolution := p.loadQualitySettingsByFormat(primaryFormat)
+	if len(qualityResolution) > 0 {
+		taskFramework.setMetric("quality_settings_resolution_v1", qualityResolution)
+	}
+	pngMode := ResolvePNGPipelineMode(primaryFormat, optionsPayload)
+	fastExtractFPS := ResolvePNGFastExtractFPS(optionsPayload)
+	if pipelineMeta := mapFromAny(metrics[pipelineMetricKey]); len(pipelineMeta) > 0 {
+		pipelineMeta["png_mode"] = pngMode
+		if pngMode == PNGModeFastExtract {
+			pipelineMeta["fast_extract_fps"] = fastExtractFPS
+		}
+		metrics[pipelineMetricKey] = pipelineMeta
+	}
 	flowMode := normalizeVideoFlowMode(stringFromAny(optionsPayload["flow_mode"]))
 	ai1Confirmed := boolFromAny(optionsPayload["ai1_confirmed"])
 	ai1PauseConsumed := boolFromAny(optionsPayload["ai1_pause_consumed"])
 
+	if pngMode == PNGModeFastExtract {
+		return p.executePNGFastExtractPipeline(
+			ctx,
+			job,
+			tmpDir,
+			sourcePath,
+			meta,
+			requestedFormats,
+			primaryFormat,
+			options,
+			optionsPayload,
+			qualitySettings,
+			taskFramework,
+			pipelineStageStatus,
+			metricPrefix,
+			ai1MetricKey,
+			ai2MetricKey,
+			ai3MetricKey,
+			extractionMetricKey,
+			fastExtractFPS,
+		)
+	}
+
 	qualitySettings, qualityOverrides := applyQualityProfileOverridesFromOptions(qualitySettings, optionsPayload, requestedFormats)
 	if len(qualityOverrides) > 0 {
-		metrics["quality_profile_overrides_applied"] = qualityOverrides
-		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "quality profile overrides applied", map[string]interface{}{
+		taskFramework.setMetric("quality_profile_overrides_applied", qualityOverrides)
+		taskFramework.appendEvent(models.VideoJobStageAnalyzing, "info", "quality profile overrides applied", map[string]interface{}{
 			"overrides": qualityOverrides,
 		})
 	}
 	if sceneTags := inferSceneTags(job.Title, job.SourceVideoKey, requestedFormats); len(sceneTags) > 0 {
-		metrics["scene_tags_v1"] = sceneTags
+		taskFramework.setMetric("scene_tags_v1", sceneTags)
 	}
 
 	options = applyStillProfileDefaults(options, requestedFormats, qualitySettings)
@@ -232,12 +270,12 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		autoCrop, applied, cropErr := detectAutoLetterboxCrop(ctx, sourcePath, meta)
 		switch {
 		case cropErr != nil:
-			metrics["auto_crop_v1"] = map[string]interface{}{
+			taskFramework.setMetric("auto_crop_v1", map[string]interface{}{
 				"enabled": true,
 				"applied": false,
 				"error":   cropErr.Error(),
-			}
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "warn", "auto letterbox crop detection failed", map[string]interface{}{
+			})
+			taskFramework.appendEvent(models.VideoJobStageAnalyzing, "warn", "auto letterbox crop detection failed", map[string]interface{}{
 				"error": cropErr.Error(),
 			})
 		case applied:
@@ -250,11 +288,11 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 			optionsPayload["crop_w"] = options.CropW
 			optionsPayload["crop_h"] = options.CropH
 			optionsPayload["auto_crop_v1"] = autoCrop
-			metrics["auto_crop_v1"] = autoCrop
+			taskFramework.setMetric("auto_crop_v1", autoCrop)
 			p.updateVideoJob(job.ID, map[string]interface{}{
 				"options": mustJSON(optionsPayload),
 			})
-			p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "auto letterbox crop applied", map[string]interface{}{
+			taskFramework.appendEvent(models.VideoJobStageAnalyzing, "info", "auto letterbox crop applied", map[string]interface{}{
 				"crop_x":            autoCrop.CropX,
 				"crop_y":            autoCrop.CropY,
 				"crop_w":            autoCrop.CropW,
@@ -263,10 +301,10 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 				"removed_area_rate": roundTo(autoCrop.RemovedAreaRate, 4),
 			})
 		default:
-			metrics["auto_crop_v1"] = map[string]interface{}{
+			taskFramework.setMetric("auto_crop_v1", map[string]interface{}{
 				"enabled": true,
 				"applied": false,
-			}
+			})
 		}
 	}
 
@@ -280,7 +318,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	planMeta := map[string]interface{}{}
 	directorSnapshot := map[string]interface{}{}
 	if len(existingPlan) == 0 {
-		pipelineStageStatus["ai1"] = "running"
+		taskFramework.markStageStatus("ai1", "running")
 		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", imagePipelineEventMessage(primaryFormat, "ai1 planning started"), map[string]interface{}{
 			"flow_mode":        flowMode,
 			"requested_format": primaryFormat,
@@ -305,9 +343,9 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 
 		p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", imagePipelineEventMessage(primaryFormat, "ai1 preview generated"), planMeta)
 		p.persistImageAI1Plan(job, requestedFormats, flowMode, ai1Confirmed, meta, "ai1_preview_generated", planMeta, directorSnapshot, schemaVersion, plan.Schema, existingPlan)
-		pipelineStageStatus["ai1"] = "done"
+		taskFramework.markStageStatus("ai1", "done")
 	} else {
-		pipelineStageStatus["ai1"] = "reused"
+		taskFramework.markStageStatus("ai1", "reused")
 		planMeta = mapFromAny(optionsPayload["ai1_event_meta_v1"])
 		directorSnapshot = mapFromAny(optionsPayload["ai1_director_snapshot_v1"])
 	}
@@ -322,7 +360,7 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 		"flow_mode":        flowMode,
 		"requested_format": primaryFormat,
 		"applied_patch":    appliedPlanPatch,
-		"status":           pipelineStageStatus["ai1"],
+		"status":           strings.ToLower(strings.TrimSpace(pipelineStageStatus["ai1"])),
 	}
 	if len(planMeta) > 0 {
 		ai1Metric["event_meta"] = planMeta
@@ -342,15 +380,24 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	if len(directorSnapshot) > 0 {
 		ai1Metric["director_snapshot"] = buildAI1PlanDirectorSnapshot(directorSnapshot)
 	}
+	ai1FallbackUsed := boolFromAny(directorSnapshot["fallback_used"]) || strings.TrimSpace(stringFromAny(planMeta["error"])) != ""
+	ai1FallbackReason := strings.TrimSpace(stringFromAny(planMeta["error"]))
+	if ai1FallbackReason == "" && ai1FallbackUsed {
+		ai1FallbackReason = "ai1_director_fallback"
+	}
+	taskFramework.recordFallback(fmt.Sprintf("%s_ai1_director", metricPrefix), ai1FallbackUsed, ai1FallbackReason)
 	metrics[ai1MetricKey] = ai1Metric
 
 	needClarifyPause := shouldPauseForAI1NeedClarify(planMeta, ai1Confirmed, ai1PauseConsumed)
 	if shouldPauseAtAI1(flowMode, ai1Confirmed, ai1PauseConsumed) || needClarifyPause {
-		pipelineStageStatus["ai2"] = "awaiting_user_confirm"
-		pipelineStageStatus["worker"] = "awaiting_user_confirm"
-		pipelineStageStatus["ai3"] = "awaiting_user_confirm"
-		pipelineStageStatus["extraction"] = "awaiting_user_confirm"
-		pipelineStageStatus["delivery"] = "awaiting_user_confirm"
+		taskFramework.markStageStatuses(
+			"awaiting_user_confirm",
+			"ai2",
+			"worker",
+			"ai3",
+			"extraction",
+			"delivery",
+		)
 		pauseReason := "flow_mode_ai1_confirm"
 		if needClarifyPause {
 			pauseReason = "interactive_action_need_clarify"
@@ -402,355 +449,736 @@ func (p *Processor) processImagePipelineCore(ctx context.Context, jobID uint64, 
 	}
 	optionsPayload["ai2_guidance_v1"] = ai2Guidance.toMetricsMap()
 	optionsUpdated = true
-	pipelineStageStatus["ai2"] = "running"
-	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "sub-stage planning started", map[string]interface{}{
-		"requested_format": primaryFormat,
-		"source":           "ai1_executable_plan",
+	var (
+		extractOptions                jobOptions
+		workerQualitySettings         QualitySettings
+		workerStrategy                map[string]interface{}
+		outputCountPolicy             map[string]interface{}
+		coverageWindowPolicy          map[string]interface{}
+		effectiveDurationSec          float64
+		candidateBudget               int
+		interval                      float64
+		framePaths                    []string
+		qualityReport                 frameQualityReport
+		ai2LLMRerankReport            map[string]interface{}
+		ai2LLMRerankPostEnhanceReport map[string]interface{}
+		faceEnhancementReport         map[string]interface{}
+		superResolutionReport         map[string]interface{}
+		finalQualityGuardReport       map[string]interface{}
+	)
+
+	stageRegistry := newImagePipelineStageRegistry()
+
+	stageRegistry.Register("ai2_planning", func() error {
+		return taskFramework.runStage(
+			pipelineTaskStageOptions{
+				StageNames:     []string{"ai2"},
+				EventStage:     models.VideoJobStageAnalyzing,
+				StartMessage:   "sub-stage planning started",
+				StartMetadata:  map[string]interface{}{"requested_format": primaryFormat, "source": "ai1_executable_plan"},
+				FailureMessage: "sub-stage planning failed",
+			},
+			func() error {
+				ai2EventMeta := map[string]interface{}{
+					"requested_format": strings.ToUpper(primaryFormat),
+					"mode":             strings.TrimSpace(stringFromAny(existingPlan["mode"])),
+					"selected_count":   intFromAny(existingPlan["target_count"]),
+					"selected_score":   roundTo(floatFromAny(planMeta["local_focus_score"]), 4),
+				}
+				if focus := mapFromAny(existingPlan["focus_window"]); len(focus) > 0 {
+					ai2EventMeta["selected_start_sec"] = roundTo(floatFromAny(focus["start_sec"]), 3)
+					ai2EventMeta["selected_end_sec"] = roundTo(floatFromAny(focus["end_sec"]), 3)
+				}
+				if objective := strings.TrimSpace(stringFromAny(ai2Instruction["objective"])); objective != "" {
+					ai2EventMeta["objective"] = objective
+				}
+				if operatorIdentity := strings.TrimSpace(stringFromAny(ai2Instruction["operator_identity"])); operatorIdentity != "" {
+					ai2EventMeta["operator_identity"] = operatorIdentity
+				}
+				if candidateCountBias := mapFromAny(ai2Instruction["candidate_count_bias"]); len(candidateCountBias) > 0 {
+					ai2EventMeta["candidate_count_bias"] = candidateCountBias
+				}
+				if advanced := mapFromAny(ai2Instruction["advanced_options"]); len(advanced) > 0 {
+					ai2EventMeta["scene"] = strings.TrimSpace(stringFromAny(advanced["scene"]))
+					ai2EventMeta["visual_focus"] = stringSliceFromAny(advanced["visual_focus"])
+					ai2EventMeta["enable_matting"] = boolFromAny(advanced["enable_matting"])
+				}
+				if profile := mapFromAny(ai2Instruction["strategy_profile"]); len(profile) > 0 {
+					ai2EventMeta["scene_label"] = strings.TrimSpace(stringFromAny(profile["scene_label"]))
+				}
+				if len(ai2Guidance.QualityWeights) > 0 {
+					ai2EventMeta["quality_weights"] = ai2Guidance.QualityWeights
+				}
+				if len(ai2Guidance.RiskFlags) > 0 {
+					ai2EventMeta["risk_flags"] = ai2Guidance.RiskFlags
+				}
+				ai2EventMeta["max_blur_tolerance"] = ai2Guidance.MaxBlurTolerance
+				taskFramework.appendEvent(models.VideoJobStageAnalyzing, "info", "ai planner suggestion applied", ai2EventMeta)
+				taskFramework.setMetric(ai2MetricKey, ai2Instruction)
+				taskFramework.setMetric(fmt.Sprintf("%s_ai2_guidance_v1", metricPrefix), ai2Guidance.toMetricsMap())
+
+				extractOptions = applyStillProfileDefaults(options, requestedFormats, qualitySettings)
+				workerQualitySettings, extractOptions, workerStrategy = applyImageAI2WorkerStrategy(qualitySettings, extractOptions, ai2Guidance)
+				extractOptions, outputCountPolicy = applyPNGMainlineOutputCountPolicy(extractOptions, primaryFormat, meta, ai2Guidance, userRequestedMaxStatic)
+				extractOptions, coverageWindowPolicy = applyPNGMainlineCoverageWindowPolicy(extractOptions, primaryFormat, meta, ai2Guidance, userRequestedMaxStatic)
+				workerStrategy["output_count_policy_v1"] = outputCountPolicy
+				workerStrategy["coverage_window_policy_v1"] = coverageWindowPolicy
+				taskFramework.setMetric(fmt.Sprintf("%s_worker_strategy_v1", metricPrefix), workerStrategy)
+				optionsPayload["ai2_worker_strategy_v1"] = workerStrategy
+				if boolFromAny(outputCountPolicy["applied"]) {
+					optionsPayload["max_static"] = extractOptions.MaxStatic
+				}
+				if boolFromAny(coverageWindowPolicy["applied"]) {
+					optionsPayload["start_sec"] = extractOptions.StartSec
+					optionsPayload["end_sec"] = extractOptions.EndSec
+					optionsPayload["frame_interval_sec"] = extractOptions.FrameIntervalSec
+				}
+				if outputCountPolicy != nil {
+					optionsPayload["png_output_count_policy_v1"] = outputCountPolicy
+				}
+				if coverageWindowPolicy != nil {
+					optionsPayload["png_coverage_window_policy_v1"] = coverageWindowPolicy
+				}
+				optionsUpdated = true
+
+				if optionsUpdated {
+					p.updateVideoJob(job.ID, map[string]interface{}{
+						"options": mustJSON(optionsPayload),
+					})
+				}
+				options = extractOptions
+				return nil
+			},
+		)
 	})
-	ai2EventMeta := map[string]interface{}{
-		"requested_format": strings.ToUpper(primaryFormat),
-		"mode":             strings.TrimSpace(stringFromAny(existingPlan["mode"])),
-		"selected_count":   intFromAny(existingPlan["target_count"]),
-		"selected_score":   roundTo(floatFromAny(planMeta["local_focus_score"]), 4),
-	}
-	if focus := mapFromAny(existingPlan["focus_window"]); len(focus) > 0 {
-		ai2EventMeta["selected_start_sec"] = roundTo(floatFromAny(focus["start_sec"]), 3)
-		ai2EventMeta["selected_end_sec"] = roundTo(floatFromAny(focus["end_sec"]), 3)
-	}
-	if objective := strings.TrimSpace(stringFromAny(ai2Instruction["objective"])); objective != "" {
-		ai2EventMeta["objective"] = objective
-	}
-	if operatorIdentity := strings.TrimSpace(stringFromAny(ai2Instruction["operator_identity"])); operatorIdentity != "" {
-		ai2EventMeta["operator_identity"] = operatorIdentity
-	}
-	if candidateCountBias := mapFromAny(ai2Instruction["candidate_count_bias"]); len(candidateCountBias) > 0 {
-		ai2EventMeta["candidate_count_bias"] = candidateCountBias
-	}
-	if advanced := mapFromAny(ai2Instruction["advanced_options"]); len(advanced) > 0 {
-		ai2EventMeta["scene"] = strings.TrimSpace(stringFromAny(advanced["scene"]))
-		ai2EventMeta["visual_focus"] = stringSliceFromAny(advanced["visual_focus"])
-		ai2EventMeta["enable_matting"] = boolFromAny(advanced["enable_matting"])
-	}
-	if profile := mapFromAny(ai2Instruction["strategy_profile"]); len(profile) > 0 {
-		ai2EventMeta["scene_label"] = strings.TrimSpace(stringFromAny(profile["scene_label"]))
-	}
-	if len(ai2Guidance.QualityWeights) > 0 {
-		ai2EventMeta["quality_weights"] = ai2Guidance.QualityWeights
-	}
-	if len(ai2Guidance.RiskFlags) > 0 {
-		ai2EventMeta["risk_flags"] = ai2Guidance.RiskFlags
-	}
-	ai2EventMeta["max_blur_tolerance"] = ai2Guidance.MaxBlurTolerance
-	p.appendJobEvent(job.ID, models.VideoJobStageAnalyzing, "info", "ai planner suggestion applied", ai2EventMeta)
-	pipelineStageStatus["ai2"] = "done"
-	metrics[ai2MetricKey] = ai2Instruction
-	metrics[fmt.Sprintf("%s_ai2_guidance_v1", metricPrefix)] = ai2Guidance.toMetricsMap()
 
-	extractOptions := applyStillProfileDefaults(options, requestedFormats, qualitySettings)
-	workerQualitySettings, extractOptions, workerStrategy := applyImageAI2WorkerStrategy(qualitySettings, extractOptions, ai2Guidance)
-	extractOptions, outputCountPolicy := applyPNGMainlineOutputCountPolicy(extractOptions, primaryFormat, meta, ai2Guidance, userRequestedMaxStatic)
-	extractOptions, coverageWindowPolicy := applyPNGMainlineCoverageWindowPolicy(extractOptions, primaryFormat, meta, ai2Guidance, userRequestedMaxStatic)
-	workerStrategy["output_count_policy_v1"] = outputCountPolicy
-	workerStrategy["coverage_window_policy_v1"] = coverageWindowPolicy
-	metrics[fmt.Sprintf("%s_worker_strategy_v1", metricPrefix)] = workerStrategy
-	optionsPayload["ai2_worker_strategy_v1"] = workerStrategy
-	if boolFromAny(outputCountPolicy["applied"]) {
-		optionsPayload["max_static"] = extractOptions.MaxStatic
-	}
-	if boolFromAny(coverageWindowPolicy["applied"]) {
-		optionsPayload["start_sec"] = extractOptions.StartSec
-		optionsPayload["end_sec"] = extractOptions.EndSec
-		optionsPayload["frame_interval_sec"] = extractOptions.FrameIntervalSec
-	}
-	if outputCountPolicy != nil {
-		optionsPayload["png_output_count_policy_v1"] = outputCountPolicy
-	}
-	if coverageWindowPolicy != nil {
-		optionsPayload["png_coverage_window_policy_v1"] = coverageWindowPolicy
-	}
-	optionsUpdated = true
+	stageRegistry.Register("worker_extraction", func() error {
+		return taskFramework.runStage(
+			pipelineTaskStageOptions{
+				StageNames:     []string{"worker", "extraction"},
+				EventStage:     models.VideoJobStageRendering,
+				StartMessage:   "worker risk strategy applied",
+				StartMetadata:  workerStrategy,
+				FailureMessage: "worker extraction failed",
+			},
+			func() error {
+				frameDir := filepath.Join(tmpDir, "frames")
+				if mkdirErr := os.MkdirAll(frameDir, 0o755); mkdirErr != nil {
+					return fmt.Errorf("create frame dir: %w", mkdirErr)
+				}
 
-	if optionsUpdated {
-		p.updateVideoJob(job.ID, map[string]interface{}{
-			"options": mustJSON(optionsPayload),
-		})
+				effectiveDurationSec = effectiveSampleDuration(meta, options)
+				candidateBudget = qualitySelectionCandidateBudget(extractOptions.MaxStatic)
+				interval = chooseFrameInterval(effectiveDurationSec, extractOptions.FrameIntervalSec, candidateBudget)
+
+				if extractErr := extractFrames(ctx, sourcePath, frameDir, meta, extractOptions, interval, workerQualitySettings); extractErr != nil {
+					return fmt.Errorf("extract frames: %w", extractErr)
+				}
+				collectedPaths, collectErr := collectFramePaths(frameDir, candidateBudget)
+				if collectErr != nil {
+					return fmt.Errorf("collect frames: %w", collectErr)
+				}
+				if len(collectedPaths) == 0 {
+					return permanentError{err: errors.New("no frames extracted from video")}
+				}
+				framePaths = collectedPaths
+
+				optimizedFramePaths, optimizedQualityReport := optimizeFramePathsForQualityWithGuidance(framePaths, extractOptions.MaxStatic, workerQualitySettings, ai2Guidance)
+				if len(optimizedFramePaths) > 0 {
+					framePaths = optimizedFramePaths
+				}
+				qualityReport = optimizedQualityReport
+				framePaths, ai2LLMRerankReport = p.maybeApplyPNGAI2LLMRerank(ctx, job, primaryFormat, framePaths, qualityReport, ai2Guidance, "pre_enhance")
+				if len(ai2LLMRerankReport) > 0 {
+					taskFramework.setMetric(fmt.Sprintf("%s_ai2_llm_rerank_v1", metricPrefix), ai2LLMRerankReport)
+					preStatus := strings.ToLower(strings.TrimSpace(stringFromAny(ai2LLMRerankReport["status"])))
+					taskFramework.recordFallback(
+						fmt.Sprintf("%s_ai2_llm_rerank_pre", metricPrefix),
+						preStatus == "llm_error" || preStatus == "parse_error" || preStatus == "invalid_order",
+						preStatus,
+					)
+				}
+
+				if isPNGEnhancementStageEnabled() {
+					framePaths, faceEnhancementReport = p.maybeApplyPNGAliyunFaceEnhancement(ctx, job, primaryFormat, framePaths, ai2Guidance)
+					framePaths, superResolutionReport = p.maybeApplyPNGAliyunSuperResolution(ctx, job, primaryFormat, framePaths)
+				} else {
+					if NormalizeRequestedFormat(primaryFormat) == "png" {
+						faceEnhancementReport = map[string]interface{}{
+							"schema_version": "png_worker_face_enhancement_v1",
+							"status":         "stage_disabled",
+							"reason":         "PNG_ENHANCEMENT_STAGE_ENABLED=false",
+						}
+						superResolutionReport = map[string]interface{}{
+							"schema_version": "png_worker_super_resolution_v1",
+							"status":         "stage_disabled",
+							"reason":         "PNG_ENHANCEMENT_STAGE_ENABLED=false",
+						}
+					} else {
+						faceEnhancementReport = map[string]interface{}{
+							"schema_version": "png_worker_face_enhancement_v1",
+							"status":         "skipped_not_png",
+						}
+						superResolutionReport = map[string]interface{}{
+							"schema_version": "png_worker_super_resolution_v1",
+							"status":         "skipped_not_png",
+						}
+					}
+				}
+				taskFramework.setMetric(fmt.Sprintf("%s_worker_face_enhancement_v1", metricPrefix), faceEnhancementReport)
+				taskFramework.setMetric(fmt.Sprintf("%s_worker_super_resolution_v1", metricPrefix), superResolutionReport)
+
+				postEnhanceFramePaths, postEnhanceQualityReport := rerankEnhancedFramePaths(framePaths, workerQualitySettings, ai2Guidance)
+				if len(postEnhanceFramePaths) > 0 {
+					framePaths = postEnhanceFramePaths
+					qualityReport = postEnhanceQualityReport
+				}
+				if postEnhanceQualityReport.TotalFrames > 0 {
+					taskFramework.setMetric(fmt.Sprintf("%s_post_enhance_quality_v1", metricPrefix), postEnhanceQualityReport)
+				}
+				taskFramework.recordFallback(
+					fmt.Sprintf("%s_worker_quality_selector", metricPrefix),
+					qualityReport.FallbackApplied,
+					"quality_selector_fallback",
+				)
+				framePaths, ai2LLMRerankPostEnhanceReport = p.maybeApplyPNGAI2LLMRerank(ctx, job, primaryFormat, framePaths, qualityReport, ai2Guidance, "post_enhance")
+				if len(ai2LLMRerankPostEnhanceReport) > 0 {
+					taskFramework.setMetric(fmt.Sprintf("%s_ai2_llm_rerank_post_enhance_v1", metricPrefix), ai2LLMRerankPostEnhanceReport)
+					postStatus := strings.ToLower(strings.TrimSpace(stringFromAny(ai2LLMRerankPostEnhanceReport["status"])))
+					taskFramework.recordFallback(
+						fmt.Sprintf("%s_ai2_llm_rerank_post", metricPrefix),
+						postStatus == "llm_error" || postStatus == "parse_error" || postStatus == "invalid_order",
+						postStatus,
+					)
+				}
+				framePaths, finalQualityGuardReport = applyPNGFinalQualityGuards(framePaths, workerQualitySettings, ai2Guidance)
+				if len(finalQualityGuardReport) > 0 {
+					taskFramework.setMetric(fmt.Sprintf("%s_final_quality_guard_v1", metricPrefix), finalQualityGuardReport)
+				}
+
+				taskFramework.setMetric("frame_quality", qualityReport)
+				qualitySettingsMetric := map[string]interface{}{
+					"min_brightness":              workerQualitySettings.MinBrightness,
+					"max_brightness":              workerQualitySettings.MaxBrightness,
+					"blur_threshold_factor":       workerQualitySettings.BlurThresholdFactor,
+					"duplicate_hamming_threshold": workerQualitySettings.DuplicateHammingThreshold,
+					"still_min_blur_score":        workerQualitySettings.StillMinBlurScore,
+					"still_min_exposure_score":    workerQualitySettings.StillMinExposureScore,
+					"still_min_width":             workerQualitySettings.StillMinWidth,
+					"still_min_height":            workerQualitySettings.StillMinHeight,
+					"jpg_profile":                 workerQualitySettings.JPGProfile,
+					"png_profile":                 workerQualitySettings.PNGProfile,
+					"webp_profile":                workerQualitySettings.WebPProfile,
+					"live_profile":                workerQualitySettings.LiveProfile,
+					"png_target_size_kb":          workerQualitySettings.PNGTargetSizeKB,
+					"jpg_target_size_kb":          workerQualitySettings.JPGTargetSizeKB,
+					"webp_target_size_kb":         workerQualitySettings.WebPTargetSizeKB,
+					"quality_candidate_budget":    candidateBudget,
+					"still_clarity_enhance":       shouldApplyStillClarityEnhancement(meta, extractOptions, workerQualitySettings),
+					"ai2_quality_weights":         ai2Guidance.QualityWeights,
+					"ai2_risk_flags":              ai2Guidance.RiskFlags,
+					"ai2_max_blur_tolerance":      ai2Guidance.MaxBlurTolerance,
+					"ai2_selection_policy":        qualityReport.SelectionPolicy,
+					"ai2_llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
+					"ai2_llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
+					"ai2_llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
+					"ai2_llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
+					"ai2_llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
+					"ai2_llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
+					"output_count_policy_status":  stringFromAny(outputCountPolicy["status"]),
+					"output_count_policy_applied": boolFromAny(outputCountPolicy["applied"]),
+					"output_count_policy_before":  intFromAny(outputCountPolicy["before_max_static"]),
+					"output_count_policy_after":   intFromAny(outputCountPolicy["after_max_static"]),
+					"coverage_window_status":      stringFromAny(coverageWindowPolicy["status"]),
+					"coverage_window_applied":     boolFromAny(coverageWindowPolicy["applied"]),
+					"coverage_window_before_sec":  roundTo(floatFromAny(coverageWindowPolicy["window_duration_before_sec"]), 3),
+					"coverage_window_after_sec":   roundTo(floatFromAny(coverageWindowPolicy["window_duration_after_sec"]), 3),
+					"final_quality_guard_status":  stringFromAny(finalQualityGuardReport["status"]),
+					"final_quality_guard_applied": boolFromAny(finalQualityGuardReport["applied"]),
+					"final_quality_guard_output":  intFromAny(finalQualityGuardReport["output_count"]),
+				}
+				taskFramework.setMetric(fmt.Sprintf("%s_quality_settings_v1", metricPrefix), qualitySettingsMetric)
+				taskFramework.setMetric(extractionMetricKey, map[string]interface{}{
+					"frame_count":             len(framePaths),
+					"candidate_count":         len(qualityReport.CandidateScores),
+					"candidate_budget":        candidateBudget,
+					"interval_sec":            roundTo(interval, 3),
+					"effective_duration":      roundTo(effectiveDurationSec, 3),
+					"selector_version":        qualityReport.SelectorVersion,
+					"scoring_mode":            qualityReport.ScoringMode,
+					"selection_policy":        qualityReport.SelectionPolicy,
+					"must_capture_hits":       countFrameCandidateMustCaptureHits(qualityReport.CandidateScores),
+					"avoid_hits":              countFrameCandidateAvoidHits(qualityReport.CandidateScores),
+					"llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
+					"llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
+					"llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
+					"llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
+					"llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
+					"llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
+					"final_guard_status":      stringFromAny(finalQualityGuardReport["status"]),
+					"final_guard_applied":     boolFromAny(finalQualityGuardReport["applied"]),
+					"final_guard_output":      intFromAny(finalQualityGuardReport["output_count"]),
+				})
+
+				taskFramework.updateStageProgress(models.VideoJobStageRendering, 55, nil)
+				taskFramework.appendEvent(models.VideoJobStageRendering, "info", "frame extraction completed", map[string]interface{}{
+					"frames":                      len(framePaths),
+					"quality_blur_reject":         qualityReport.RejectedBlur,
+					"quality_bright_reject":       qualityReport.RejectedBrightness,
+					"quality_exposure_reject":     qualityReport.RejectedExposure,
+					"quality_resolution_reject":   qualityReport.RejectedResolution,
+					"quality_still_blur_reject":   qualityReport.RejectedStillBlurGate,
+					"quality_watermark_reject":    qualityReport.RejectedWatermark,
+					"quality_dup_reject":          qualityReport.RejectedNearDuplicate,
+					"quality_fallback":            qualityReport.FallbackApplied,
+					"quality_selector_version":    qualityReport.SelectorVersion,
+					"quality_scoring_mode":        qualityReport.ScoringMode,
+					"quality_selection_policy":    qualityReport.SelectionPolicy,
+					"ai2_llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
+					"ai2_llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
+					"ai2_llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
+					"ai2_llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
+					"ai2_llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
+					"ai2_llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
+					"face_enhance_mode":           stringFromAny(faceEnhancementReport["mode"]),
+					"face_enhance_attempted":      intFromAny(faceEnhancementReport["attempted"]),
+					"face_enhance_succeeded":      intFromAny(faceEnhancementReport["succeeded"]),
+					"face_enhance_replaced":       intFromAny(faceEnhancementReport["replaced"]),
+					"face_enhance_total_cost_cny": roundTo(floatFromAny(faceEnhancementReport["total_cost_cny"]), 6),
+					"face_enhance_cost_capped":    boolFromAny(faceEnhancementReport["cost_capped"]),
+					"superres_mode":               stringFromAny(superResolutionReport["mode"]),
+					"superres_attempted":          intFromAny(superResolutionReport["attempted"]),
+					"superres_succeeded":          intFromAny(superResolutionReport["succeeded"]),
+					"superres_replaced":           intFromAny(superResolutionReport["replaced"]),
+					"superres_total_cost_cny":     roundTo(floatFromAny(superResolutionReport["total_cost_cny"]), 6),
+					"superres_cost_capped":        boolFromAny(superResolutionReport["cost_capped"]),
+					"final_guard_status":          stringFromAny(finalQualityGuardReport["status"]),
+					"final_guard_applied":         boolFromAny(finalQualityGuardReport["applied"]),
+					"final_guard_output":          intFromAny(finalQualityGuardReport["output_count"]),
+				})
+
+				if p.isJobCancelled(job.ID) {
+					taskFramework.appendEvent(models.VideoJobStageCancelled, "info", "job cancelled after rendering", nil)
+					p.syncJobCost(job.ID)
+					p.syncJobPointSettlement(job.ID, models.VideoJobStatusCancelled)
+					p.cleanupSourceVideo(job.ID, "cancelled")
+					return errImagePipelineHalt
+				}
+				return nil
+			},
+		)
+	})
+
+	stageRegistry.Register("ai3_review", func() error {
+		return taskFramework.runStage(
+			pipelineTaskStageOptions{
+				StageNames:     []string{"ai3"},
+				EventStage:     models.VideoJobStageRendering,
+				StartMessage:   "sub-stage reviewing started",
+				StartMetadata:  map[string]interface{}{"requested_format": primaryFormat, "review_type": "image_quality_gate"},
+				FailureMessage: "ai3 review failed",
+			},
+			func() error {
+				ai3Review := buildImageAI3ReviewSummary(primaryFormat, qualityReport, len(framePaths), candidateBudget, effectiveDurationSec)
+				if reviewErr := p.persistImageAI3Review(job, primaryFormat, ai3Review); reviewErr != nil {
+					taskFramework.appendEvent(models.VideoJobStageRendering, "warn", "ai image review persistence failed", map[string]interface{}{
+						"requested_format": primaryFormat,
+						"error":            reviewErr.Error(),
+					})
+				}
+				taskFramework.setMetric(ai3MetricKey, ai3Review)
+				taskFramework.appendEvent(models.VideoJobStageRendering, "info", "ai judge completed", ai3Review)
+				return nil
+			},
+		)
+	})
+
+	stageRegistry.Register("delivery_finalize", func() error {
+		return taskFramework.runStage(
+			pipelineTaskStageOptions{
+				StageNames:     []string{"delivery"},
+				JobStage:       models.VideoJobStageRendering,
+				Progress:       70,
+				EventStage:     models.VideoJobStageRendering,
+				StartMessage:   imagePipelineEventMessage(primaryFormat, "output render pipeline started"),
+				StartMetadata:  map[string]interface{}{"entry_progress": 70},
+				FailureMessage: "delivery finalize failed",
+			},
+			func() error {
+				highlightCandidates := make([]highlightCandidate, 0)
+				animatedWindows := make([]highlightCandidate, 0)
+				resultCollectionID, totalFrames, uploadedKeys, generatedFormats, packageOutcome, persistErr := p.persistJobResults(
+					ctx,
+					job,
+					framePaths,
+					sourcePath,
+					meta,
+					options,
+					highlightCandidates,
+					animatedWindows,
+					workerQualitySettings,
+				)
+				if persistErr != nil {
+					deleteQiniuKeysByPrefix(p.qiniu, uploadedKeys)
+					return persistErr
+				}
+
+				taskFramework.updateStageProgress(models.VideoJobStageUploading, 88, nil)
+
+				taskFramework.mergeMetrics(map[string]interface{}{
+					"static_count":             totalFrames,
+					"output_formats_requested": requestedFormats,
+					"output_formats":           generatedFormats,
+					"result_collection_id":     resultCollectionID,
+					"asset_domain":             models.VideoJobAssetDomainVideo,
+					"edit_options":             jobOptionsMetrics(options, interval),
+					"effective_duration_sec":   roundTo(effectiveDurationSec, 3),
+					"package_zip_status":       packageOutcome.Status,
+					"package_zip_attempts":     packageOutcome.Attempts,
+					"package_zip_retry_count":  packageOutcome.RetryCount,
+				})
+				if packageOutcome.Key != "" {
+					taskFramework.setMetric("package_zip_key", packageOutcome.Key)
+				}
+				if packageOutcome.Name != "" {
+					taskFramework.setMetric("package_zip_name", packageOutcome.Name)
+				}
+				if packageOutcome.SizeBytes > 0 {
+					taskFramework.setMetric("package_zip_size_bytes", packageOutcome.SizeBytes)
+				}
+				if packageOutcome.Error != "" {
+					taskFramework.setMetric("package_zip_error", packageOutcome.Error)
+				}
+
+				finishedAt := time.Now()
+				taskFramework.updateStageProgress(models.VideoJobStageDone, 100, map[string]interface{}{
+					"status":               models.VideoJobStatusDone,
+					"asset_domain":         models.VideoJobAssetDomainVideo,
+					"result_collection_id": resultCollectionID,
+					"error_message":        "",
+					"finished_at":          finishedAt,
+				})
+				taskFramework.appendEvent(models.VideoJobStageDone, "info", "video job completed", map[string]interface{}{
+					"collection_id":       resultCollectionID,
+					"static_count":        totalFrames,
+					"package_zip_status":  packageOutcome.Status,
+					"package_zip_attempt": packageOutcome.Attempts,
+					fmt.Sprintf("%s_pipeline_status_v1", metricPrefix): pipelineStageStatus,
+				})
+				if packageOutcome.Status == packageZipStatusFailed {
+					taskFramework.appendEvent(models.VideoJobStageDone, "warn", "video job completed without zip package", map[string]interface{}{
+						"attempts": packageOutcome.Attempts,
+						"error":    packageOutcome.Error,
+					})
+				}
+				p.syncJobCost(job.ID)
+				p.syncJobPointSettlement(job.ID, models.VideoJobStatusDone)
+				p.cleanupSourceVideo(job.ID, "done")
+				return nil
+			},
+		)
+	})
+
+	if err := stageRegistry.Execute(); err != nil {
+		if errors.Is(err, errImagePipelineHalt) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (p *Processor) executePNGFastExtractPipeline(
+	ctx context.Context,
+	job models.VideoJob,
+	tmpDir string,
+	sourcePath string,
+	meta videoProbeMeta,
+	requestedFormats []string,
+	primaryFormat string,
+	options jobOptions,
+	optionsPayload map[string]interface{},
+	qualitySettings QualitySettings,
+	taskFramework *pipelineTaskFramework,
+	pipelineStageStatus map[string]string,
+	metricPrefix string,
+	ai1MetricKey string,
+	ai2MetricKey string,
+	ai3MetricKey string,
+	extractionMetricKey string,
+	fastExtractFPS int,
+) error {
+	if p == nil {
+		return fmt.Errorf("processor is nil")
+	}
+	if fastExtractFPS <= 0 {
+		fastExtractFPS = PNGFastExtractFPS1
 	}
 
-	pipelineStageStatus["worker"] = "running"
-	pipelineStageStatus["extraction"] = "running"
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "worker risk strategy applied", workerStrategy)
-
-	frameDir := filepath.Join(tmpDir, "frames")
-	if err := os.MkdirAll(frameDir, 0o755); err != nil {
-		return fmt.Errorf("create frame dir: %w", err)
+	options = applyStillProfileDefaults(options, requestedFormats, qualitySettings)
+	interval := roundTo(1.0/float64(fastExtractFPS), 3)
+	if interval <= 0 {
+		interval = 1.0
 	}
+	// Fast extract must strictly follow fast_extract_fps. Ignore explicit edit_options.fps if present.
+	options.FPS = 0
+	options.FrameIntervalSec = interval
 
 	effectiveDurationSec := effectiveSampleDuration(meta, options)
-	candidateBudget := qualitySelectionCandidateBudget(extractOptions.MaxStatic)
-	interval := chooseFrameInterval(effectiveDurationSec, extractOptions.FrameIntervalSec, candidateBudget)
-
-	if err := extractFrames(ctx, sourcePath, frameDir, meta, extractOptions, interval, workerQualitySettings); err != nil {
-		return fmt.Errorf("extract frames: %w", err)
+	targetMaxStatic := int(math.Ceil(effectiveDurationSec * float64(fastExtractFPS)))
+	if targetMaxStatic <= 0 {
+		targetMaxStatic = options.MaxStatic
 	}
-	framePaths, err := collectFramePaths(frameDir, candidateBudget)
-	if err != nil {
-		return fmt.Errorf("collect frames: %w", err)
+	if targetMaxStatic <= 0 {
+		targetMaxStatic = 24
 	}
-	if len(framePaths) == 0 {
-		return permanentError{err: errors.New("no frames extracted from video")}
+	if targetMaxStatic < 4 {
+		targetMaxStatic = 4
 	}
-
-	optimizedFramePaths, qualityReport := optimizeFramePathsForQualityWithGuidance(framePaths, extractOptions.MaxStatic, workerQualitySettings, ai2Guidance)
-	if len(optimizedFramePaths) > 0 {
-		framePaths = optimizedFramePaths
+	if targetMaxStatic > 80 {
+		targetMaxStatic = 80
 	}
-	framePaths, ai2LLMRerankReport := p.maybeApplyPNGAI2LLMRerank(ctx, job, primaryFormat, framePaths, qualityReport, ai2Guidance, "pre_enhance")
-	if len(ai2LLMRerankReport) > 0 {
-		metrics[fmt.Sprintf("%s_ai2_llm_rerank_v1", metricPrefix)] = ai2LLMRerankReport
+	if options.MaxStatic <= 0 || options.MaxStatic > targetMaxStatic {
+		options.MaxStatic = targetMaxStatic
 	}
 
-	framePaths, faceEnhancementReport := p.maybeApplyPNGAliyunFaceEnhancement(ctx, job, primaryFormat, framePaths, ai2Guidance)
-	if len(faceEnhancementReport) > 0 {
-		metrics[fmt.Sprintf("%s_worker_face_enhancement_v1", metricPrefix)] = faceEnhancementReport
+	optionsPayload["png_mode"] = PNGModeFastExtract
+	optionsPayload["fast_extract_fps"] = fastExtractFPS
+	optionsPayload["frame_interval_sec"] = options.FrameIntervalSec
+	delete(optionsPayload, "fps")
+	optionsPayload["max_static"] = options.MaxStatic
+	optionsPayload["fast_extract_policy_v1"] = map[string]interface{}{
+		"mode":                   PNGModeFastExtract,
+		"fast_extract_fps":       fastExtractFPS,
+		"frame_interval_sec":     roundTo(options.FrameIntervalSec, 3),
+		"effective_duration_sec": roundTo(effectiveDurationSec, 3),
+		"target_max_static":      targetMaxStatic,
 	}
-
-	framePaths, superResolutionReport := p.maybeApplyPNGAliyunSuperResolution(ctx, job, primaryFormat, framePaths)
-	if len(superResolutionReport) > 0 {
-		metrics[fmt.Sprintf("%s_worker_super_resolution_v1", metricPrefix)] = superResolutionReport
-	}
-
-	postEnhanceFramePaths, postEnhanceQualityReport := rerankEnhancedFramePaths(framePaths, workerQualitySettings, ai2Guidance)
-	if len(postEnhanceFramePaths) > 0 {
-		framePaths = postEnhanceFramePaths
-		qualityReport = postEnhanceQualityReport
-	}
-	if postEnhanceQualityReport.TotalFrames > 0 {
-		metrics[fmt.Sprintf("%s_post_enhance_quality_v1", metricPrefix)] = postEnhanceQualityReport
-	}
-	framePaths, ai2LLMRerankPostEnhanceReport := p.maybeApplyPNGAI2LLMRerank(ctx, job, primaryFormat, framePaths, qualityReport, ai2Guidance, "post_enhance")
-	if len(ai2LLMRerankPostEnhanceReport) > 0 {
-		metrics[fmt.Sprintf("%s_ai2_llm_rerank_post_enhance_v1", metricPrefix)] = ai2LLMRerankPostEnhanceReport
-	}
-	framePaths, finalQualityGuardReport := applyPNGFinalQualityGuards(framePaths, workerQualitySettings, ai2Guidance)
-	if len(finalQualityGuardReport) > 0 {
-		metrics[fmt.Sprintf("%s_final_quality_guard_v1", metricPrefix)] = finalQualityGuardReport
-	}
-
-	metrics["frame_quality"] = qualityReport
-	qualitySettingsMetric := map[string]interface{}{
-		"min_brightness":              workerQualitySettings.MinBrightness,
-		"max_brightness":              workerQualitySettings.MaxBrightness,
-		"blur_threshold_factor":       workerQualitySettings.BlurThresholdFactor,
-		"duplicate_hamming_threshold": workerQualitySettings.DuplicateHammingThreshold,
-		"still_min_blur_score":        workerQualitySettings.StillMinBlurScore,
-		"still_min_exposure_score":    workerQualitySettings.StillMinExposureScore,
-		"still_min_width":             workerQualitySettings.StillMinWidth,
-		"still_min_height":            workerQualitySettings.StillMinHeight,
-		"jpg_profile":                 workerQualitySettings.JPGProfile,
-		"png_profile":                 workerQualitySettings.PNGProfile,
-		"webp_profile":                workerQualitySettings.WebPProfile,
-		"live_profile":                workerQualitySettings.LiveProfile,
-		"png_target_size_kb":          workerQualitySettings.PNGTargetSizeKB,
-		"jpg_target_size_kb":          workerQualitySettings.JPGTargetSizeKB,
-		"webp_target_size_kb":         workerQualitySettings.WebPTargetSizeKB,
-		"quality_candidate_budget":    candidateBudget,
-		"still_clarity_enhance":       shouldApplyStillClarityEnhancement(meta, extractOptions, workerQualitySettings),
-		"ai2_quality_weights":         ai2Guidance.QualityWeights,
-		"ai2_risk_flags":              ai2Guidance.RiskFlags,
-		"ai2_max_blur_tolerance":      ai2Guidance.MaxBlurTolerance,
-		"ai2_selection_policy":        qualityReport.SelectionPolicy,
-		"ai2_llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
-		"ai2_llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
-		"ai2_llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
-		"ai2_llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
-		"ai2_llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
-		"ai2_llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
-		"output_count_policy_status":  stringFromAny(outputCountPolicy["status"]),
-		"output_count_policy_applied": boolFromAny(outputCountPolicy["applied"]),
-		"output_count_policy_before":  intFromAny(outputCountPolicy["before_max_static"]),
-		"output_count_policy_after":   intFromAny(outputCountPolicy["after_max_static"]),
-		"coverage_window_status":      stringFromAny(coverageWindowPolicy["status"]),
-		"coverage_window_applied":     boolFromAny(coverageWindowPolicy["applied"]),
-		"coverage_window_before_sec":  roundTo(floatFromAny(coverageWindowPolicy["window_duration_before_sec"]), 3),
-		"coverage_window_after_sec":   roundTo(floatFromAny(coverageWindowPolicy["window_duration_after_sec"]), 3),
-		"final_quality_guard_status":  stringFromAny(finalQualityGuardReport["status"]),
-		"final_quality_guard_applied": boolFromAny(finalQualityGuardReport["applied"]),
-		"final_quality_guard_output":  intFromAny(finalQualityGuardReport["output_count"]),
-	}
-	metrics[fmt.Sprintf("%s_quality_settings_v1", metricPrefix)] = qualitySettingsMetric
-	metrics[extractionMetricKey] = map[string]interface{}{
-		"frame_count":             len(framePaths),
-		"candidate_count":         len(qualityReport.CandidateScores),
-		"candidate_budget":        candidateBudget,
-		"interval_sec":            roundTo(interval, 3),
-		"effective_duration":      roundTo(effectiveDurationSec, 3),
-		"selector_version":        qualityReport.SelectorVersion,
-		"scoring_mode":            qualityReport.ScoringMode,
-		"selection_policy":        qualityReport.SelectionPolicy,
-		"must_capture_hits":       countFrameCandidateMustCaptureHits(qualityReport.CandidateScores),
-		"avoid_hits":              countFrameCandidateAvoidHits(qualityReport.CandidateScores),
-		"llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
-		"llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
-		"llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
-		"llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
-		"llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
-		"llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
-		"final_guard_status":      stringFromAny(finalQualityGuardReport["status"]),
-		"final_guard_applied":     boolFromAny(finalQualityGuardReport["applied"]),
-		"final_guard_output":      intFromAny(finalQualityGuardReport["output_count"]),
-	}
-
-	pipelineStageStatus["worker"] = "done"
-	pipelineStageStatus["extraction"] = "done"
 	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageRendering,
-		"progress": 55,
-		"metrics":  mustJSON(metrics),
+		"options": mustJSON(optionsPayload),
 	})
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "frame extraction completed", map[string]interface{}{
-		"frames":                      len(framePaths),
-		"quality_blur_reject":         qualityReport.RejectedBlur,
-		"quality_bright_reject":       qualityReport.RejectedBrightness,
-		"quality_exposure_reject":     qualityReport.RejectedExposure,
-		"quality_resolution_reject":   qualityReport.RejectedResolution,
-		"quality_still_blur_reject":   qualityReport.RejectedStillBlurGate,
-		"quality_watermark_reject":    qualityReport.RejectedWatermark,
-		"quality_dup_reject":          qualityReport.RejectedNearDuplicate,
-		"quality_fallback":            qualityReport.FallbackApplied,
-		"quality_selector_version":    qualityReport.SelectorVersion,
-		"quality_scoring_mode":        qualityReport.ScoringMode,
-		"quality_selection_policy":    qualityReport.SelectionPolicy,
-		"ai2_llm_rerank_mode":         stringFromAny(ai2LLMRerankReport["mode"]),
-		"ai2_llm_rerank_status":       stringFromAny(ai2LLMRerankReport["status"]),
-		"ai2_llm_rerank_applied":      boolFromAny(ai2LLMRerankReport["applied"]),
-		"ai2_llm_rerank_post_mode":    stringFromAny(ai2LLMRerankPostEnhanceReport["mode"]),
-		"ai2_llm_rerank_post_status":  stringFromAny(ai2LLMRerankPostEnhanceReport["status"]),
-		"ai2_llm_rerank_post_applied": boolFromAny(ai2LLMRerankPostEnhanceReport["applied"]),
-		"face_enhance_mode":           stringFromAny(faceEnhancementReport["mode"]),
-		"face_enhance_attempted":      intFromAny(faceEnhancementReport["attempted"]),
-		"face_enhance_succeeded":      intFromAny(faceEnhancementReport["succeeded"]),
-		"face_enhance_replaced":       intFromAny(faceEnhancementReport["replaced"]),
-		"face_enhance_total_cost_cny": roundTo(floatFromAny(faceEnhancementReport["total_cost_cny"]), 6),
-		"face_enhance_cost_capped":    boolFromAny(faceEnhancementReport["cost_capped"]),
-		"superres_mode":               stringFromAny(superResolutionReport["mode"]),
-		"superres_attempted":          intFromAny(superResolutionReport["attempted"]),
-		"superres_succeeded":          intFromAny(superResolutionReport["succeeded"]),
-		"superres_replaced":           intFromAny(superResolutionReport["replaced"]),
-		"superres_total_cost_cny":     roundTo(floatFromAny(superResolutionReport["total_cost_cny"]), 6),
-		"superres_cost_capped":        boolFromAny(superResolutionReport["cost_capped"]),
-		"final_guard_status":          stringFromAny(finalQualityGuardReport["status"]),
-		"final_guard_applied":         boolFromAny(finalQualityGuardReport["applied"]),
-		"final_guard_output":          intFromAny(finalQualityGuardReport["output_count"]),
+
+	taskFramework.markStageStatuses("skipped_fast_extract", "ai1", "ai2", "ai3")
+	taskFramework.setMetric(ai1MetricKey, map[string]interface{}{
+		"status":         "skipped_fast_extract",
+		"requested_mode": PNGModeFastExtract,
+	})
+	taskFramework.setMetric(ai2MetricKey, map[string]interface{}{
+		"status":         "skipped_fast_extract",
+		"requested_mode": PNGModeFastExtract,
+	})
+	taskFramework.setMetric(ai3MetricKey, map[string]interface{}{
+		"status":         "skipped_fast_extract",
+		"requested_mode": PNGModeFastExtract,
+	})
+	taskFramework.appendEvent(models.VideoJobStageAnalyzing, "info", "png fast extract mode enabled", map[string]interface{}{
+		"requested_format": primaryFormat,
+		"fast_extract_fps": fastExtractFPS,
+		"frame_interval":   roundTo(options.FrameIntervalSec, 3),
+		"max_static":       options.MaxStatic,
 	})
 
 	if p.isJobCancelled(job.ID) {
-		p.appendJobEvent(job.ID, models.VideoJobStageCancelled, "info", "job cancelled after rendering", nil)
+		taskFramework.appendEvent(models.VideoJobStageCancelled, "info", "job cancelled before fast extract worker", nil)
 		p.syncJobCost(job.ID)
 		p.syncJobPointSettlement(job.ID, models.VideoJobStatusCancelled)
 		p.cleanupSourceVideo(job.ID, "cancelled")
 		return nil
 	}
 
-	pipelineStageStatus["ai3"] = "running"
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "sub-stage reviewing started", map[string]interface{}{
-		"requested_format": primaryFormat,
-		"review_type":      "image_quality_gate",
-	})
-	ai3Review := buildImageAI3ReviewSummary(primaryFormat, qualityReport, len(framePaths), candidateBudget, effectiveDurationSec)
-	if err := p.persistImageAI3Review(job, primaryFormat, ai3Review); err != nil {
-		p.appendJobEvent(job.ID, models.VideoJobStageRendering, "warn", "ai image review persistence failed", map[string]interface{}{
-			"requested_format": primaryFormat,
-			"error":            err.Error(),
-		})
-	}
-	metrics[ai3MetricKey] = ai3Review
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", "ai judge completed", ai3Review)
-	pipelineStageStatus["ai3"] = "done"
-
-	pipelineStageStatus["delivery"] = "running"
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageRendering,
-		"progress": 70,
-	})
-	p.appendJobEvent(job.ID, models.VideoJobStageRendering, "info", imagePipelineEventMessage(primaryFormat, "output render pipeline started"), map[string]interface{}{
-		"entry_progress": 70,
-	})
-
-	highlightCandidates := make([]highlightCandidate, 0)
-	animatedWindows := make([]highlightCandidate, 0)
-	resultCollectionID, totalFrames, uploadedKeys, generatedFormats, packageOutcome, err := p.persistJobResults(
-		ctx,
-		job,
-		framePaths,
-		sourcePath,
-		meta,
-		options,
-		highlightCandidates,
-		animatedWindows,
-		workerQualitySettings,
+	var (
+		framePaths              []string
+		qualityReport           frameQualityReport
+		finalQualityGuardReport map[string]interface{}
+		workerQualitySettings   = qualitySettings
+		candidateBudget         int
 	)
-	if err != nil {
-		deleteQiniuKeysByPrefix(p.qiniu, uploadedKeys)
+
+	if err := taskFramework.runStage(
+		pipelineTaskStageOptions{
+			StageNames:   []string{"worker", "extraction"},
+			EventStage:   models.VideoJobStageRendering,
+			StartMessage: "fast extraction started",
+			StartMetadata: map[string]interface{}{
+				"requested_format": primaryFormat,
+				"mode":             PNGModeFastExtract,
+				"fast_extract_fps": fastExtractFPS,
+			},
+			FailureMessage: "fast extraction failed",
+		},
+		func() error {
+			frameDir := filepath.Join(tmpDir, "frames_fast_extract")
+			if mkdirErr := os.MkdirAll(frameDir, 0o755); mkdirErr != nil {
+				return fmt.Errorf("create frame dir: %w", mkdirErr)
+			}
+
+			candidateBudget = qualitySelectionCandidateBudget(options.MaxStatic)
+			if candidateBudget <= 0 {
+				candidateBudget = 24
+			}
+			if extractErr := extractFrames(ctx, sourcePath, frameDir, meta, options, options.FrameIntervalSec, workerQualitySettings); extractErr != nil {
+				return fmt.Errorf("extract frames: %w", extractErr)
+			}
+			collectedPaths, collectErr := collectFramePaths(frameDir, candidateBudget)
+			if collectErr != nil {
+				return fmt.Errorf("collect frames: %w", collectErr)
+			}
+			if len(collectedPaths) == 0 {
+				return permanentError{err: errors.New("no frames extracted from video")}
+			}
+
+			framePaths = collectedPaths
+			optimizedFramePaths, optimizedQualityReport := optimizeFramePathsForQualityWithGuidance(
+				framePaths,
+				options.MaxStatic,
+				workerQualitySettings,
+				imageAI2Guidance{},
+			)
+			if len(optimizedFramePaths) > 0 {
+				framePaths = optimizedFramePaths
+			}
+			qualityReport = optimizedQualityReport
+			framePaths, finalQualityGuardReport = applyPNGFinalQualityGuards(framePaths, workerQualitySettings, imageAI2Guidance{})
+
+			taskFramework.setMetric("frame_quality", qualityReport)
+			taskFramework.setMetric(extractionMetricKey, map[string]interface{}{
+				"mode":                PNGModeFastExtract,
+				"frame_count":         len(framePaths),
+				"candidate_count":     len(qualityReport.CandidateScores),
+				"candidate_budget":    candidateBudget,
+				"interval_sec":        roundTo(options.FrameIntervalSec, 3),
+				"effective_duration":  roundTo(effectiveDurationSec, 3),
+				"fast_extract_fps":    fastExtractFPS,
+				"final_guard_status":  stringFromAny(finalQualityGuardReport["status"]),
+				"final_guard_applied": boolFromAny(finalQualityGuardReport["applied"]),
+				"final_guard_output":  intFromAny(finalQualityGuardReport["output_count"]),
+			})
+			if len(finalQualityGuardReport) > 0 {
+				taskFramework.setMetric(fmt.Sprintf("%s_final_quality_guard_v1", metricPrefix), finalQualityGuardReport)
+			}
+
+			taskFramework.updateStageProgress(models.VideoJobStageRendering, 55, nil)
+			taskFramework.appendEvent(models.VideoJobStageRendering, "info", "fast frame extraction completed", map[string]interface{}{
+				"frames":                  len(framePaths),
+				"quality_blur_reject":     qualityReport.RejectedBlur,
+				"quality_bright_reject":   qualityReport.RejectedBrightness,
+				"quality_exposure_reject": qualityReport.RejectedExposure,
+				"quality_dup_reject":      qualityReport.RejectedNearDuplicate,
+				"quality_fallback":        qualityReport.FallbackApplied,
+				"final_guard_status":      stringFromAny(finalQualityGuardReport["status"]),
+				"final_guard_applied":     boolFromAny(finalQualityGuardReport["applied"]),
+				"fast_extract_fps":        fastExtractFPS,
+			})
+
+			if p.isJobCancelled(job.ID) {
+				taskFramework.appendEvent(models.VideoJobStageCancelled, "info", "job cancelled after fast extraction", nil)
+				p.syncJobCost(job.ID)
+				p.syncJobPointSettlement(job.ID, models.VideoJobStatusCancelled)
+				p.cleanupSourceVideo(job.ID, "cancelled")
+				return errImagePipelineHalt
+			}
+			return nil
+		},
+	); err != nil {
+		if errors.Is(err, errImagePipelineHalt) {
+			return nil
+		}
 		return err
 	}
 
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"stage":    models.VideoJobStageUploading,
-		"progress": 88,
-	})
+	if err := taskFramework.runStage(
+		pipelineTaskStageOptions{
+			StageNames:   []string{"delivery"},
+			JobStage:     models.VideoJobStageRendering,
+			Progress:     70,
+			EventStage:   models.VideoJobStageRendering,
+			StartMessage: imagePipelineEventMessage(primaryFormat, "output render pipeline started"),
+			StartMetadata: map[string]interface{}{
+				"entry_progress":   70,
+				"mode":             PNGModeFastExtract,
+				"fast_extract_fps": fastExtractFPS,
+			},
+			FailureMessage: "delivery finalize failed",
+		},
+		func() error {
+			highlightCandidates := make([]highlightCandidate, 0)
+			animatedWindows := make([]highlightCandidate, 0)
+			resultCollectionID, totalFrames, uploadedKeys, generatedFormats, packageOutcome, persistErr := p.persistJobResults(
+				ctx,
+				job,
+				framePaths,
+				sourcePath,
+				meta,
+				options,
+				highlightCandidates,
+				animatedWindows,
+				workerQualitySettings,
+			)
+			if persistErr != nil {
+				deleteQiniuKeysByPrefix(p.qiniu, uploadedKeys)
+				return persistErr
+			}
 
-	metrics["static_count"] = totalFrames
-	metrics["output_formats_requested"] = requestedFormats
-	metrics["output_formats"] = generatedFormats
-	metrics["result_collection_id"] = resultCollectionID
-	metrics["asset_domain"] = models.VideoJobAssetDomainVideo
-	metrics["edit_options"] = jobOptionsMetrics(options, interval)
-	metrics["effective_duration_sec"] = roundTo(effectiveDurationSec, 3)
-	metrics["package_zip_status"] = packageOutcome.Status
-	metrics["package_zip_attempts"] = packageOutcome.Attempts
-	metrics["package_zip_retry_count"] = packageOutcome.RetryCount
-	if packageOutcome.Key != "" {
-		metrics["package_zip_key"] = packageOutcome.Key
-	}
-	if packageOutcome.Name != "" {
-		metrics["package_zip_name"] = packageOutcome.Name
-	}
-	if packageOutcome.SizeBytes > 0 {
-		metrics["package_zip_size_bytes"] = packageOutcome.SizeBytes
-	}
-	if packageOutcome.Error != "" {
-		metrics["package_zip_error"] = packageOutcome.Error
-	}
-	pipelineStageStatus["delivery"] = "done"
-	metrics[stageStatusKey] = pipelineStageStatus
+			taskFramework.updateStageProgress(models.VideoJobStageUploading, 88, nil)
+			taskFramework.mergeMetrics(map[string]interface{}{
+				"png_pipeline_mode":        PNGModeFastExtract,
+				"static_count":             totalFrames,
+				"output_formats_requested": requestedFormats,
+				"output_formats":           generatedFormats,
+				"result_collection_id":     resultCollectionID,
+				"asset_domain":             models.VideoJobAssetDomainVideo,
+				"edit_options":             jobOptionsMetrics(options, options.FrameIntervalSec),
+				"effective_duration_sec":   roundTo(effectiveDurationSec, 3),
+				"package_zip_status":       packageOutcome.Status,
+				"package_zip_attempts":     packageOutcome.Attempts,
+				"package_zip_retry_count":  packageOutcome.RetryCount,
+			})
+			if packageOutcome.Key != "" {
+				taskFramework.setMetric("package_zip_key", packageOutcome.Key)
+			}
+			if packageOutcome.Name != "" {
+				taskFramework.setMetric("package_zip_name", packageOutcome.Name)
+			}
+			if packageOutcome.SizeBytes > 0 {
+				taskFramework.setMetric("package_zip_size_bytes", packageOutcome.SizeBytes)
+			}
+			if packageOutcome.Error != "" {
+				taskFramework.setMetric("package_zip_error", packageOutcome.Error)
+			}
 
-	finishedAt := time.Now()
-	p.updateVideoJob(job.ID, map[string]interface{}{
-		"status":               models.VideoJobStatusDone,
-		"stage":                models.VideoJobStageDone,
-		"progress":             100,
-		"asset_domain":         models.VideoJobAssetDomainVideo,
-		"result_collection_id": resultCollectionID,
-		"metrics":              mustJSON(metrics),
-		"error_message":        "",
-		"finished_at":          finishedAt,
-	})
-	p.appendJobEvent(job.ID, models.VideoJobStageDone, "info", "video job completed", map[string]interface{}{
-		"collection_id":       resultCollectionID,
-		"static_count":        totalFrames,
-		"package_zip_status":  packageOutcome.Status,
-		"package_zip_attempt": packageOutcome.Attempts,
-		fmt.Sprintf("%s_pipeline_status_v1", metricPrefix): pipelineStageStatus,
-	})
-	if packageOutcome.Status == packageZipStatusFailed {
-		p.appendJobEvent(job.ID, models.VideoJobStageDone, "warn", "video job completed without zip package", map[string]interface{}{
-			"attempts": packageOutcome.Attempts,
-			"error":    packageOutcome.Error,
-		})
+			finishedAt := time.Now()
+			taskFramework.updateStageProgress(models.VideoJobStageDone, 100, map[string]interface{}{
+				"status":               models.VideoJobStatusDone,
+				"asset_domain":         models.VideoJobAssetDomainVideo,
+				"result_collection_id": resultCollectionID,
+				"error_message":        "",
+				"finished_at":          finishedAt,
+			})
+			taskFramework.appendEvent(models.VideoJobStageDone, "info", "video job completed", map[string]interface{}{
+				"collection_id":       resultCollectionID,
+				"static_count":        totalFrames,
+				"pipeline_mode":       PNGModeFastExtract,
+				"package_zip_status":  packageOutcome.Status,
+				"package_zip_attempt": packageOutcome.Attempts,
+				fmt.Sprintf("%s_pipeline_status_v1", metricPrefix): pipelineStageStatus,
+			})
+			if packageOutcome.Status == packageZipStatusFailed {
+				taskFramework.appendEvent(models.VideoJobStageDone, "warn", "video job completed without zip package", map[string]interface{}{
+					"attempts": packageOutcome.Attempts,
+					"error":    packageOutcome.Error,
+				})
+			}
+			p.syncJobCost(job.ID)
+			p.syncJobPointSettlement(job.ID, models.VideoJobStatusDone)
+			p.cleanupSourceVideo(job.ID, "done")
+			return nil
+		},
+	); err != nil {
+		if errors.Is(err, errImagePipelineHalt) {
+			return nil
+		}
+		return err
 	}
-	p.syncJobCost(job.ID)
-	p.syncJobPointSettlement(job.ID, models.VideoJobStatusDone)
-	p.cleanupSourceVideo(job.ID, "done")
 	return nil
 }
 
@@ -929,6 +1357,7 @@ func applyPNGMainlineOutputCountPolicy(
 	guidance imageAI2Guidance,
 	userPinned bool,
 ) (jobOptions, map[string]interface{}) {
+	featureFlags := loadVideoJobFeatureFlags()
 	report := map[string]interface{}{
 		"schema_version": "png_output_count_policy_v1",
 		"format":         NormalizeRequestedFormat(primaryFormat),
@@ -948,7 +1377,7 @@ func applyPNGMainlineOutputCountPolicy(
 		return options, report
 	}
 
-	enabled := parseEnvBool("PNG_MAINLINE_OUTPUT_COUNT_GUARD_ENABLED", true)
+	enabled := featureFlags.PNGMainlineOutputCountGuardEnabled
 	report["enabled"] = enabled
 	if !enabled {
 		report["status"] = "disabled"
@@ -958,12 +1387,12 @@ func applyPNGMainlineOutputCountPolicy(
 	}
 
 	dynamicFloor := resolvePNGCoverageMinOutputCount(meta.DurationSec, guidance)
-	configFloor := clampInt(envIntOrDefault("PNG_MAINLINE_OUTPUT_COUNT_MIN", 12), 4, 64)
+	configFloor := clampInt(featureFlags.PNGMainlineOutputCountMin, 4, 64)
 	targetMin := configFloor
 	if dynamicFloor > targetMin {
 		targetMin = dynamicFloor
 	}
-	targetMax := clampInt(envIntOrDefault("PNG_MAINLINE_OUTPUT_COUNT_MAX", 36), targetMin, 80)
+	targetMax := clampInt(featureFlags.PNGMainlineOutputCountMax, targetMin, 80)
 	after := before
 	if after < targetMin {
 		after = targetMin
@@ -1023,6 +1452,7 @@ func applyPNGMainlineCoverageWindowPolicy(
 	guidance imageAI2Guidance,
 	userPinned bool,
 ) (jobOptions, map[string]interface{}) {
+	featureFlags := loadVideoJobFeatureFlags()
 	report := map[string]interface{}{
 		"schema_version": "png_coverage_window_policy_v1",
 		"format":         NormalizeRequestedFormat(primaryFormat),
@@ -1036,7 +1466,7 @@ func applyPNGMainlineCoverageWindowPolicy(
 		report["status"] = "skipped_user_pinned"
 		return options, report
 	}
-	enabled := parseEnvBool("PNG_MAINLINE_COVERAGE_WINDOW_GUARD_ENABLED", true)
+	enabled := featureFlags.PNGMainlineCoverageWindowGuardEnabled
 	report["enabled"] = enabled
 	if !enabled {
 		report["status"] = "disabled"
@@ -1059,7 +1489,7 @@ func applyPNGMainlineCoverageWindowPolicy(
 	}
 
 	targetCount := clampImageTargetCount(options.MaxStatic)
-	if targetCount < clampInt(envIntOrDefault("PNG_MAINLINE_COVERAGE_WINDOW_TARGET_MIN", 12), 6, 80) {
+	if targetCount < clampInt(featureFlags.PNGMainlineCoverageWindowTargetMin, 6, 80) {
 		report["status"] = "skipped_target_count_low"
 		report["window_duration_after_sec"] = roundTo(windowDuration, 3)
 		return options, report
@@ -1076,7 +1506,7 @@ func applyPNGMainlineCoverageWindowPolicy(
 	if windowCandidateEstimate < 1 {
 		windowCandidateEstimate = 1
 	}
-	requiredCoverageRatio := clampFloat(parseFloat(firstNonEmptyString(os.Getenv("PNG_MAINLINE_COVERAGE_WINDOW_REQUIRED_RATIO"), "0.75")), 0.45, 0.98)
+	requiredCoverageRatio := clampFloat(featureFlags.PNGMainlineCoverageWindowReqRatio, 0.45, 0.98)
 	if guidance.SelectionPolicy == "ai2_scene_diversity_first" || guidance.SelectionPolicy == "scene_diversity_first" {
 		requiredCoverageRatio = clampFloat(requiredCoverageRatio+0.1, 0.5, 0.99)
 	}
@@ -1094,7 +1524,7 @@ func applyPNGMainlineCoverageWindowPolicy(
 	}
 	report["window_ratio"] = roundTo(windowRatio, 3)
 
-	windowRatioMin := clampFloat(parseFloat(firstNonEmptyString(os.Getenv("PNG_MAINLINE_COVERAGE_WINDOW_MIN_RATIO"), "0.45")), 0.2, 0.95)
+	windowRatioMin := clampFloat(featureFlags.PNGMainlineCoverageWindowMinRatio, 0.2, 0.95)
 	report["window_ratio_min"] = roundTo(windowRatioMin, 3)
 
 	if windowCandidateEstimate >= requiredMinCandidates && (totalDuration <= 0 || windowRatio >= windowRatioMin) {
@@ -1999,4 +2429,8 @@ func countFrameCandidateAvoidHits(rows []frameQualityCandidateScore) int {
 		total += len(row.AvoidHits)
 	}
 	return total
+}
+
+func isPNGEnhancementStageEnabled() bool {
+	return loadVideoJobFeatureFlags().PNGEnhancementStageEnabled
 }

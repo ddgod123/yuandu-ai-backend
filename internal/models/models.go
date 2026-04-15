@@ -42,6 +42,9 @@ type Collection struct {
 	Slug             string         `gorm:"size:128;index"`
 	Description      string         `gorm:"type:text"`
 	CoverURL         string         `gorm:"size:512"`
+	CopyrightAuthor  string         `gorm:"size:128"`
+	CopyrightWork    string         `gorm:"size:255"`
+	CopyrightLink    string         `gorm:"size:512"`
 	OwnerID          uint64         `gorm:"index"`
 	CreatorProfileID *uint64        `gorm:"column:creator_profile_id;index"`
 	CategoryID       *uint64        `gorm:"index"`
@@ -53,6 +56,7 @@ type Collection struct {
 	IsFeatured       bool           `gorm:"index"`
 	IsPinned         bool           `gorm:"index"`
 	IsSample         bool           `gorm:"index"`
+	IsShowcase       bool           `gorm:"column:is_showcase;index"`
 	PinnedAt         *time.Time     `gorm:"index"`
 	LatestZipKey     string         `gorm:"size:512"`
 	LatestZipName    string         `gorm:"size:255"`
@@ -61,6 +65,7 @@ type Collection struct {
 	DownloadCode     string         `gorm:"size:16;uniqueIndex"`
 	Visibility       string         `gorm:"size:32;index"`
 	Status           string         `gorm:"size:32;index"`
+	OwnerDeletedAt   *time.Time     `gorm:"column:owner_deleted_at;index"`
 	CreatedAt        time.Time      `gorm:"autoCreateTime"`
 	UpdatedAt        time.Time      `gorm:"autoUpdateTime"`
 	DeletedAt        gorm.DeletedAt `gorm:"index"`
@@ -188,6 +193,21 @@ type IP struct {
 
 func (IP) TableName() string {
 	return "taxonomy.ips"
+}
+
+type IPCollectionBinding struct {
+	ID           uint64    `gorm:"primaryKey;autoIncrement"`
+	IPID         uint64    `gorm:"column:ip_id;index"`
+	CollectionID uint64    `gorm:"column:collection_id;index"`
+	Sort         int       `gorm:"index"`
+	Status       string    `gorm:"size:32;index"`
+	Note         string    `gorm:"type:text"`
+	CreatedAt    time.Time `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
+}
+
+func (IPCollectionBinding) TableName() string {
+	return "taxonomy.ip_collection_bindings"
 }
 
 type Emoji struct {
@@ -510,6 +530,68 @@ type SiteFooterSetting struct {
 
 func (SiteFooterSetting) TableName() string {
 	return "ops.site_footer_settings"
+}
+
+type UploadRuleSetting struct {
+	ID                    int16     `gorm:"primaryKey;default:1"`
+	Enabled               bool      `gorm:"column:enabled;not null;default:true"`
+	AutoAuditEnabled      bool      `gorm:"column:auto_audit_enabled;not null;default:true"`
+	AutoActivateOnPass    bool      `gorm:"column:auto_activate_on_pass;not null;default:false"`
+	AllowedExtensions     string    `gorm:"column:allowed_extensions;size:255;not null;default:'jpg,jpeg,png,gif,webp'"`
+	MaxFileSizeBytes      int64     `gorm:"column:max_file_size_bytes;not null;default:10485760"`
+	MaxFilesPerCollection int       `gorm:"column:max_files_per_collection;not null;default:50"`
+	MaxFilesPerRequest    int       `gorm:"column:max_files_per_request;not null;default:20"`
+	BlockedKeywords       string    `gorm:"column:blocked_keywords;type:text;not null;default:''"`
+	ContentRules          string    `gorm:"column:content_rules;type:text;not null;default:''"`
+	ReferenceURL          string    `gorm:"column:reference_url;size:512;not null;default:''"`
+	UpdatedBy             *uint64   `gorm:"column:updated_by;index"`
+	CreatedAt             time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt             time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (UploadRuleSetting) TableName() string {
+	return "ops.upload_rule_settings"
+}
+
+type UGCCollectionReviewState struct {
+	CollectionID         uint64     `gorm:"column:collection_id;primaryKey"`
+	OwnerID              uint64     `gorm:"column:owner_id;index;not null"`
+	ReviewStatus         string     `gorm:"column:review_status;size:16;index;not null;default:'draft'"`
+	PublishStatus        string     `gorm:"column:publish_status;size:16;index;not null;default:'offline'"`
+	SubmitCount          int        `gorm:"column:submit_count;not null;default:0"`
+	LastSubmittedAt      *time.Time `gorm:"column:last_submitted_at;index"`
+	LastReviewedAt       *time.Time `gorm:"column:last_reviewed_at;index"`
+	LastReviewerID       *uint64    `gorm:"column:last_reviewer_id;index"`
+	RejectReason         string     `gorm:"column:reject_reason;type:text;not null;default:''"`
+	OfflineReason        string     `gorm:"column:offline_reason;type:text;not null;default:''"`
+	LastContentChangedAt time.Time  `gorm:"column:last_content_changed_at;index;not null;autoCreateTime"`
+	LastApprovedAt       *time.Time `gorm:"column:last_approved_at;index"`
+	CreatedAt            time.Time  `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt            time.Time  `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (UGCCollectionReviewState) TableName() string {
+	return "ops.ugc_collection_review_states"
+}
+
+type UGCCollectionReviewLog struct {
+	ID                uint64         `gorm:"column:id;primaryKey;autoIncrement"`
+	CollectionID      uint64         `gorm:"column:collection_id;index;not null"`
+	OwnerID           uint64         `gorm:"column:owner_id;index;not null"`
+	Action            string         `gorm:"column:action;size:32;index;not null"`
+	FromReviewStatus  string         `gorm:"column:from_review_status;size:16"`
+	ToReviewStatus    string         `gorm:"column:to_review_status;size:16"`
+	FromPublishStatus string         `gorm:"column:from_publish_status;size:16"`
+	ToPublishStatus   string         `gorm:"column:to_publish_status;size:16"`
+	OperatorRole      string         `gorm:"column:operator_role;size:16;index;not null"`
+	OperatorID        uint64         `gorm:"column:operator_id;index;not null"`
+	Reason            string         `gorm:"column:reason;type:text;not null;default:''"`
+	SnapshotJSON      datatypes.JSON `gorm:"column:snapshot_json;type:jsonb;not null;default:'{}'"`
+	CreatedAt         time.Time      `gorm:"column:created_at;autoCreateTime;index"`
+}
+
+func (UGCCollectionReviewLog) TableName() string {
+	return "audit.ugc_collection_review_logs"
 }
 
 type RedeemCode struct {

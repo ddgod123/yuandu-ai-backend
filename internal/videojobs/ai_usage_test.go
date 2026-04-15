@@ -40,6 +40,24 @@ func TestLookupAIUnitPricing_DefaultQwenFlash(t *testing.T) {
 	}
 }
 
+func TestLookupAIUnitPricing_DefaultQwenOmniPreview(t *testing.T) {
+	prev := os.Getenv("VIDEO_JOB_AI_PRICING_OVERRIDES_JSON")
+	defer os.Setenv("VIDEO_JOB_AI_PRICING_OVERRIDES_JSON", prev)
+	_ = os.Unsetenv("VIDEO_JOB_AI_PRICING_OVERRIDES_JSON")
+
+	item := lookupAIUnitPricing("qwen", "qwen3.5-omni-flash")
+	if item.Version == "" {
+		t.Fatalf("expected pricing version")
+	}
+	if item.InputPer1M != 0 || item.OutputPer1M != 0 {
+		t.Fatalf("expected preview free pricing, got input=%.6f output=%.6f", item.InputPer1M, item.OutputPer1M)
+	}
+	alias := lookupAIUnitPricing("dashscope", "qwen3.5-omni-flash")
+	if alias.Version == "" {
+		t.Fatalf("expected alias pricing version")
+	}
+}
+
 func TestLookupAIUnitPricing_Override(t *testing.T) {
 	prev := os.Getenv("VIDEO_JOB_AI_PRICING_OVERRIDES_JSON")
 	defer os.Setenv("VIDEO_JOB_AI_PRICING_OVERRIDES_JSON", prev)

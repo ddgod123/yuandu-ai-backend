@@ -2,6 +2,61 @@ package videojobs
 
 import "testing"
 
+func TestImagePipelineStageRegistry_ExecuteOrder(t *testing.T) {
+	registry := newImagePipelineStageRegistry()
+	got := make([]string, 0, 3)
+	registry.Register("one", func() error {
+		got = append(got, "one")
+		return nil
+	})
+	registry.Register("two", func() error {
+		got = append(got, "two")
+		return nil
+	})
+	registry.Register("three", func() error {
+		got = append(got, "three")
+		return nil
+	})
+
+	if err := registry.Execute(); err != nil {
+		t.Fatalf("expected execute success, got err=%v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 stages executed, got %d", len(got))
+	}
+	if got[0] != "one" || got[1] != "two" || got[2] != "three" {
+		t.Fatalf("unexpected execution order: %+v", got)
+	}
+}
+
+func TestImagePipelineStageRegistry_StopOnHalt(t *testing.T) {
+	registry := newImagePipelineStageRegistry()
+	got := make([]string, 0, 3)
+	registry.Register("one", func() error {
+		got = append(got, "one")
+		return nil
+	})
+	registry.Register("halt", func() error {
+		got = append(got, "halt")
+		return errImagePipelineHalt
+	})
+	registry.Register("never", func() error {
+		got = append(got, "never")
+		return nil
+	})
+
+	err := registry.Execute()
+	if err == nil {
+		t.Fatalf("expected halt error")
+	}
+	if err != errImagePipelineHalt {
+		t.Fatalf("expected errImagePipelineHalt, got %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected execution to stop at halt stage, got %+v", got)
+	}
+}
+
 func TestBuildImageAI3ReviewSummary_Deliver(t *testing.T) {
 	report := frameQualityReport{
 		TotalFrames:     18,
@@ -317,6 +372,20 @@ func TestApplyImageAI2WorkerStrategy_UpdatesSettings(t *testing.T) {
 	appliedTuning := mapFromAny(strategy["applied_tuning"])
 	if len(appliedTuning) == 0 {
 		t.Fatalf("expected non-empty applied_tuning, got %+v", strategy)
+	}
+}
+
+func TestIsPNGEnhancementStageEnabled_DefaultFalse(t *testing.T) {
+	t.Setenv("PNG_ENHANCEMENT_STAGE_ENABLED", "")
+	if isPNGEnhancementStageEnabled() {
+		t.Fatalf("expected enhancement stage disabled by default")
+	}
+}
+
+func TestIsPNGEnhancementStageEnabled_ExplicitTrue(t *testing.T) {
+	t.Setenv("PNG_ENHANCEMENT_STAGE_ENABLED", "true")
+	if !isPNGEnhancementStageEnabled() {
+		t.Fatalf("expected enhancement stage enabled when env=true")
 	}
 }
 

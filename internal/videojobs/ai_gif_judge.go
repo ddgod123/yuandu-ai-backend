@@ -167,6 +167,10 @@ func (p *Processor) runAIGIFJudgeReview(ctx context.Context, job models.VideoJob
 		result.Error = "judge produced empty valid reviews"
 		return normalizeVideoJobAIUsageMetadata(result), fmt.Errorf("judge produced empty valid reviews")
 	}
+	if contractErr := validateAIGIFJudgeReviewsContract(validReviews, samples); contractErr != nil {
+		result.Error = "judge contract invalid: " + contractErr.Error()
+		return normalizeVideoJobAIUsageMetadata(result), contractErr
+	}
 
 	gatedReviews, hardGateByOutput, hardGateStats := applyAIGIFTechnicalHardGates(validReviews, samples, qualitySettings)
 	if err := p.persistAIGIFReviews(job, cfg, samples, gatedReviews, hardGateByOutput, rawResp); err != nil {

@@ -145,6 +145,13 @@ func (p *Processor) requestAIGIFPlannerSuggestion(
 		info["error"] = "planner produced empty proposals"
 		return local, info, fmt.Errorf("planner produced empty proposals")
 	}
+	if contractErr := validateAIGIFPlannerProposalsContract(proposals); contractErr != nil {
+		info["applied"] = false
+		info["error"] = "planner contract invalid: " + contractErr.Error()
+		info["contract_valid"] = false
+		return local, info, contractErr
+	}
+	info["contract_valid"] = true
 	if len(scoringSummary) > 0 {
 		info["scoring_summary_v1"] = scoringSummary
 		usageMetadata.ScoreFormula = strings.TrimSpace(stringFromAny(scoringSummary["score_formula"]))

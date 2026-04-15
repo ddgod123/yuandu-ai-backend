@@ -220,15 +220,21 @@ type aiGIFDirectivePersistContext struct {
 }
 
 type aiPromptTemplateSnapshot struct {
-	Found   bool
-	Format  string
-	Stage   string
-	Layer   string
-	Text    string
-	Version string
-	Enabled bool
-	Source  string
+	Found           bool
+	Format          string
+	Stage           string
+	Layer           string
+	Text            string
+	Version         string
+	Enabled         bool
+	Source          string
+	RequestedFormat string
+	RequestedStage  string
+	ResolvedFrom    []string
+	LookupOrder     []string
 }
+
+const aiPromptTemplateStageDefault = "default"
 
 func normalizeAIPromptTemplateFormat(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -237,6 +243,55 @@ func normalizeAIPromptTemplateFormat(raw string) string {
 	default:
 		return "all"
 	}
+}
+
+func normalizeAIPromptTemplateStage(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "ai1", "ai2", "scoring", "ai3", aiPromptTemplateStageDefault:
+		return value
+	case "":
+		return aiPromptTemplateStageDefault
+	default:
+		return value
+	}
+}
+
+type aiPromptTemplateLookupCandidate struct {
+	Format string
+	Stage  string
+}
+
+func buildAIPromptTemplateLookupCandidates(format, stage string) []aiPromptTemplateLookupCandidate {
+	normalizedFormat := normalizeAIPromptTemplateFormat(format)
+	normalizedStage := normalizeAIPromptTemplateStage(stage)
+
+	formatCandidates := []string{normalizedFormat}
+	if normalizedFormat != "all" {
+		formatCandidates = append(formatCandidates, "all")
+	}
+
+	stageCandidates := []string{normalizedStage}
+	if normalizedStage != aiPromptTemplateStageDefault {
+		stageCandidates = append(stageCandidates, aiPromptTemplateStageDefault)
+	}
+
+	seen := map[string]struct{}{}
+	out := make([]aiPromptTemplateLookupCandidate, 0, len(formatCandidates)*len(stageCandidates))
+	for _, formatItem := range formatCandidates {
+		for _, stageItem := range stageCandidates {
+			key := formatItem + "|" + stageItem
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, aiPromptTemplateLookupCandidate{
+				Format: formatItem,
+				Stage:  stageItem,
+			})
+		}
+	}
+	return out
 }
 
 func (p *Processor) loadAIPromptTemplateExact(format, stage, layer string) (models.VideoAIPromptTemplate, bool, error) {
@@ -262,46 +317,56 @@ func (p *Processor) loadAIPromptTemplateExact(format, stage, layer string) (mode
 
 func (p *Processor) loadAIPromptTemplateWithFallback(format, stage, layer string) (aiPromptTemplateSnapshot, error) {
 	normalizedFormat := normalizeAIPromptTemplateFormat(format)
-	row, found, err := p.loadAIPromptTemplateExact(normalizedFormat, stage, layer)
-	if err != nil {
-		return aiPromptTemplateSnapshot{}, err
+	normalizedStage := normalizeAIPromptTemplateStage(stage)
+	normalizedLayer := strings.ToLower(strings.TrimSpace(layer))
+	lookupCandidates := buildAIPromptTemplateLookupCandidates(normalizedFormat, normalizedStage)
+	lookupOrder := make([]string, 0, len(lookupCandidates))
+	db := (*gorm.DB)(nil)
+	if p != nil {
+		db = p.db
 	}
-	if found {
-		return aiPromptTemplateSnapshot{
-			Found:   true,
-			Format:  normalizedFormat,
-			Stage:   stage,
-			Layer:   layer,
-			Text:    strings.TrimSpace(row.TemplateText),
-			Version: strings.TrimSpace(row.Version),
-			Enabled: row.Enabled,
-			Source:  "ops.video_ai_prompt_templates:" + normalizedFormat,
-		}, nil
+	detectVideoAIPromptTemplateChange(db)
+	if cached, ok := getCachedVideoAIPromptTemplateSnapshot(normalizedFormat, normalizedStage, normalizedLayer); ok {
+		return cached, nil
 	}
-	if normalizedFormat != "all" {
-		row, found, err = p.loadAIPromptTemplateExact("all", stage, layer)
+
+	for _, candidate := range lookupCandidates {
+		lookupOrder = append(lookupOrder, candidate.Format+"/"+candidate.Stage)
+		row, found, err := p.loadAIPromptTemplateExact(candidate.Format, candidate.Stage, normalizedLayer)
 		if err != nil {
 			return aiPromptTemplateSnapshot{}, err
 		}
 		if found {
-			return aiPromptTemplateSnapshot{
-				Found:   true,
-				Format:  "all",
-				Stage:   stage,
-				Layer:   layer,
-				Text:    strings.TrimSpace(row.TemplateText),
-				Version: strings.TrimSpace(row.Version),
-				Enabled: row.Enabled,
-				Source:  "ops.video_ai_prompt_templates:all",
-			}, nil
+			snapshot := aiPromptTemplateSnapshot{
+				Found:           true,
+				Format:          candidate.Format,
+				Stage:           candidate.Stage,
+				Layer:           normalizedLayer,
+				Text:            strings.TrimSpace(row.TemplateText),
+				Version:         strings.TrimSpace(row.Version),
+				Enabled:         row.Enabled,
+				Source:          "ops.video_ai_prompt_templates:" + candidate.Format + "/" + candidate.Stage,
+				RequestedFormat: normalizedFormat,
+				RequestedStage:  normalizedStage,
+				ResolvedFrom:    []string{"format:" + candidate.Format, "stage:" + candidate.Stage},
+				LookupOrder:     append([]string(nil), lookupOrder...),
+			}
+			putCachedVideoAIPromptTemplateSnapshot(normalizedFormat, normalizedStage, normalizedLayer, snapshot)
+			return snapshot, nil
 		}
 	}
-	return aiPromptTemplateSnapshot{
-		Found:  false,
-		Format: normalizedFormat,
-		Stage:  stage,
-		Layer:  layer,
-	}, nil
+
+	snapshot := aiPromptTemplateSnapshot{
+		Found:           false,
+		Format:          normalizedFormat,
+		Stage:           normalizedStage,
+		Layer:           normalizedLayer,
+		RequestedFormat: normalizedFormat,
+		RequestedStage:  normalizedStage,
+		LookupOrder:     append([]string(nil), lookupOrder...),
+	}
+	putCachedVideoAIPromptTemplateSnapshot(normalizedFormat, normalizedStage, normalizedLayer, snapshot)
+	return snapshot, nil
 }
 
 func (p *Processor) loadGIFAIPlannerConfig() aiModelCallConfig {
@@ -378,6 +443,12 @@ func parseVideoJobAIModelPreference(raw string) (provider string, model string) 
 		return "qwen", "qwen-turbo"
 	case "quality":
 		return "qwen", "qwen-max"
+	case "qwen3.5-plus", "qwen3_5_plus", "qwen35_plus", "3.5_plus":
+		return "qwen", "qwen3.5-plus"
+	case "omni", "omni_flash", "omni-flash", "vision_omni":
+		return "qwen", "qwen3.5-omni-flash"
+	case "omni_plus", "omni-plus":
+		return "qwen", "qwen3.5-omni-plus"
 	}
 
 	if idx := strings.Index(text, ":"); idx > 0 && idx < len(text)-1 {

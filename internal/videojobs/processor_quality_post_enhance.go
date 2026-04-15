@@ -2,7 +2,6 @@ package videojobs
 
 import (
 	"math"
-	"os"
 	"sort"
 	"strings"
 )
@@ -167,6 +166,7 @@ func applyPNGFinalQualityGuards(
 	qualitySettings QualitySettings,
 	guidance imageAI2Guidance,
 ) ([]string, map[string]interface{}) {
+	featureFlags := loadVideoJobFeatureFlags()
 	report := map[string]interface{}{
 		"schema_version": "png_final_quality_guard_v1",
 	}
@@ -175,7 +175,7 @@ func applyPNGFinalQualityGuards(
 		return paths, report
 	}
 
-	enabled := parseEnvBool("PNG_FINAL_QUALITY_GUARD_ENABLED", true)
+	enabled := featureFlags.PNGFinalQualityGuardEnabled
 	report["enabled"] = enabled
 	if !enabled {
 		report["status"] = "disabled"
@@ -258,7 +258,7 @@ func applyPNGFinalQualityGuards(
 		return paths, report
 	}
 
-	diversityEnabled := parseEnvBool("PNG_FINAL_DIVERSITY_GUARD_ENABLED", true)
+	diversityEnabled := featureFlags.PNGFinalDiversityGuardEnabled
 	report["diversity_enabled"] = diversityEnabled
 	if !diversityEnabled {
 		report["status"] = "applied_hard_gate_only"
@@ -267,8 +267,8 @@ func applyPNGFinalQualityGuards(
 		return kept, report
 	}
 
-	diversityThreshold := clampInt(envIntOrDefault("PNG_FINAL_DIVERSITY_HAMMING_THRESHOLD", qualitySettings.DuplicateHammingThreshold), 2, 16)
-	diversityBacktrack := clampInt(envIntOrDefault("PNG_FINAL_DIVERSITY_BACKTRACK", qualitySettings.DuplicateBacktrackFrames), 2, 24)
+	diversityThreshold := clampInt(featureFlags.pngFinalDiversityHammingThreshold(qualitySettings.DuplicateHammingThreshold), 2, 16)
+	diversityBacktrack := clampInt(featureFlags.pngFinalDiversityBacktrack(qualitySettings.DuplicateBacktrackFrames), 2, 24)
 	report["diversity_hamming_threshold"] = diversityThreshold
 	report["diversity_backtrack"] = diversityBacktrack
 
@@ -309,9 +309,10 @@ func resolvePNGFinalGuardRequiredMin(total int) int {
 	if total <= 1 {
 		return total
 	}
-	minKeep := envIntOrDefault("PNG_FINAL_QUALITY_GUARD_MIN_KEEP", 4)
+	featureFlags := loadVideoJobFeatureFlags()
+	minKeep := featureFlags.PNGFinalQualityGuardMinKeep
 	minKeep = clampInt(minKeep, 1, total)
-	ratio := clampFloat(parseFloat(firstNonEmptyString(strings.TrimSpace(os.Getenv("PNG_FINAL_QUALITY_GUARD_MIN_KEEP_RATIO")), "0.55")), 0.2, 0.95)
+	ratio := clampFloat(featureFlags.PNGFinalQualityGuardMinKeepRatio, 0.2, 0.95)
 	ratioKeep := int(math.Ceil(float64(total) * ratio))
 	if ratioKeep > minKeep {
 		minKeep = ratioKeep
@@ -326,9 +327,10 @@ func resolvePNGFinalDiversityMinKeep(total int) int {
 	if total <= 1 {
 		return total
 	}
-	minKeep := envIntOrDefault("PNG_FINAL_DIVERSITY_MIN_KEEP", 4)
+	featureFlags := loadVideoJobFeatureFlags()
+	minKeep := featureFlags.PNGFinalDiversityMinKeep
 	minKeep = clampInt(minKeep, 1, total)
-	ratio := clampFloat(parseFloat(firstNonEmptyString(strings.TrimSpace(os.Getenv("PNG_FINAL_DIVERSITY_MIN_KEEP_RATIO")), "0.6")), 0.2, 0.98)
+	ratio := clampFloat(featureFlags.PNGFinalDiversityMinKeepRatio, 0.2, 0.98)
 	ratioKeep := int(math.Ceil(float64(total) * ratio))
 	if ratioKeep > minKeep {
 		minKeep = ratioKeep

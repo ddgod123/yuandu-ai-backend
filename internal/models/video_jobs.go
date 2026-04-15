@@ -35,6 +35,13 @@ const (
 	VideoJobStageRetrying      = "retrying"
 )
 
+const (
+	VideoJobAIReadingStatusQueued     = "queued"
+	VideoJobAIReadingStatusProcessing = "processing"
+	VideoJobAIReadingStatusDone       = "done"
+	VideoJobAIReadingStatusFailed     = "failed"
+)
+
 type VideoJob struct {
 	ID                 uint64         `gorm:"primaryKey;autoIncrement"`
 	UserID             uint64         `gorm:"column:user_id;index"`
@@ -408,6 +415,28 @@ type VideoJobImageAIReview struct {
 
 func (VideoJobImageAIReview) TableName() string {
 	return "archive.video_job_image_ai_reviews"
+}
+
+type VideoJobAIReading struct {
+	ID                uint64         `gorm:"primaryKey;autoIncrement"`
+	JobID             uint64         `gorm:"column:job_id;uniqueIndex"`
+	UserID            uint64         `gorm:"column:user_id;index"`
+	Status            string         `gorm:"column:status;size:32;index"`
+	SummaryText       string         `gorm:"column:summary_text;type:text"`
+	HighlightsJSON    datatypes.JSON `gorm:"column:highlights_json;type:jsonb"`
+	ModelProvider     string         `gorm:"column:model_provider;size:32"`
+	ModelName         string         `gorm:"column:model_name;size:128"`
+	PromptVersion     string         `gorm:"column:prompt_version;size:64"`
+	RequestDurationMs int64          `gorm:"column:request_duration_ms"`
+	ErrorMessage      string         `gorm:"column:error_message;type:text"`
+	Metadata          datatypes.JSON `gorm:"column:metadata;type:jsonb"`
+	FinishedAt        *time.Time     `gorm:"column:finished_at;index"`
+	CreatedAt         time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt         time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (VideoJobAIReading) TableName() string {
+	return "archive.video_job_ai_readings"
 }
 
 type ComputeAccount struct {

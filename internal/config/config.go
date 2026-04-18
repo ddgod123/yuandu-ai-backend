@@ -97,6 +97,19 @@ type Config struct {
 	GPUCallbackToken              string
 	GPURequestTimeoutSec          int
 	GPUCallbackBaseURL            string
+	GoofishPublishBaseURL         string
+	GoofishPublishPath            string
+	GoofishPublishAuthHeader      string
+	GoofishPublishAuthToken       string
+	GoofishPublishTimeoutSec      int
+	GoofishGoodsNoPrefix          string
+	GoofishDefaultPriceCents      int64
+	GoofishDefaultInventory       int
+	GoofishSignEnabled            bool
+	GoofishSignAppID              string
+	GoofishSignAppSecret          string
+	GoofishSignMchID              string
+	GoofishSignMchSecret          string
 
 	AliyunAccessKeyId                     string
 	AliyunAccessKeySecret                 string
@@ -320,6 +333,19 @@ func Load() Config {
 	cfg.GPUCallbackToken = strings.TrimSpace(getEnv("GPU_CALLBACK_TOKEN", ""))
 	cfg.GPURequestTimeoutSec = getEnvAsInt("GPU_REQUEST_TIMEOUT_SECONDS", 20)
 	cfg.GPUCallbackBaseURL = strings.TrimSpace(getEnv("GPU_CALLBACK_BASE_URL", ""))
+	cfg.GoofishPublishBaseURL = strings.TrimSpace(getEnv("GOOFISH_PUBLISH_BASE_URL", ""))
+	cfg.GoofishPublishPath = strings.TrimSpace(getEnv("GOOFISH_PUBLISH_PATH", "/goofish/goods/batch-upsert"))
+	cfg.GoofishPublishAuthHeader = strings.TrimSpace(getEnv("GOOFISH_PUBLISH_AUTH_HEADER", "X-Access-Token"))
+	cfg.GoofishPublishAuthToken = strings.TrimSpace(getEnv("GOOFISH_PUBLISH_AUTH_TOKEN", ""))
+	cfg.GoofishPublishTimeoutSec = getEnvAsInt("GOOFISH_PUBLISH_TIMEOUT_SECONDS", 20)
+	cfg.GoofishGoodsNoPrefix = strings.TrimSpace(getEnv("GOOFISH_GOODS_NO_PREFIX", "emoji_col_"))
+	cfg.GoofishDefaultPriceCents = getEnvAsInt64("GOOFISH_DEFAULT_PRICE_CENTS", 199)
+	cfg.GoofishDefaultInventory = getEnvAsInt("GOOFISH_DEFAULT_INVENTORY", 9999)
+	cfg.GoofishSignEnabled = getEnvAsBool("GOOFISH_SIGN_ENABLED", false)
+	cfg.GoofishSignAppID = strings.TrimSpace(getEnv("GOOFISH_SIGN_APP_ID", ""))
+	cfg.GoofishSignAppSecret = strings.TrimSpace(getEnv("GOOFISH_SIGN_APP_SECRET", ""))
+	cfg.GoofishSignMchID = strings.TrimSpace(getEnv("GOOFISH_SIGN_MCH_ID", ""))
+	cfg.GoofishSignMchSecret = strings.TrimSpace(getEnv("GOOFISH_SIGN_MCH_SECRET", ""))
 
 	cfg.AliyunAccessKeyId = getEnv("ALIYUN_ACCESS_KEY_ID", "")
 	cfg.AliyunAccessKeySecret = getEnv("ALIYUN_ACCESS_KEY_SECRET", "")
@@ -473,6 +499,18 @@ func getEnvAsInt(key string, def int) int {
 		return def
 	}
 	i, err := strconv.Atoi(val)
+	if err != nil {
+		return def
+	}
+	return i
+}
+
+func getEnvAsInt64(key string, def int64) int64 {
+	val := os.Getenv(key)
+	if val == "" {
+		return def
+	}
+	i, err := strconv.ParseInt(val, 10, 64)
 	if err != nil {
 		return def
 	}

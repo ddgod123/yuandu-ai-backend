@@ -40,6 +40,8 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 	}))
 
 	r.GET("/healthz", h.Health)
+	r.POST("/goofish/goods/list", h.GoofishGoodsList)
+	r.POST("/goofish/goods/detail", h.GoofishGoodsDetail)
 
 	api := r.Group("/api")
 	{
@@ -273,6 +275,19 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 			admin.POST("/collections/batch-showcase", h.AdminBatchUpdateCollectionShowcase)
 			admin.POST("/collections/batch-assign-ip", h.AdminBatchAssignCollectionIP)
 			admin.POST("/collections/batch-visibility", h.AdminBatchUpdateCollectionVisibility)
+			admin.GET("/collection-goods", h.ListAdminCollectionGoods)
+			admin.GET("/collection-goods/init-summary", h.GetAdminCollectionGoodsInitSummary)
+			admin.POST("/collection-goods", h.CreateAdminCollectionGood)
+			admin.PUT("/collection-goods/:id", h.UpdateAdminCollectionGood)
+			admin.POST("/collection-goods/batch-status", h.BatchUpdateAdminCollectionGoodStatus)
+			admin.POST("/collection-goods/bootstrap", h.BootstrapAdminCollectionGoods)
+			admin.POST("/collection-goods/sync-missing", h.SyncAdminCollectionGoodsMissing)
+			admin.POST("/collection-goods/command", h.CommandAdminCollectionGoodsStatus)
+			admin.GET("/collection-goods/template.csv", h.ExportAdminCollectionGoodsTemplateCSV)
+			admin.GET("/goofish/publish-config", h.GetAdminGoofishPublishConfig)
+			admin.POST("/goofish/batch-publish", h.AdminBatchPublishCollectionsToGoofish)
+			admin.POST("/goofish/verify-status", h.VerifyAdminGoofishStatusByCollections)
+			admin.POST("/goofish/verify-fix", h.FixAdminGoofishStatusByCollections)
 			admin.GET("/collections/ip-stats", h.GetAdminCollectionIPStats)
 			admin.GET("/collections/ip-audit-logs", h.GetAdminCollectionIPAuditLogs)
 			admin.GET("/collections/samples/export.csv", h.AdminExportSampleCollectionsCSV)

@@ -25,6 +25,9 @@ type EmojiListItem struct {
 	Title         string    `json:"title"`
 	FileURL       string    `json:"file_url,omitempty"`
 	PreviewURL    string    `json:"preview_url,omitempty"`
+	StaticPreview string    `json:"static_preview_url,omitempty"`
+	AnimatedURL   string    `json:"animated_preview_url,omitempty"`
+	IsAnimated    bool      `json:"preview_animated"`
 	ThumbURL      string    `json:"thumb_url,omitempty"`
 	Format        string    `json:"format"`
 	LikeCount     int64     `json:"like_count"`
@@ -247,6 +250,28 @@ func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient, admin
 			previewSource = thumb
 		}
 		previewURL := resolvePreviewURL(previewSource, qiniuClient)
+
+		staticSource := strings.TrimSpace(item.ThumbURL)
+		if staticSource == "" {
+			staticSource = strings.TrimSpace(item.FileURL)
+		}
+		animatedSource := strings.TrimSpace(item.FileURL)
+		if animatedSource == "" {
+			animatedSource = previewSource
+		}
+		isAnimatedPreview := isAnimatedPreviewFile(animatedSource, item.Format)
+		staticPreviewURL := resolveListStaticPreviewURL(staticSource, qiniuClient)
+		if strings.TrimSpace(staticPreviewURL) == "" {
+			staticPreviewURL = previewURL
+		}
+		animatedPreviewURL := ""
+		if isAnimatedPreview {
+			animatedPreviewURL = resolveListPreviewURL(animatedSource, qiniuClient)
+			if strings.TrimSpace(animatedPreviewURL) == "" {
+				animatedPreviewURL = previewURL
+			}
+		}
+
 		fileURL := ""
 		thumbURL := ""
 		status := ""
@@ -256,19 +281,22 @@ func mapEmojiItems(items []models.Emoji, qiniuClient *storage.QiniuClient, admin
 			status = item.Status
 		}
 		out = append(out, EmojiListItem{
-			ID:           item.ID,
-			CollectionID: item.CollectionID,
-			Title:        item.Title,
-			FileURL:      fileURL,
-			PreviewURL:   previewURL,
-			ThumbURL:     thumbURL,
-			Format:       item.Format,
-			Width:        item.Width,
-			Height:       item.Height,
-			SizeBytes:    item.SizeBytes,
-			Status:       status,
-			CreatedAt:    item.CreatedAt,
-			UpdatedAt:    item.UpdatedAt,
+			ID:            item.ID,
+			CollectionID:  item.CollectionID,
+			Title:         item.Title,
+			FileURL:       fileURL,
+			PreviewURL:    previewURL,
+			StaticPreview: staticPreviewURL,
+			AnimatedURL:   animatedPreviewURL,
+			IsAnimated:    isAnimatedPreview && strings.TrimSpace(animatedPreviewURL) != "",
+			ThumbURL:      thumbURL,
+			Format:        item.Format,
+			Width:         item.Width,
+			Height:        item.Height,
+			SizeBytes:     item.SizeBytes,
+			Status:        status,
+			CreatedAt:     item.CreatedAt,
+			UpdatedAt:     item.UpdatedAt,
 		})
 	}
 	return out

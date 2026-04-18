@@ -11,6 +11,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&IP{},
 		&IPCollectionBinding{},
 		&Collection{},
+		&CollectionGood{},
 		&VideoAssetCollection{},
 		&CollectionZip{},
 		&VideoAssetCollectionZip{},

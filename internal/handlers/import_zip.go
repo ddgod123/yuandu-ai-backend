@@ -264,9 +264,26 @@ func (h *Handler) ImportCollectionZip(c *gin.Context) {
 		return
 	}
 	collection.DownloadCode = code
+	autoCode, err := ensureCollectionAutoTagCode(tx, collection.AutoTagCode)
+	if err != nil {
+		_ = tx.Rollback()
+		fail(http.StatusInternalServerError, "failed to generate auto tag code")
+		return
+	}
+	collection.AutoTagCode = autoCode
+	collection.ManualRefCode = strings.TrimSpace(collection.ManualRefCode)
 	if err := tx.Create(&collection).Error; err != nil {
 		_ = tx.Rollback()
 		fail(http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, _, err := h.ensureCollectionGoodInitializedForCollection(
+		tx,
+		collection,
+		defaultCollectionGoodStatusByVisibility(collection.Visibility),
+	); err != nil {
+		_ = tx.Rollback()
+		fail(http.StatusInternalServerError, "failed to initialize collection good")
 		return
 	}
 

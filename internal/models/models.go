@@ -63,6 +63,8 @@ type Collection struct {
 	LatestZipSize    int64          `gorm:""`
 	LatestZipAt      *time.Time     `gorm:"index"`
 	DownloadCode     string         `gorm:"size:16;uniqueIndex"`
+	ManualRefCode    string         `gorm:"column:manual_ref_code;size:128;index"`
+	AutoTagCode      string         `gorm:"column:auto_tag_code;size:40;uniqueIndex"`
 	Visibility       string         `gorm:"size:32;index"`
 	Status           string         `gorm:"size:32;index"`
 	OwnerDeletedAt   *time.Time     `gorm:"column:owner_deleted_at;index"`
@@ -73,6 +75,29 @@ type Collection struct {
 
 func (Collection) TableName() string {
 	return "archive.collections"
+}
+
+type CollectionGood struct {
+	ID            uint64         `gorm:"primaryKey;autoIncrement"`
+	CollectionID  uint64         `gorm:"column:collection_id;index"`
+	GoodsNo       string         `gorm:"column:goods_no;size:128;index"`
+	GoodsType     int            `gorm:"column:goods_type;index"`
+	GoodsName     string         `gorm:"column:goods_name;size:255;index"`
+	Price         int64          `gorm:"column:price"`
+	Stock         int            `gorm:"column:stock"`
+	Status        int            `gorm:"column:status;index"`
+	ImageCount    int            `gorm:"column:image_count"`
+	ImageStart    int            `gorm:"column:image_start"`
+	TemplateJSON  datatypes.JSON `gorm:"column:template_json;type:jsonb"`
+	LastSyncAt    *time.Time     `gorm:"column:last_sync_at;index"`
+	LastSyncError string         `gorm:"column:last_sync_error;type:text"`
+	CreatedAt     time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
+}
+
+func (CollectionGood) TableName() string {
+	return "archive.collection_goods"
 }
 
 // VideoAssetCollection is the isolated collection table for video-generated outputs.

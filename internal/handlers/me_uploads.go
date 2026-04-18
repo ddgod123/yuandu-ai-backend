@@ -433,23 +433,44 @@ func (h *Handler) CreateMyUploadCollection(c *gin.Context) {
 		Visibility:  "private",
 	}
 
-	if err := ensureCreatorProfileID(h.db, &collection); err != nil {
+	tx := h.db.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start transaction"})
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback().Error
+		}
+	}()
+
+	if err := ensureCreatorProfileID(tx, &collection); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to assign creator profile"})
 		return
 	}
-	code, err := ensureCollectionDownloadCode(h.db, "")
+	code, err := ensureCollectionDownloadCode(tx, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate download code"})
 		return
 	}
 	collection.DownloadCode = code
+	autoCode, err := ensureCollectionAutoTagCode(tx, "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate auto tag code"})
+		return
+	}
+	collection.AutoTagCode = autoCode
 
-	if err := h.db.Create(&collection).Error; err != nil {
+	if err := tx.Create(&collection).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create collection"})
 		return
 	}
 	collection.QiniuPrefix = h.buildUGCCollectionPrefix(userID, collection.ID)
-	_ = h.db.Model(&models.Collection{}).Where("id = ?", collection.ID).Update("qiniu_prefix", collection.QiniuPrefix).Error
+	if err := tx.Model(&models.Collection{}).Where("id = ?", collection.ID).Update("qiniu_prefix", collection.QiniuPrefix).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set qiniu prefix"})
+		return
+	}
 	reviewState := models.UGCCollectionReviewState{
 		CollectionID:         collection.ID,
 		OwnerID:              userID,
@@ -458,10 +479,15 @@ func (h *Handler) CreateMyUploadCollection(c *gin.Context) {
 		SubmitCount:          0,
 		LastContentChangedAt: time.Now(),
 	}
-	if err := h.db.Create(&reviewState).Error; err != nil {
+	if err := tx.Create(&reviewState).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to init review state"})
 		return
 	}
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit transaction"})
+		return
+	}
+	committed = true
 
 	respItems := h.mapMyUploadCollections([]models.Collection{collection}, userID, 12)
 	if len(respItems) == 0 {

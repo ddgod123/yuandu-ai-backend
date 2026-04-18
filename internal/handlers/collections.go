@@ -72,6 +72,8 @@ type CollectionListItem struct {
 	LatestZipSize    int64                    `json:"latest_zip_size,omitempty"`
 	LatestZipAt      *time.Time               `json:"latest_zip_at,omitempty"`
 	DownloadCode     string                   `json:"download_code,omitempty"`
+	ManualRefCode    string                   `json:"manual_ref_code,omitempty"`
+	AutoTagCode      string                   `json:"auto_tag_code,omitempty"`
 	Visibility       string                   `json:"visibility,omitempty"`
 	Status           string                   `json:"status,omitempty"`
 	ReviewStatus     string                   `json:"review_status,omitempty"`
@@ -561,6 +563,8 @@ func (h *Handler) ListCollections(c *gin.Context) {
 			respItem.LatestZipSize = item.LatestZipSize
 			respItem.LatestZipAt = item.LatestZipAt
 			respItem.DownloadCode = item.DownloadCode
+			respItem.ManualRefCode = strings.TrimSpace(item.ManualRefCode)
+			respItem.AutoTagCode = strings.TrimSpace(item.AutoTagCode)
 			respItem.Visibility = item.Visibility
 			respItem.Status = item.Status
 		}
@@ -599,6 +603,13 @@ func (h *Handler) GetCollection(c *gin.Context) {
 	if !isAdminRole(c) && !isPublicCollectionVisible(collection) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 		return
+	}
+	if isAdminRole(c) {
+		if code, codeErr := ensureCollectionAutoTagCode(h.db, collection.AutoTagCode); codeErr == nil && code != strings.TrimSpace(collection.AutoTagCode) {
+			if err := h.db.Model(&models.Collection{}).Where("id = ?", collection.ID).Update("auto_tag_code", code).Error; err == nil {
+				collection.AutoTagCode = code
+			}
+		}
 	}
 
 	tagMap := loadCollectionTags(h.db, []models.Collection{collection})
@@ -668,6 +679,8 @@ func (h *Handler) GetCollection(c *gin.Context) {
 		resp.LatestZipSize = collection.LatestZipSize
 		resp.LatestZipAt = collection.LatestZipAt
 		resp.DownloadCode = collection.DownloadCode
+		resp.ManualRefCode = strings.TrimSpace(collection.ManualRefCode)
+		resp.AutoTagCode = strings.TrimSpace(collection.AutoTagCode)
 		resp.Visibility = collection.Visibility
 		resp.Status = collection.Status
 	}
@@ -691,6 +704,7 @@ type AdminUpdateCollectionRequest struct {
 	CopyrightAuthor *string   `json:"copyright_author"`
 	CopyrightWork   *string   `json:"copyright_work"`
 	CopyrightLink   *string   `json:"copyright_link"`
+	ManualRefCode   *string   `json:"manual_ref_code"`
 	TagIDs          *[]uint64 `json:"tag_ids"`
 }
 
@@ -951,6 +965,16 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 	if req.CopyrightLink != nil {
 		collection.CopyrightLink = strings.TrimSpace(*req.CopyrightLink)
 	}
+	if req.ManualRefCode != nil {
+		collection.ManualRefCode = strings.TrimSpace(*req.ManualRefCode)
+	}
+	autoCode, autoCodeErr := ensureCollectionAutoTagCode(tx, collection.AutoTagCode)
+	if autoCodeErr != nil {
+		_ = tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate auto tag code"})
+		return
+	}
+	collection.AutoTagCode = autoCode
 
 	if err := tx.Save(&collection).Error; err != nil {
 		_ = tx.Rollback()
@@ -1040,6 +1064,8 @@ func (h *Handler) AdminUpdateCollection(c *gin.Context) {
 		IsSample:         collection.IsSample,
 		IsShowcase:       collection.IsShowcase,
 		PinnedAt:         collection.PinnedAt,
+		ManualRefCode:    strings.TrimSpace(collection.ManualRefCode),
+		AutoTagCode:      strings.TrimSpace(collection.AutoTagCode),
 		Visibility:       collection.Visibility,
 		Status:           collection.Status,
 		CreatedAt:        collection.CreatedAt,
@@ -2035,26 +2061,58 @@ func (h *Handler) CreateCollection(c *gin.Context) {
 		}
 	}
 
-	if err := ensureCreatorProfileID(h.db, &collection); err != nil {
+	tx := h.db.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start transaction"})
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback().Error
+		}
+	}()
+
+	if err := ensureCreatorProfileID(tx, &collection); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to assign creator profile"})
 		return
 	}
 
 	collection.Status = "active"
-	code, err := ensureCollectionDownloadCode(h.db, collection.DownloadCode)
+	code, err := ensureCollectionDownloadCode(tx, collection.DownloadCode)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate download code"})
 		return
 	}
 	collection.DownloadCode = code
-	if err := h.db.Create(&collection).Error; err != nil {
+	autoCode, err := ensureCollectionAutoTagCode(tx, collection.AutoTagCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate auto tag code"})
+		return
+	}
+	collection.AutoTagCode = autoCode
+	collection.ManualRefCode = strings.TrimSpace(collection.ManualRefCode)
+	if err := tx.Create(&collection).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create collection"})
 		return
 	}
-	if err := h.syncCollectionBindingsToSingleIP(h.db, []uint64{collection.ID}, collection.IPID); err != nil {
+	if _, _, err := h.ensureCollectionGoodInitializedForCollection(
+		tx,
+		collection,
+		defaultCollectionGoodStatusByVisibility(collection.Visibility),
+	); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize collection good"})
+		return
+	}
+	if err := h.syncCollectionBindingsToSingleIP(tx, []uint64{collection.ID}, collection.IPID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync ip binding"})
 		return
 	}
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit transaction"})
+		return
+	}
+	committed = true
 
 	c.JSON(http.StatusCreated, collection)
 }
@@ -2106,6 +2164,13 @@ func (h *Handler) UpdateCollection(c *gin.Context) {
 			}
 		}
 	}
+	collection.ManualRefCode = strings.TrimSpace(collection.ManualRefCode)
+	autoCode, err := ensureCollectionAutoTagCode(h.db, collection.AutoTagCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate auto tag code"})
+		return
+	}
+	collection.AutoTagCode = autoCode
 
 	if err := h.db.Save(&collection).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update collection"})

@@ -41,6 +41,14 @@ type goofishGoodsDetailRequest struct {
 	GoodsNo   string `json:"goods_no"`
 }
 
+type goofishOpenInfoData struct {
+	AppID interface{} `json:"app_id"`
+}
+
+type goofishUserInfoData struct {
+	Balance int64 `json:"balance"`
+}
+
 type goofishGoodsListData struct {
 	List  []goofishGoodsListItem `json:"list"`
 	Count int64                  `json:"count"`
@@ -132,6 +140,25 @@ func parseGoofishJSONBody(c *gin.Context, dst interface{}) ([]byte, error) {
 	return raw, nil
 }
 
+func (h *Handler) resolveGoofishOpenInfoAppID(c *gin.Context) interface{} {
+	candidates := []string{
+		strings.TrimSpace(c.Query("app_id")),
+		strings.TrimSpace(h.cfg.GoofishSignAppID),
+		strings.TrimSpace(c.Query("mch_id")),
+		strings.TrimSpace(h.cfg.GoofishSignMchID),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if num, err := strconv.ParseInt(candidate, 10, 64); err == nil && num > 0 {
+			return num
+		}
+		return candidate
+	}
+	return int64(0)
+}
+
 func (h *Handler) verifyGoofishRequestSignature(c *gin.Context, rawBody []byte) (int, string, bool) {
 	if !h.cfg.GoofishSignEnabled {
 		return 0, "", true
@@ -181,6 +208,58 @@ func (h *Handler) verifyGoofishRequestSignature(c *gin.Context, rawBody []byte) 
 		return goofishCodeInvalidSign, "invalid sign", false
 	}
 	return 0, "", true
+}
+
+// GoofishOpenInfo 查询虚拟货源应用信息（供闲管家授权校验）。
+// @Summary Goofish open info
+// @Tags goofish
+// @Accept json
+// @Produce json
+// @Param mch_id query string false "merchant id"
+// @Param timestamp query string false "unix timestamp"
+// @Param sign query string false "md5 sign"
+// @Success 200 {object} map[string]interface{}
+// @Router /goofish/open/info [post]
+func (h *Handler) GoofishOpenInfo(c *gin.Context) {
+	var req map[string]interface{}
+	rawBody, err := parseGoofishJSONBody(c, &req)
+	if err != nil {
+		writeGoofishResponse(c, goofishCodeInvalidParams, "invalid json body", nil)
+		return
+	}
+	if code, msg, ok := h.verifyGoofishRequestSignature(c, rawBody); !ok {
+		writeGoofishResponse(c, code, msg, nil)
+		return
+	}
+	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishOpenInfoData{
+		AppID: h.resolveGoofishOpenInfoAppID(c),
+	})
+}
+
+// GoofishUserInfo 查询虚拟货源账户余额（供闲管家授权校验）。
+// @Summary Goofish user info
+// @Tags goofish
+// @Accept json
+// @Produce json
+// @Param mch_id query string false "merchant id"
+// @Param timestamp query string false "unix timestamp"
+// @Param sign query string false "md5 sign"
+// @Success 200 {object} map[string]interface{}
+// @Router /goofish/user/info [post]
+func (h *Handler) GoofishUserInfo(c *gin.Context) {
+	var req map[string]interface{}
+	rawBody, err := parseGoofishJSONBody(c, &req)
+	if err != nil {
+		writeGoofishResponse(c, goofishCodeInvalidParams, "invalid json body", nil)
+		return
+	}
+	if code, msg, ok := h.verifyGoofishRequestSignature(c, rawBody); !ok {
+		writeGoofishResponse(c, code, msg, nil)
+		return
+	}
+	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishUserInfoData{
+		Balance: 0,
+	})
 }
 
 // GoofishGoodsList 查询商品列表（供闲管家调用）。

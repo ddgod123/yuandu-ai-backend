@@ -40,8 +40,15 @@ func Setup(cfg config.Config, db *gorm.DB, qiniu *storage.QiniuClient, ossClient
 	}))
 
 	r.GET("/healthz", h.Health)
+	r.POST("/goofish/open/info", h.GoofishOpenInfo)
+	r.POST("/goofish/user/info", h.GoofishUserInfo)
 	r.POST("/goofish/goods/list", h.GoofishGoodsList)
 	r.POST("/goofish/goods/detail", h.GoofishGoodsDetail)
+	// 兼容部分平台把网关填写成 .../goofish 后的双前缀路径。
+	r.POST("/goofish/goofish/open/info", h.GoofishOpenInfo)
+	r.POST("/goofish/goofish/user/info", h.GoofishUserInfo)
+	r.POST("/goofish/goofish/goods/list", h.GoofishGoodsList)
+	r.POST("/goofish/goofish/goods/detail", h.GoofishGoodsDetail)
 
 	api := r.Group("/api")
 	{

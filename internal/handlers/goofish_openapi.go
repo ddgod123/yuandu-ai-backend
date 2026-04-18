@@ -55,13 +55,14 @@ type goofishGoodsListData struct {
 }
 
 type goofishGoodsListItem struct {
-	GoodsNo    string `json:"goods_no"`
-	GoodsType  int    `json:"goods_type"`
-	GoodsName  string `json:"goods_name"`
-	Price      int64  `json:"price"`
-	Stock      int    `json:"stock"`
-	Status     int    `json:"status"`
-	UpdateTime int64  `json:"update_time"`
+	GoodsNo    string          `json:"goods_no"`
+	GoodsType  int             `json:"goods_type"`
+	GoodsName  string          `json:"goods_name"`
+	Price      int64           `json:"price"`
+	Stock      int             `json:"stock"`
+	Status     int             `json:"status"`
+	UpdateTime int64           `json:"update_time"`
+	Template   json.RawMessage `json:"template"`
 }
 
 type goofishGoodsDetailData struct {
@@ -81,7 +82,7 @@ func writeGoofishResponse(c *gin.Context, code int, msg string, data interface{}
 		"msg":  strings.TrimSpace(msg),
 	}
 	if payload["msg"] == "" {
-		payload["msg"] = "ok"
+		payload["msg"] = "OK"
 	}
 	if data != nil {
 		payload["data"] = data
@@ -97,6 +98,10 @@ func normalizeGoofishStatus(raw int) int {
 }
 
 func buildGoofishListItem(row models.CollectionGood) goofishGoodsListItem {
+	template := row.TemplateJSON
+	if len(template) == 0 {
+		template = datatypes.JSON([]byte("[]"))
+	}
 	return goofishGoodsListItem{
 		GoodsNo:    strings.TrimSpace(row.GoodsNo),
 		GoodsType:  row.GoodsType,
@@ -105,6 +110,7 @@ func buildGoofishListItem(row models.CollectionGood) goofishGoodsListItem {
 		Stock:      row.Stock,
 		Status:     normalizeGoofishStatus(row.Status),
 		UpdateTime: row.UpdatedAt.Unix(),
+		Template:   json.RawMessage(template),
 	}
 }
 
@@ -231,8 +237,13 @@ func (h *Handler) GoofishOpenInfo(c *gin.Context) {
 		writeGoofishResponse(c, code, msg, nil)
 		return
 	}
+	appID, _ := h.resolveGoofishOpenInfoAppID(c).(int64)
+	if appID <= 0 {
+		writeGoofishResponse(c, goofishCodeInvalidParams, "app_id must be integer", nil)
+		return
+	}
 	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishOpenInfoData{
-		AppID: h.resolveGoofishOpenInfoAppID(c),
+		AppID: appID,
 	})
 }
 
@@ -258,7 +269,7 @@ func (h *Handler) GoofishUserInfo(c *gin.Context) {
 		return
 	}
 	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishUserInfoData{
-		Balance: 0,
+		Balance: 1000,
 	})
 }
 

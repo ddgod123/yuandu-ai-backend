@@ -242,7 +242,7 @@ func (h *Handler) GoofishOpenInfo(c *gin.Context) {
 		writeGoofishResponse(c, goofishCodeInvalidParams, "app_id must be integer", nil)
 		return
 	}
-	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishOpenInfoData{
+	writeGoofishResponse(c, goofishCodeSuccess, "OK", goofishOpenInfoData{
 		AppID: appID,
 	})
 }
@@ -268,7 +268,7 @@ func (h *Handler) GoofishUserInfo(c *gin.Context) {
 		writeGoofishResponse(c, code, msg, nil)
 		return
 	}
-	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishUserInfoData{
+	writeGoofishResponse(c, goofishCodeSuccess, "OK", goofishUserInfoData{
 		Balance: 1000,
 	})
 }
@@ -343,7 +343,7 @@ func (h *Handler) GoofishGoodsList(c *gin.Context) {
 	for _, row := range rows {
 		list = append(list, buildGoofishListItem(row))
 	}
-	writeGoofishResponse(c, goofishCodeSuccess, "ok", goofishGoodsListData{
+	writeGoofishResponse(c, goofishCodeSuccess, "OK", goofishGoodsListData{
 		List:  list,
 		Count: total,
 	})
@@ -396,5 +396,5 @@ func (h *Handler) GoofishGoodsDetail(c *gin.Context) {
 		return
 	}
 
-	writeGoofishResponse(c, goofishCodeSuccess, "ok", buildGoofishDetailData(row))
+	writeGoofishResponse(c, goofishCodeSuccess, "OK", buildGoofishDetailData(row))
 }
